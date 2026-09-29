@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Install security tooling
         run: |
@@ -47,5 +47,14 @@ jobs:
         run: |
           if git grep -nEI '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,})' -- .; then
             echo "Potential secret-like material found in tracked files."
+            exit 1
+          fi
+
+
+      - name: Destructive-command guard
+        shell: bash
+        run: |
+          if git grep -nEI '(^|[[:space:]])(wipefs|mkfs([.][A-Za-z0-9._+-]+)?|dd[[:space:]]+if=|shred)([[:space:]]|$)' -- config/includes.chroot/usr/local/bin config/includes.chroot/etc/skel; then
+            echo "Potential destructive storage command found in shipped user-facing files."
             exit 1
           fi
