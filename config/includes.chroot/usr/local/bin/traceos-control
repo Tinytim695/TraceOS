@@ -85,6 +85,10 @@ def open_session():
     launch(["xfce4-terminal", "--title=TraceOS Session", "--command=/usr/local/bin/traceos-session status"])
 
 
+def open_updates():
+    launch(["xfce4-terminal", "--title=TraceOS Updates", "--command=/usr/local/bin/traceos-update check"])
+
+
 def open_ari():
     launch(
         [
@@ -175,6 +179,7 @@ buttons = [
     ("TraceOS Console", open_console),
     ("OSINT Workbench", open_osint),
     ("Session", open_session),
+    ("Updates", open_updates),
     ("Ari", open_ari),
 ]
 
