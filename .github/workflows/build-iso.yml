@@ -96,8 +96,6 @@ jobs:
           QEMU_PID=$!
           trap 'kill "$QEMU_PID" 2>/dev/null || true' EXIT
 
-          # Give the live kernel/initramfs enough time to start on a shared
-          # CI runner under TCG emulation.
           sleep 30
 
           if ! kill -0 "$QEMU_PID" 2>/dev/null; then
@@ -112,14 +110,13 @@ jobs:
             tail -n 200 traceos-qemu-serial.log || true
           else
             echo "[TraceOS] QEMU stayed alive but no expected kernel/userspace serial output was observed." >&2
-            echo "[TraceOS] QEMU launch log:" >&2
             cat traceos-qemu-launch.log || true
-            echo "[TraceOS] QEMU serial log:" >&2
             cat traceos-qemu-serial.log || true
             exit 1
           fi
 
       - name: Attest ISO provenance
+        if: github.event.repository.visibility == 'public'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: live-image-amd64.hybrid.iso
