@@ -62,5 +62,10 @@ tesseract-ocr
 imagemagick
 ffmpeg
 
+# Persistence and recovery
+cryptsetup
+cryptsetup-initramfs
+rsync
+
 # Firmware
 firmware-linux
