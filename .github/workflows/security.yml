@@ -1,0 +1,51 @@
+name: TraceOS Security Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install security tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck python3-bandit
+
+      - name: ShellCheck
+        run: |
+          shellcheck \
+            build.sh \
+            config/hooks/live/*.hook.chroot \
+            config/includes.chroot/usr/local/bin/traceos \
+            config/includes.chroot/usr/local/bin/traceos-osint \
+            config/includes.chroot/usr/local/bin/traceos-session \
+            config/includes.chroot/usr/local/bin/traceos-update \
+            config/includes.chroot/usr/local/bin/traceos-session-hardening \
+            config/includes.chroot/usr/local/bin/blackbird
+
+      - name: Python compile check
+        run: |
+          python3 -m py_compile config/includes.chroot/usr/local/bin/traceos-control
+
+      - name: Bandit
+        run: |
+          bandit -q -lll -iii config/includes.chroot/usr/local/bin/traceos-control
+
+      - name: Secret pattern scan
+        shell: bash
+        run: |
+          if git grep -nEI '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,})' -- .; then
+            echo "Potential secret-like material found in tracked files."
+            exit 1
+          fi
