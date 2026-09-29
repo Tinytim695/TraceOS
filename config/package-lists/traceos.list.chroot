@@ -1,0 +1,66 @@
+# Desktop
+task-xfce-desktop
+xfce4-goodies
+lightdm
+lightdm-gtk-greeter
+xfce4-terminal
+thunar
+thunar-archive-plugin
+thunar-volman
+
+# Desktop integration
+network-manager
+network-manager-gnome
+policykit-1
+udisks2
+gvfs
+gvfs-backends
+pavucontrol
+firefox-esr
+xserver-xorg
+xorg
+dbus-x11
+
+# Core CLI
+sudo
+git
+curl
+wget
+ca-certificates
+jq
+ripgrep
+tmux
+htop
+procps
+psmisc
+lsof
+file
+less
+nano
+vim-tiny
+tree
+unzip
+zip
+sqlite3
+python3
+python3-venv
+python3-pip
+
+# Network / system inspection
+iproute2
+iputils-ping
+dnsutils
+net-tools
+openssh-client
+nmap
+pciutils
+usbutils
+
+# Forensics / media
+exiftool
+tesseract-ocr
+imagemagick
+ffmpeg
+
+# Firmware
+firmware-linux
