@@ -6,7 +6,6 @@ lightdm-gtk-greeter
 xfce4-terminal
 thunar
 thunar-archive-plugin
-thunar-volman
 
 # Desktop integration
 network-manager
@@ -21,6 +20,7 @@ firefox-esr
 xserver-xorg
 xorg
 dbus-x11
+package-update-indicator
 
 # Core CLI
 sudo
