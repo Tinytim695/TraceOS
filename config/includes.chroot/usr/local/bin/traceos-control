@@ -78,7 +78,7 @@ def open_console():
 
 
 def open_osint():
-    launch(\["xfce4-terminal", "--title=TraceOS OSINT", "--command=/usr/local/bin/traceos-osint"\])
+    launch(["xfce4-terminal", "--title=TraceOS OSINT", "--command=/usr/local/bin/traceos-osint"])
 
 
 def open_ari():
