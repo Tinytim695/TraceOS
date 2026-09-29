@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=TraceOS Welcome
-Comment=Open the TraceOS console on first login
-Exec=xfce4-terminal --title="TraceOS" --command=/usr/local/bin/traceos
-Terminal=false
-OnlyShowIn=XFCE;
-X-GNOME-Autostart-enabled=true
