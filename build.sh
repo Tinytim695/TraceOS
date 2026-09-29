@@ -14,9 +14,14 @@ sudo lb clean --purge || true
 
 echo "[TraceOS] Configuring Debian live image..."
 sudo lb config \
+  --mode debian \
   --distribution trixie \
   --architectures amd64 \
   --archive-areas "main contrib non-free non-free-firmware" \
+  --mirror-bootstrap http://deb.debian.org/debian \
+  --mirror-chroot http://deb.debian.org/debian \
+  --mirror-binary http://deb.debian.org/debian \
+  --mirror-debian-installer http://deb.debian.org/debian \
   --binary-images iso-hybrid \
   --debian-installer live \
   --apt-recommends true \
