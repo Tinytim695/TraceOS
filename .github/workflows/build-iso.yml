@@ -28,6 +28,7 @@ jobs:
             squashfs-tools \
             qemu-utils \
             gettext \
+            po4a \
             debian-archive-keyring \
             file
 
