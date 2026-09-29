@@ -25,6 +25,13 @@ if [[ "$device" == "$root_source" ]]; then
   exit 2
 fi
 
+existing_mount="$(findmnt -no TARGET --source "$device" 2>/dev/null | head -n1 || true)"
+if [[ -n "$existing_mount" ]]; then
+  echo "[TraceOS] Refusing: device is already mounted at $existing_mount." >&2
+  echo "[TraceOS] Unmount it deliberately before treating it as evidence." >&2
+  exit 2
+fi
+
 fstype="$(blkid -o value -s TYPE "$device" 2>/dev/null || true)"
 label="$(basename "$device")"
 mountpoint="/mnt/traceos-evidence/$label"
