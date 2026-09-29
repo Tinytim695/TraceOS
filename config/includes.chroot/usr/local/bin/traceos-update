@@ -15,6 +15,44 @@ that bundled OSINT applications remain pinned until retested by TraceOS.
 EOF
 }
 
+check_osint_updates() {
+  echo "[TraceOS] Checking pinned OSINT releases..."
+  if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    echo "[TraceOS] curl/jq unavailable; skipping online OSINT version check."
+    return
+  fi
+
+  while IFS='|' read -r package command purpose; do
+    case "$package" in
+      sherlock-project=*|maigret=*|h8mail=*)
+        name="${package%%=*}"
+        installed="${package#*=}"
+        latest="$(curl -fsSL --max-time 8 "https://pypi.org/pypi/$name/json" | jq -r '.info.version' 2>/dev/null || true)"
+        if [[ -n "$latest" && "$latest" != "null" ]]; then
+          if [[ "$latest" == "$installed" ]]; then
+            printf '  [OK] %-12s %s\n' "$name" "$installed"
+          else
+            printf '  [NEW] %-12s installed=%s latest=%s\n' "$name" "$installed" "$latest"
+          fi
+        else
+          printf '  [??] %-12s version check unavailable\n' "$name"
+        fi
+        ;;
+      blackbird@*)
+        pinned="${package#*@}"
+        latest="$(git ls-remote https://github.com/antoniaci/blackbird.git HEAD 2>/dev/null | awk '{print $1}' || true)"
+        if [[ -n "$latest" && "$latest" == "$pinned" ]]; then
+          printf '  [OK] %-12s %s\n' "blackbird" "$pinned"
+        elif [[ -n "$latest" ]]; then
+          printf '  [NEW] %-12s pinned=%s latest=%s\n' "blackbird" "$pinned" "$latest"
+        else
+          printf '  [??] %-12s version check unavailable\n' "blackbird"
+        fi
+        ;;
+    esac
+  done < /usr/share/traceos/osint-tools.txt
+}
+
 check_updates() {
   echo "[TraceOS] Checking Debian security and regular updates..."
   sudo apt-get update
@@ -26,6 +64,8 @@ check_updates() {
   if command -v pipx >/dev/null 2>&1; then
     sudo env PIPX_GLOBAL_HOME=/opt/pipx PIPX_GLOBAL_BIN_DIR=/usr/local/bin PIPX_GLOBAL_MAN_DIR=/usr/local/share/man pipx list || true
   fi
+  echo
+  check_osint_updates
 }
 
 perform_update() {
