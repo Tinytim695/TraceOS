@@ -47,6 +47,11 @@ case "${1:-status}" in
       "file|File-type identification"
       "strings|Printable-string extraction"
       "sha256sum|Cryptographic hashing"
+      "sherlock|OSINT username discovery"
+      "holehe|OSINT email presence checks"
+      "maigret|OSINT username investigation"
+      "socialscan|OSINT username/email checks"
+      "h8mail|OSINT email lookups"
     )
     for entry in "${tools[@]}"; do
       name="${entry%%|*}"
@@ -58,6 +63,10 @@ case "${1:-status}" in
       fi
     done
     printf '\n'
+    ;;
+
+  osint)
+    exec /usr/local/bin/traceos-osint "${@:2}"
     ;;
 
   ai)
@@ -133,7 +142,7 @@ EOF
     ;;
 
   *)
-    printf '%s\n' 'Usage: traceos {status|cases|tools|ai|about|case}'
+    printf '%s\n' 'Usage: traceos {status|cases|tools|osint|ai|about|case}'
     exit 2
     ;;
 esac
