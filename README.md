@@ -54,15 +54,15 @@ A separate recovery/factory-reset workflow will be developed for installed syste
 
 ## Forensic desktop safety
 
-TraceOS disables desktop auto-mount/auto-open behaviour at session start and disables Thunar thumbnails by default. The Thunar volume-management auto-mount helper is not installed. This reduces the chance of accidentally changing evidence media, but TraceOS is not a substitute for a hardware write blocker.
+TraceOS disables desktop auto-mount/auto-open behaviour at session start and disables Thunar thumbnails by default. The Thunar volume-management auto-mount helper is not installed. For deliberate evidence access, `traceos-evidence-mount /dev/<partition>` mounts a block-device partition read-only with `nosuid,nodev,noexec`; ext2/3/4 also use `noload` to prevent journal replay. Use `traceos-evidence-umount` when finished. These helpers do not provide hardware write blocking.
 
 ## Updates
 
-TraceOS includes Debian's `package-update-indicator`, intended for Xfce desktops, so normal Debian updates can be reported to the user. Use `traceos update check` to refresh package metadata and inspect available upgrades, or `traceos update` for a user-approved Debian full upgrade. Bundled third-party OSINT tools stay pinned until a tested TraceOS update replaces them.
+TraceOS includes Debian's `package-update-indicator`, intended for Xfce desktops, so normal Debian updates can be reported to the user. Use `traceos update check` to refresh package metadata and inspect available upgrades, or `traceos update` for a user-approved Debian full upgrade. Bundled third-party OSINT tools stay pinned until a tested TraceOS update replaces them. `traceos update check` shows the installed stack and Debian updates; new ISO builds are the controlled path for changing bundled third-party versions.
 
 ## OSINT workbench
 
-The initial OSINT set is now Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, and Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`. Holehe and socialscan were removed from the image because their maintenance level did not justify making them part of the core set. Blackbird is installed from source with its upstream requirements locked by version, and its optional AI path is not enabled by TraceOS.
+The initial OSINT set is now Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, and Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`. Holehe and socialscan were removed from the image because their maintenance level did not justify making them part of the core set. Blackbird is installed from source at a pinned upstream commit. TraceOS overrides four known stale runtime dependencies with security-reviewed versions and runs `pip check` during the image build; its optional AI path is not enabled by TraceOS.
 
 ## Security engineering
 
