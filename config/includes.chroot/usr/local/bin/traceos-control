@@ -82,7 +82,7 @@ def open_osint():
 
 
 def open_session():
-    launch(["xfce4-terminal", "--title=TraceOS Session", "--command=/usr/local/bin/traceos-session", "status"])
+    launch(["xfce4-terminal", "--title=TraceOS Session", "--command=/usr/local/bin/traceos-session status"])
 
 
 def open_ari():
@@ -104,6 +104,8 @@ def session_state():
     if " nopersistence " in cmdline:
         return "Amnesic (no persistence)"
     if " persistence " in cmdline:
+        if "persistence-encryption=luks" in cmdline:
+            return "Persistent (LUKS)"
         return "Persistent"
     return "Live default"
 
