@@ -29,12 +29,8 @@ git clone https://github.com/antoniaci/blackbird.git "$BLACKBIRD_DIR"
 cd "$BLACKBIRD_DIR"
 git checkout --detach "$BLACKBIRD_COMMIT"
 python3 -m venv "$BLACKBIRD_DIR/venv"
-"$BLACKBIRD_DIR/venv/bin/pip" install --no-cache-dir --disable-pip-version-check -r requirements.txt
 "$BLACKBIRD_DIR/venv/bin/pip" install --no-cache-dir --disable-pip-version-check \
-  "aiohttp==3.14.3" \
-  "requests==2.34.2" \
-  "urllib3==2.8.0" \
-  "Pillow==12.3.0"
+  -r /usr/share/traceos/blackbird-requirements.txt
 "$BLACKBIRD_DIR/venv/bin/pip" check
 
 cat > /usr/local/bin/blackbird <<'EOF'
