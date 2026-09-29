@@ -73,3 +73,4 @@ firmware-linux
 
 # GUI
 python3-tk
+pipx
