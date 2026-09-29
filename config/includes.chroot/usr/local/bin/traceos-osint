@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TOOLS_FILE="/usr/share/traceos/osint-tools.txt"
+
+usage() {
+  cat <<'EOF'
+TraceOS OSINT
+
+User-invoked tools only. These applications may contact external services when
+you run them. TraceOS itself does not automatically execute OSINT searches.
+
+Usage:
+  traceos-osint
+  traceos-osint sherlock USERNAME [USERNAME...]
+  traceos-osint holehe EMAIL
+  traceos-osint maigret USERNAME [USERNAME...]
+  traceos-osint socialscan QUERY [QUERY...]
+  traceos-osint h8mail OPTIONS
+
+Interactive mode:
+  Launches a simple menu for the bundled OSINT applications.
+EOF
+}
+
+run_tool() {
+  command="$1"
+  shift
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "[TraceOS] $command is not installed."
+    return 1
+  fi
+  exec "$command" "$@"
+}
+
+show_inventory() {
+  echo
+  echo "TRACEOS OSINT WORKBENCH"
+  echo "======================="
+  echo
+  if [ -r "$TOOLS_FILE" ]; then
+    while IFS='|' read -r package command purpose; do
+      [ -n "$command" ] || continue
+      if command -v "$command" >/dev/null 2>&1; then
+        printf '  [OK] %-11s %-34s %s\n' "$command" "$package" "$purpose"
+      else
+        printf '  [--] %-11s %-34s %s\n' "$command" "$package" "$purpose"
+      fi
+    done < "$TOOLS_FILE"
+  fi
+  echo
+  echo "Choose a tool:"
+  echo "  1) Sherlock    username discovery"
+  echo "  2) Holehe      email presence checks"
+  echo "  3) Maigret     username investigation"
+  echo "  4) Socialscan  username/email checks"
+  echo "  5) h8mail      email OSINT"
+  echo "  6) List tools"
+  echo "  0) Exit"
+  echo
+
+  printf "Selection: "
+  read -r choice
+  case "$choice" in
+    1) printf "Username(s): "; read -r -a args; run_tool sherlock "${args[@]}" ;;
+    2) printf "Email: "; read -r email; run_tool holehe "$email" ;;
+    3) printf "Username(s): "; read -r -a args; run_tool maigret "${args[@]}" ;;
+    4) printf "Username/email query: "; read -r -a args; run_tool socialscan "${args[@]}" ;;
+    5) echo "Enter h8mail arguments (see h8mail --help):"; read -r -a args; run_tool h8mail "${args[@]}" ;;
+    6) show_inventory ;;
+    0) exit 0 ;;
+    *) echo "Unknown selection."; exit 2 ;;
+  esac
+}
+
+case "${1:-}" in
+  "")
+    show_inventory
+    ;;
+  sherlock|holehe|maigret|socialscan|h8mail)
+    tool="$1"
+    shift
+    [ "$#" -gt 0 ] || { usage; exit 2; }
+    run_tool "$tool" "$@"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
