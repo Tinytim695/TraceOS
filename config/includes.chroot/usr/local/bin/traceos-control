@@ -81,6 +81,10 @@ def open_osint():
     launch(["xfce4-terminal", "--title=TraceOS OSINT", "--command=/usr/local/bin/traceos-osint"])
 
 
+def open_session():
+    launch(["xfce4-terminal", "--title=TraceOS Session", "--command=/usr/local/bin/traceos-session", "status"])
+
+
 def open_ari():
     launch(
         [
@@ -89,6 +93,19 @@ def open_ari():
             "--command=/usr/local/bin/traceos ai",
         ]
     )
+
+
+def session_state():
+    try:
+        with open("/proc/cmdline", "r", encoding="utf-8") as handle:
+            cmdline = " " + handle.read().strip() + " "
+    except OSError:
+        return "unknown"
+    if " nopersistence " in cmdline:
+        return "Amnesic (no persistence)"
+    if " persistence " in cmdline:
+        return "Persistent"
+    return "Live default"
 
 
 def network_state():
@@ -114,6 +131,7 @@ def refresh_status():
     kernel_value.set(platform.release() or "unknown")
     network_value.set(network_state())
     cases_value.set(str(case_count))
+    session_value.set(session_state())
 
 
 root = tk.Tk()
@@ -154,6 +172,7 @@ buttons = [
     ("Network", open_network),
     ("TraceOS Console", open_console),
     ("OSINT Workbench", open_osint),
+    ("Session", open_session),
     ("Ari", open_ari),
 ]
 
@@ -172,6 +191,7 @@ host_value = tk.StringVar()
 kernel_value = tk.StringVar()
 network_value = tk.StringVar()
 cases_value = tk.StringVar()
+session_value = tk.StringVar()
 
 rows = [
     ("User", user_value),
@@ -179,6 +199,7 @@ rows = [
     ("Kernel", kernel_value),
     ("NetworkManager", network_value),
     ("Case workspaces", cases_value),
+    ("Session", session_value),
 ]
 
 for row, (label, variable) in enumerate(rows):
