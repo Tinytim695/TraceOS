@@ -1,0 +1,44 @@
+name: Build TraceOS ISO
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             live-build             debootstrap             xorriso             squashfs-tools             qemu-utils             file
+
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Validate ISO
+        run: |
+          test -s live-image-amd64.hybrid.iso
+          file live-image-amd64.hybrid.iso
+          sha256sum live-image-amd64.hybrid.iso | tee traceos-0.1.0-amd64.iso.sha256
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: traceos-0.1.0-amd64
+          path: |
+            live-image-amd64.hybrid.iso
+            traceos-0.1.0-amd64.iso.sha256
+          if-no-files-found: error
