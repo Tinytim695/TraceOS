@@ -18,10 +18,10 @@ sudo lb config \
   --distribution trixie \
   --architectures amd64 \
   --archive-areas "main contrib non-free non-free-firmware" \
-  --mirror-bootstrap http://deb.debian.org/debian \
-  --mirror-chroot http://deb.debian.org/debian \
-  --mirror-binary http://deb.debian.org/debian \
-  --mirror-debian-installer http://deb.debian.org/debian \
+  --mirror-bootstrap https://deb.debian.org/debian \
+  --mirror-chroot https://deb.debian.org/debian \
+  --mirror-binary https://deb.debian.org/debian \
+  --mirror-debian-installer https://deb.debian.org/debian \
   --security false \
   --binary-images iso-hybrid \
   --debian-installer live \
@@ -32,7 +32,7 @@ sudo lb config \
 echo "[TraceOS] Preparing executable build hooks..."
 sudo chmod +x config/hooks/live/*.hook.chroot 2>/dev/null || true
 
- echo "[TraceOS] Building ISO..."
+echo "[TraceOS] Building ISO..."
 sudo lb build
 
 echo "[TraceOS] Build complete."
