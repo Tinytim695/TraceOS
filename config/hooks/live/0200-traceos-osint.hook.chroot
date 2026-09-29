@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+# Install OSINT command-line applications into an isolated system-wide pipx store.
+# These tools are intentionally installed but never executed automatically.
+export PIPX_GLOBAL_HOME=/opt/pipx
+export PIPX_GLOBAL_BIN_DIR=/usr/local/bin
+export PIPX_GLOBAL_MAN_DIR=/usr/local/share/man
+
+mkdir -p "$PIPX_GLOBAL_HOME" "$PIPX_GLOBAL_BIN_DIR" "$PIPX_GLOBAL_MAN_DIR"
+
+install_tool() {
+    package="$1"
+    version="$2"
+    echo "[TraceOS] Installing OSINT tool: $package==$version"
+    pipx install --global "$package==$version"
+}
+
+install_tool sherlock-project 0.16.0
+install_tool holehe 1.61
+install_tool maigret 0.6.6
+install_tool socialscan 2.0.1
+install_tool h8mail 2.5.6
+
+# Keep a small machine-readable inventory for the TraceOS dashboard/CLI.
+cat > /usr/share/traceos/osint-tools.txt <<'EOF'
+sherlock-project==0.16.0|sherlock|Username account discovery
+holehe==1.61|holehe|Email account presence checks
+maigret==0.6.6|maigret|Username investigation across sites
+socialscan==2.0.1|socialscan|Username/email platform checks
+h8mail==2.5.6|h8mail|Email OSINT and breach-oriented lookups
+EOF
+
+echo "[TraceOS] OSINT tool installation complete."
