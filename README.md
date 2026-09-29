@@ -39,12 +39,16 @@ TraceOS is designed for legitimate administration, incident response, forensics,
 
 ## Session model
 
-TraceOS is planned to support two live boot modes:
+TraceOS provides explicit live session modes at boot:
 
-- **Persistent**: changes survive reboot through an explicitly selected persistence store. Encrypted LUKS persistence will be supported.
-- **Amnesic**: changes are held in the live overlay/RAM and are discarded when the session ends. Debian live-boot supports the `nopersistence` boot parameter for this mode.
+- **Amnesic (wipe session)**: boots with `nopersistence`. Session changes are kept in the live overlay and are not written to a persistence volume.
+- **Persistent**: boots with `persistence` and looks for a live-boot persistence volume.
+- **Persistent (Encrypted LUKS)**: boots with `persistence persistence-encryption=luks` and permits LUKS persistence.
+- **Persistent from USB** and **Encrypted Persistent from USB** are available under advanced boot options.
 
-The boot menu will expose the two modes clearly. A later desktop control will provide a deliberate session export/checkpoint action so important case data can be saved without turning the whole session persistent.
+For persistence, live-boot expects a persistence volume labelled `persistence` (or another explicitly selected label) with a `persistence.conf` file. The volume can be prepared separately on an ext4 filesystem or another supported medium. TraceOS does not automatically partition, format, encrypt, or select a user's disks.
+
+The default boot entry is Amnesic, deliberately making the safest session behaviour the automatic path. The Control Centre reports the active session mode.
 
 A separate recovery/factory-reset workflow will be developed for installed systems. It will require explicit confirmation and will distinguish ordinary reset from hardware/device secure-erase operations.
 
