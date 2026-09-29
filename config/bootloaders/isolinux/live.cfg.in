@@ -1,0 +1,49 @@
+menu hshift 0
+menu width 82
+menu title TraceOS - Live Investigation System
+
+label traceos-amnesic
+    menu label ^TraceOS Amnesic (wipe session)
+    menu default
+    linux @LINUX@
+    initrd @INITRD@
+    append @APPEND_LIVE@ nopersistence
+
+label traceos-persistent
+    menu label TraceOS ^Persistent
+    linux @LINUX@
+    initrd @INITRD@
+    append @APPEND_LIVE@ persistence
+
+label traceos-persistent-luks
+    menu label TraceOS Persistent ^Encrypted (LUKS)
+    linux @LINUX@
+    initrd @INITRD@
+    append @APPEND_LIVE@ persistence persistence-encryption=luks
+
+label traceos-failsafe
+    menu label TraceOS ^Failsafe
+    linux @LINUX@
+    initrd @INITRD@
+    append @APPEND_LIVE_FAILSAFE@ nopersistence
+
+menu begin advanced
+menu title ^Advanced options
+include stdmenu.cfg
+
+label traceos-persistent-usb
+    menu label Persistent from ^USB
+    linux @LINUX@
+    initrd @INITRD@
+    append @APPEND_LIVE@ persistence persistence-media=removable-usb
+
+label traceos-persistent-luks-usb
+    menu label Encrypted Persistent from U^SB
+    linux @LINUX@
+    initrd @INITRD@
+    append @APPEND_LIVE@ persistence persistence-media=removable-usb persistence-encryption=luks
+
+label mainmenu
+    menu label ^Back
+    menu exit
+menu end
