@@ -37,6 +37,17 @@ live-image-amd64.hybrid.iso
 
 TraceOS is designed for legitimate administration, incident response, forensics, CTFs, and security testing on systems you are authorized to assess. Network and security utilities are user-invoked rather than automatically run against external targets.
 
+## Session model
+
+TraceOS is planned to support two live boot modes:
+
+- **Persistent**: changes survive reboot through an explicitly selected persistence store. Encrypted LUKS persistence will be supported.
+- **Amnesic**: changes are held in the live overlay/RAM and are discarded when the session ends. Debian live-boot supports the `nopersistence` boot parameter for this mode.
+
+The boot menu will expose the two modes clearly. A later desktop control will provide a deliberate session export/checkpoint action so important case data can be saved without turning the whole session persistent.
+
+A separate recovery/factory-reset workflow will be developed for installed systems. It will require explicit confirmation and will distinguish ordinary reset from hardware/device secure-erase operations.
+
 ## Roadmap
 
 - Desktop foundation
