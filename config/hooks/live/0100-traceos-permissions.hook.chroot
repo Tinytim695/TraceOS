@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+chmod 0755 /usr/local/bin/traceos
+mkdir -p /usr/share/traceos
+mkdir -p /etc/skel/Cases
+
+# Keep the live image usable without making the build assume a real password.
+if id traceos >/dev/null 2>&1; then
+    usermod -aG sudo,netdev,plugdev traceos || true
+fi
