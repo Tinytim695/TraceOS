@@ -62,7 +62,7 @@ TraceOS includes Debian's `package-update-indicator`, intended for Xfce desktops
 
 ## OSINT workbench
 
-The initial OSINT set is now Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, and Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`. Holehe and socialscan were removed from the image because their maintenance level did not justify making them part of the core set. Blackbird is installed from source at a pinned upstream commit. TraceOS overrides four known stale runtime dependencies with security-reviewed versions and runs `pip check` during the image build; its optional AI path is not enabled by TraceOS.
+The initial OSINT set is now Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, and Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, with its authoritative runtime dependency lock kept in `config/third-party/blackbird-requirements.txt`. Holehe and socialscan were removed from the image because their maintenance level did not justify making them part of the core set. Blackbird is installed from source at a pinned upstream commit. TraceOS overrides four known stale runtime dependencies with security-reviewed versions and runs `pip check` during the image build; its optional AI path is not enabled by TraceOS.
 
 ## Security engineering
 
