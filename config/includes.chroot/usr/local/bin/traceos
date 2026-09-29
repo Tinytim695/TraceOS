@@ -48,10 +48,10 @@ case "${1:-status}" in
       "strings|Printable-string extraction"
       "sha256sum|Cryptographic hashing"
       "sherlock|OSINT username discovery"
-      "holehe|OSINT email presence checks"
       "maigret|OSINT username investigation"
-      "socialscan|OSINT username/email checks"
       "h8mail|OSINT email lookups"
+      "blackbird|OSINT username/email search"
+      "traceos-evidence-mount|Read-only evidence mounting"
     )
     for entry in "${tools[@]}"; do
       name="${entry%%|*}"
@@ -134,15 +134,23 @@ EOF
     esac
     ;;
 
+  update)
+    if [[ $# -gt 1 ]]; then
+      exec /usr/local/bin/traceos-update "${@:2}"
+    fi
+    exec /usr/local/bin/traceos-update update
+    ;;
+
   about)
     printf '\nTraceOS %s\n' "$VERSION"
     printf '%s\n' 'Debian-based investigation and forensic desktop.'
     printf '%s\n' 'Local-first, user-invoked tooling, no built-in telemetry.'
+    printf '%s\n' 'Amnesic mode means no persistent live overlay, not secure disk erasure.'
     printf '%s\n\n' 'Designed for authorized investigation, administration, security testing and CTF work.'
     ;;
 
   *)
-    printf '%s\n' 'Usage: traceos {status|cases|tools|osint|ai|about|case}'
+    printf '%s\n' 'Usage: traceos {status|cases|tools|osint|ai|update|about|case}'
     exit 2
     ;;
 esac
