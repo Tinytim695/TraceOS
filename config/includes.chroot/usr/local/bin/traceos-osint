@@ -13,10 +13,9 @@ you run them. TraceOS itself does not automatically execute OSINT searches.
 Usage:
   traceos-osint
   traceos-osint sherlock USERNAME [USERNAME...]
-  traceos-osint holehe EMAIL
   traceos-osint maigret USERNAME [USERNAME...]
-  traceos-osint socialscan QUERY [QUERY...]
   traceos-osint h8mail OPTIONS
+  traceos-osint blackbird [BLACKBIRD OPTIONS]
 
 Interactive mode:
   Launches a simple menu for the bundled OSINT applications.
@@ -42,20 +41,21 @@ show_inventory() {
     while IFS='|' read -r package command purpose; do
       [ -n "$command" ] || continue
       if command -v "$command" >/dev/null 2>&1; then
-        printf '  [OK] %-11s %-34s %s\n' "$command" "$package" "$purpose"
+        printf '  [OK] %-11s %-48s %s
+' "$command" "$package" "$purpose"
       else
-        printf '  [--] %-11s %-34s %s\n' "$command" "$package" "$purpose"
+        printf '  [--] %-11s %-48s %s
+' "$command" "$package" "$purpose"
       fi
     done < "$TOOLS_FILE"
   fi
   echo
   echo "Choose a tool:"
-  echo "  1) Sherlock    username discovery"
-  echo "  2) Holehe      email presence checks"
-  echo "  3) Maigret     username investigation"
-  echo "  4) Socialscan  username/email checks"
-  echo "  5) h8mail      email OSINT"
-  echo "  6) List tools"
+  echo "  1) Sherlock     username discovery"
+  echo "  2) Maigret      username investigation"
+  echo "  3) h8mail       email OSINT"
+  echo "  4) Blackbird    username/email search"
+  echo "  5) List tools"
   echo "  0) Exit"
   echo
 
@@ -63,11 +63,10 @@ show_inventory() {
   read -r choice
   case "$choice" in
     1) printf "Username(s): "; read -r -a args; run_tool sherlock "${args[@]}" ;;
-    2) printf "Email: "; read -r email; run_tool holehe "$email" ;;
-    3) printf "Username(s): "; read -r -a args; run_tool maigret "${args[@]}" ;;
-    4) printf "Username/email query: "; read -r -a args; run_tool socialscan "${args[@]}" ;;
-    5) echo "Enter h8mail arguments (see h8mail --help):"; read -r -a args; run_tool h8mail "${args[@]}" ;;
-    6) show_inventory ;;
+    2) printf "Username(s): "; read -r -a args; run_tool maigret "${args[@]}" ;;
+    3) echo "Enter h8mail arguments (see h8mail --help):"; read -r -a args; run_tool h8mail "${args[@]}" ;;
+    4) echo "Enter Blackbird arguments (see blackbird --help):"; read -r -a args; run_tool blackbird "${args[@]}" ;;
+    5) show_inventory ;;
     0) exit 0 ;;
     *) echo "Unknown selection."; exit 2 ;;
   esac
@@ -77,7 +76,7 @@ case "${1:-}" in
   "")
     show_inventory
     ;;
-  sherlock|holehe|maigret|socialscan|h8mail)
+  sherlock|maigret|h8mail|blackbird)
     tool="$1"
     shift
     [ "$#" -gt 0 ] || { usage; exit 2; }
