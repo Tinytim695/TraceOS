@@ -63,27 +63,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f traceos-qemu-serial.log
-          timeout 50s qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial file:traceos-qemu-serial.log             -monitor none             -snapshot             -no-reboot &
-          QEMU_PID=$!
-          trap 'kill "$QEMU_PID" 2>/dev/null || true'
+          rm -f traceos-qemu-serial.log traceos-qemu-launch.log
 
-          sleep 25
+          qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial file:traceos-qemu-serial.log             -monitor none             -snapshot             >traceos-qemu-launch.log 2>&1 &
+          QEMU_PID=$!
+          trap 'kill "$QEMU_PID" 2>/dev/null || true' EXIT
+
+          # Give BIOS/GRUB and the live kernel time to start.
+          sleep 12
 
           if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-            echo "[TraceOS] QEMU exited before the boot smoke-test window." >&2
+            echo "[TraceOS] QEMU exited during boot." >&2
+            cat traceos-qemu-launch.log || true
             cat traceos-qemu-serial.log || true
             exit 1
           fi
 
-          if ! grep -Eq 'Linux version|Kernel command line' traceos-qemu-serial.log; then
-            echo "[TraceOS] No Linux kernel boot output reached serial." >&2
+          if grep -Eq 'Linux version|Kernel command line|Freeing unused kernel memory|Run /init as init process' traceos-qemu-serial.log; then
+            echo "[TraceOS] QEMU BIOS boot reached the Linux kernel."
+            cat traceos-qemu-serial.log || true
+          else
+            echo "[TraceOS] QEMU remained alive but kernel serial output was unavailable." >&2
+            echo "[TraceOS] QEMU launch log:" >&2
+            cat traceos-qemu-launch.log || true
+            echo "[TraceOS] QEMU serial log:" >&2
             cat traceos-qemu-serial.log || true
             exit 1
           fi
-
-          echo "[TraceOS] QEMU BIOS boot smoke test passed."
-          cat traceos-qemu-serial.log || true
 
       - name: Attest ISO provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
