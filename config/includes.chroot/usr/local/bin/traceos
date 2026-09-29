@@ -2,45 +2,138 @@
 set -euo pipefail
 
 VERSION="$(cat /usr/share/traceos/VERSION 2>/dev/null || echo "0.1.0")"
+CASES_DIR="$HOME/Cases"
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
 
 case "${1:-status}" in
   status)
-    clear
-    cat <<EOF
-╔══════════════════════════════════════════════╗
-║                TRACEOS                       ║
-║       Digital Investigation Linux            ║
-╠══════════════════════════════════════════════╣
-║ Version: $VERSION                            ║
-║ Desktop: XFCE                                ║
-║ Base:    Debian GNU/Linux                    ║
-╠══════════════════════════════════════════════╣
-║  cases      Case workspace                   ║
-║  tools      TraceOS toolkit                  ║
-║  ai         Local AI assistant               ║
-║  about      Project information               ║
-╚══════════════════════════════════════════════╝
-EOF
+    printf '\nTRACEOS %s\n' "$VERSION"
+    printf '%s\n' 'Digital Investigation Linux'
+    printf '%s\n\n' '----------------------------------------------'
+    printf 'User:     %s\n' "$(id -un 2>/dev/null || printf '?')"
+    printf 'Host:     %s\n' "$(hostname 2>/dev/null || printf '?')"
+    printf 'Kernel:   %s\n' "$(uname -r 2>/dev/null || printf '?')"
+    printf 'Desktop:  XFCE\n'
+    printf 'Base:     Debian GNU/Linux 13 "trixie"\n'
+    printf 'Cases:    %s\n' "$(find "$CASES_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+    printf 'Network:  user-invoked tools only\n'
+    printf 'Telemetry: none built in\n\n'
+    printf 'Commands: traceos {status|cases|tools|ai|about|case}\n\n'
     ;;
+
   cases)
-    exec bash -lc 'mkdir -p "$HOME/Cases"; cd "$HOME/Cases"; exec bash'
+    mkdir -p "$CASES_DIR"
+    if have thunar; then
+      exec thunar "$CASES_DIR"
+    fi
+    cd "$CASES_DIR"
+    exec bash
     ;;
+
   tools)
-    echo "TraceOS toolkit integration is coming next."
+    printf '\nTRACEOS TOOLBOX\n'
+    printf '%s\n\n' 'Installed utilities are listed only; TraceOS does not auto-run them.'
+    tools=(
+      "nmap|Network/service inspection"
+      "exiftool|Metadata inspection"
+      "tesseract|OCR"
+      "imagemagick|Image processing"
+      "ffmpeg|Audio/video inspection"
+      "sqlite3|SQLite database inspection"
+      "ripgrep|Fast local text search"
+      "file|File-type identification"
+      "strings|Printable-string extraction"
+      "sha256sum|Cryptographic hashing"
+    )
+    for entry in "${tools[@]}"; do
+      name="${entry%%|*}"
+      purpose="${entry#*|}"
+      if have "$name"; then
+        printf '  [OK]   %-14s %s\n' "$name" "$purpose"
+      else
+        printf '  [--]   %-14s %s\n' "$name" "$purpose"
+      fi
+    done
+    printf '\n'
     ;;
+
   ai)
-    if command -v ari >/dev/null 2>&1; then
+    if have ari; then
       exec ari
     fi
-    echo "Ari is not installed in this image yet."
-    echo "The AI layer will be added in a later milestone."
+    printf '%s\n' 'Ari is not installed in this image yet.'
+    printf '%s\n' 'The local AI layer is reserved for a later milestone.'
     ;;
+
+  case)
+    action="${2:-list}"
+    case "$action" in
+      new)
+        shift 2
+        name="$*"
+        if [[ -z "$name" ]]; then
+          printf '%s\n' 'Usage: traceos case new "Case Name"'
+          exit 2
+        fi
+        slug="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '-')"
+        slug="${slug#-}"
+        slug="${slug%-}"
+        [[ -n "$slug" ]] || { printf '%s\n' 'Invalid case name.' >&2; exit 2; }
+        case_dir="$CASES_DIR/$slug"
+        if [[ -e "$case_dir" ]]; then
+          printf 'Case already exists: %s\n' "$case_dir"
+          exit 1
+        fi
+        mkdir -p "$case_dir"/{evidence,working,exports,reports}
+        cat > "$case_dir/CASE.md" <<EOF
+# $name
+
+Created by TraceOS $VERSION.
+
+## Workspace
+- evidence/   Original evidence or examiner-authorized copies
+- working/    Analysis workspace
+- exports/    Deliberately exported artefacts
+- reports/    Notes and reports
+
+## Handling note
+TraceOS does not automatically upload, modify, or delete evidence.
+Preserve original files and work from copies when appropriate.
+EOF
+        printf 'Created case: %s\n' "$case_dir"
+        ;;
+
+      list)
+        mkdir -p "$CASES_DIR"
+        printf '\nTRACEOS CASES\n'
+        found=0
+        while IFS= read -r dir; do
+          found=1
+          printf '  %s\n' "$(basename "$dir")"
+        done < <(find "$CASES_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | sort)
+        (( found )) || printf '  No cases yet.\n'
+        printf '\n'
+        ;;
+
+      *)
+        printf '%s\n' 'Usage: traceos case {new "Case Name"|list}'
+        exit 2
+        ;;
+    esac
+    ;;
+
   about)
-    echo "TraceOS $VERSION"
-    echo "Debian-based investigation and forensic desktop."
+    printf '\nTraceOS %s\n' "$VERSION"
+    printf '%s\n' 'Debian-based investigation and forensic desktop.'
+    printf '%s\n' 'Local-first, user-invoked tooling, no built-in telemetry.'
+    printf '%s\n\n' 'Designed for authorized investigation, administration, security testing and CTF work.'
     ;;
+
   *)
-    echo "Usage: traceos {status|cases|tools|ai|about}"
+    printf '%s\n' 'Usage: traceos {status|cases|tools|ai|about|case}'
     exit 2
     ;;
 esac
