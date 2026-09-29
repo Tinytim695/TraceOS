@@ -70,3 +70,4 @@ rsync
 
 # Firmware
 firmware-linux
+\n# GUI\npython3-tk\n
