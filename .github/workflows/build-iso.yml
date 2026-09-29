@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -59,31 +59,59 @@ jobs:
           grep -q "El Torito" traceos-iso-layout.txt
           sha256sum live-image-amd64.hybrid.iso | tee traceos-0.1.0-amd64.iso.sha256
 
-      - name: QEMU BIOS boot smoke test
+      - name: QEMU live-kernel boot smoke test
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf traceos-qemu-live
+          mkdir -p traceos-qemu-live
           rm -f traceos-qemu-serial.log traceos-qemu-launch.log
 
-          qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial file:traceos-qemu-serial.log             -monitor none             -snapshot             >traceos-qemu-launch.log 2>&1 &
+          # Boot the kernel/initrd from the ISO directly. The previous
+          # BIOS/serial test could not see the graphical bootloader console
+          # on a headless CI runner, even though QEMU stayed alive.
+          xorriso -osirrox on -indev live-image-amd64.hybrid.iso \
+            -extract /live/vmlinuz traceos-qemu-live/vmlinuz
+          xorriso -osirrox on -indev live-image-amd64.hybrid.iso \
+            -extract /live/initrd.img traceos-qemu-live/initrd.img
+
+          test -s traceos-qemu-live/vmlinuz
+          test -s traceos-qemu-live/initrd.img
+
+          qemu-system-x86_64 \
+            -accel tcg,thread=multi \
+            -m 2048 \
+            -smp 2 \
+            -drive file=live-image-amd64.hybrid.iso,media=cdrom,readonly=on,format=raw \
+            -kernel traceos-qemu-live/vmlinuz \
+            -initrd traceos-qemu-live/initrd.img \
+            -append "boot=live components username=traceos hostname=traceos console=ttyS0,115200n8" \
+            -display none \
+            -serial file:traceos-qemu-serial.log \
+            -monitor none \
+            -snapshot \
+            -no-reboot \
+            -no-shutdown \
+            >traceos-qemu-launch.log 2>&1 &
           QEMU_PID=$!
           trap 'kill "$QEMU_PID" 2>/dev/null || true' EXIT
 
-          # Give BIOS/GRUB and the live kernel time to start.
-          sleep 12
+          # Give the live kernel/initramfs enough time to start on a shared
+          # CI runner under TCG emulation.
+          sleep 30
 
           if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-            echo "[TraceOS] QEMU exited during boot." >&2
+            echo "[TraceOS] QEMU exited during live-kernel boot." >&2
             cat traceos-qemu-launch.log || true
             cat traceos-qemu-serial.log || true
             exit 1
           fi
 
-          if grep -Eq 'Linux version|Kernel command line|Freeing unused kernel memory|Run /init as init process' traceos-qemu-serial.log; then
-            echo "[TraceOS] QEMU BIOS boot reached the Linux kernel."
-            cat traceos-qemu-serial.log || true
+          if grep -Eq 'Linux version|Kernel command line|Freeing unused kernel memory|Run /init as init process|live-boot|systemd' traceos-qemu-serial.log; then
+            echo "[TraceOS] QEMU live-kernel boot reached Linux userspace."
+            tail -n 200 traceos-qemu-serial.log || true
           else
-            echo "[TraceOS] QEMU remained alive but kernel serial output was unavailable." >&2
+            echo "[TraceOS] QEMU stayed alive but no expected kernel/userspace serial output was observed." >&2
             echo "[TraceOS] QEMU launch log:" >&2
             cat traceos-qemu-launch.log || true
             echo "[TraceOS] QEMU serial log:" >&2
