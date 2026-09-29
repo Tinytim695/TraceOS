@@ -32,6 +32,7 @@ jobs:
             xorriso \
             squashfs-tools \
             qemu-utils \
+            qemu-system-x86 \
             gettext \
             po4a \
             debian-archive-keyring \
@@ -54,7 +55,27 @@ jobs:
         run: |
           test -s live-image-amd64.hybrid.iso
           file live-image-amd64.hybrid.iso
+          xorriso -indev live-image-amd64.hybrid.iso -report_el_torito plain -report_system_area plain | tee traceos-iso-layout.txt
+          grep -q "El Torito" traceos-iso-layout.txt
           sha256sum live-image-amd64.hybrid.iso | tee traceos-0.1.0-amd64.iso.sha256
+
+      - name: QEMU BIOS boot smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial none             -monitor none             -snapshot             -no-reboot &
+          QEMU_PID=$!
+          trap 'kill "$QEMU_PID" 2>/dev/null || true' EXIT
+
+          sleep 20
+
+          if kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "[TraceOS] QEMU remained alive for 20s after ISO boot handoff."
+          else
+            wait "$QEMU_PID" || true
+            echo "[TraceOS] QEMU exited before the 20s boot smoke-test window." >&2
+            exit 1
+          fi
 
       - name: Attest ISO provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
@@ -68,4 +89,5 @@ jobs:
           path: |
             live-image-amd64.hybrid.iso
             traceos-0.1.0-amd64.iso.sha256
+            traceos-iso-layout.txt
           if-no-files-found: error
