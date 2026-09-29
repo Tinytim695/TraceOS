@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+TraceOS updater
+
+Usage:
+  traceos-update check
+  traceos-update update
+
+"check" refreshes Debian package metadata and reports available upgrades.
+"update" performs a normal user-approved Debian full-upgrade and then reports
+that bundled OSINT applications remain pinned until retested by TraceOS.
+EOF
+}
+
+check_updates() {
+  echo "[TraceOS] Checking Debian security and regular updates..."
+  sudo apt-get update
+  echo
+  echo "[TraceOS] Available Debian upgrades:"
+  apt list --upgradable 2>/dev/null || true
+  echo
+  echo "[TraceOS] Bundled OSINT stack:"
+  if command -v pipx >/dev/null 2>&1; then
+    sudo env PIPX_GLOBAL_HOME=/opt/pipx PIPX_GLOBAL_BIN_DIR=/usr/local/bin PIPX_GLOBAL_MAN_DIR=/usr/local/share/man pipx list || true
+  fi
+}
+
+perform_update() {
+  sudo apt-get update
+  sudo apt-get full-upgrade
+  echo
+  echo "[TraceOS] Debian update complete."
+  echo "[TraceOS] OSINT packages remain pinned until a new TraceOS-tested set is released."
+}
+
+case "${1:-check}" in
+  check)
+    check_updates
+    ;;
+  update)
+    perform_update
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
