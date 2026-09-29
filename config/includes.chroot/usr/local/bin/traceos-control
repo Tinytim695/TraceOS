@@ -1,50 +1,210 @@
 #!/usr/bin/env python3
+import getpass
 import os
+import platform
+import shutil
 import subprocess
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog, ttk
 
 VERSION = "0.1.0"
+CASES_DIR = os.path.expanduser("~/Cases")
 
-def run(command):
+
+def local_command(args):
     try:
-        subprocess.Popen(command, shell=True)
-    except Exception as exc:
-        messagebox.showerror("TraceOS", str(exc))
+        return subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def launch(args, error_title="TraceOS"):
+    executable = args[0]
+    if shutil.which(executable) is None:
+        messagebox.showwarning(error_title, f"{executable} is not installed in this image.")
+        return
+    try:
+        subprocess.Popen(args)
+    except OSError as exc:
+        messagebox.showerror(error_title, str(exc))
+
 
 def open_cases():
-    os.makedirs(os.path.expanduser("~/Cases"), exist_ok=True)
-    run('thunar "$HOME/Cases"')
+    os.makedirs(CASES_DIR, exist_ok=True)
+    launch(["thunar", CASES_DIR])
+
+
+def create_case():
+    name = simpledialog.askstring("New Case", "Case name:")
+    if not name or not name.strip():
+        return
+
+    result = local_command(["/usr/local/bin/traceos", "case", "new", name.strip()])
+    if result is None or result.returncode != 0:
+        detail = (result.stderr or result.stdout or "Unable to create case.").strip()
+        messagebox.showerror("TraceOS", detail)
+        return
+
+    messagebox.showinfo("Case created", (result.stdout or "Case created.").strip())
+    refresh_status()
+
+
+def open_terminal():
+    launch(["xfce4-terminal"])
+
+
+def open_files():
+    launch(["thunar"])
+
+
+def open_network():
+    launch(["nm-connection-editor"])
+
+
+def open_console():
+    launch(
+        [
+            "xfce4-terminal",
+            "--title=TraceOS Console",
+            "--command=/usr/local/bin/traceos",
+        ]
+    )
+
+
+def open_ari():
+    launch(
+        [
+            "xfce4-terminal",
+            "--title=Ari",
+            "--command=/usr/local/bin/traceos ai",
+        ]
+    )
+
+
+def network_state():
+    result = local_command(["nmcli", "-t", "-f", "STATE", "general"])
+    if result and result.returncode == 0:
+        state = result.stdout.strip().splitlines()[0] if result.stdout.strip() else "unknown"
+        return state
+    return "unknown"
+
+
+def refresh_status():
+    os.makedirs(CASES_DIR, exist_ok=True)
+    try:
+        case_count = sum(
+            os.path.isdir(os.path.join(CASES_DIR, item))
+            for item in os.listdir(CASES_DIR)
+        )
+    except OSError:
+        case_count = 0
+
+    user_value.set(getpass.getuser())
+    host_value.set(platform.node() or "unknown")
+    kernel_value.set(platform.release() or "unknown")
+    network_value.set(network_state())
+    cases_value.set(str(case_count))
+
 
 root = tk.Tk()
 root.title("TraceOS Control Centre")
-root.geometry("820x520")
-root.minsize(720, 460)
+root.geometry("900x620")
+root.minsize(780, 540)
 
-tk.Label(root, text="TRACEOS", font=("Sans", 28, "bold")).pack(pady=(24, 2))
-tk.Label(root, text=f"Digital Investigation Linux • {VERSION}", font=("Sans", 11)).pack(pady=(0, 18))
+style = ttk.Style(root)
+try:
+    style.theme_use("clam")
+except tk.TclError:
+    pass
 
-frame = tk.Frame(root)
-frame.pack(fill="both", expand=True, padx=28, pady=10)
+style.configure("Title.TLabel", font=("Sans", 26, "bold"))
+style.configure("Subtitle.TLabel", font=("Sans", 11))
+style.configure("Action.TButton", font=("Sans", 11), padding=(12, 10))
+
+header = ttk.Frame(root, padding=(26, 22, 26, 10))
+header.pack(fill="x")
+ttk.Label(header, text="TRACEOS", style="Title.TLabel").pack(anchor="w")
+ttk.Label(
+    header,
+    text=f"Digital Investigation Linux  •  v{VERSION}",
+    style="Subtitle.TLabel",
+).pack(anchor="w", pady=(2, 0))
+
+content = ttk.Frame(root, padding=(26, 8, 26, 8))
+content.pack(fill="both", expand=True)
+
+actions = ttk.Frame(content)
+actions.pack(fill="x", pady=(0, 14))
 
 buttons = [
-    ("📂  Cases", open_cases),
-    ("💻  Terminal", lambda: run("xfce4-terminal")),
-    ("📁  Files", lambda: run("thunar")),
-    ("📡  Network", lambda: run("nm-connection-editor")),
-    ("🔎  TraceOS Console", lambda: run("xfce4-terminal --title='TraceOS Console' --command=/usr/local/bin/traceos")),
-    ("🤖  Ari", lambda: run("xfce4-terminal --title='Ari' --command=/usr/local/bin/traceos ai")),
+    ("New Case", create_case),
+    ("Cases", open_cases),
+    ("Terminal", open_terminal),
+    ("Files", open_files),
+    ("Network", open_network),
+    ("TraceOS Console", open_console),
+    ("Ari", open_ari),
 ]
 
 for index, (label, callback) in enumerate(buttons):
-    tk.Button(frame, text=label, command=callback, font=("Sans", 13), height=2, width=24).grid(
-        row=index // 2, column=index % 2, padx=12, pady=12, sticky="nsew"
+    button = ttk.Button(actions, text=label, command=callback, style="Action.TButton")
+    button.grid(row=index // 2, column=index % 2, padx=6, pady=6, sticky="ew")
+
+for column in range(2):
+    actions.columnconfigure(column, weight=1)
+
+status_card = ttk.LabelFrame(content, text="System status", padding=16)
+status_card.pack(fill="x", pady=(0, 12))
+
+user_value = tk.StringVar()
+host_value = tk.StringVar()
+kernel_value = tk.StringVar()
+network_value = tk.StringVar()
+cases_value = tk.StringVar()
+
+rows = [
+    ("User", user_value),
+    ("Host", host_value),
+    ("Kernel", kernel_value),
+    ("NetworkManager", network_value),
+    ("Case workspaces", cases_value),
+]
+
+for row, (label, variable) in enumerate(rows):
+    ttk.Label(status_card, text=label).grid(
+        row=row, column=0, sticky="w", padx=(0, 30), pady=4
+    )
+    ttk.Label(status_card, textvariable=variable).grid(
+        row=row, column=1, sticky="w", pady=4
     )
 
-for col in range(2):
-    frame.grid_columnconfigure(col, weight=1)
-for row in range(3):
-    frame.grid_rowconfigure(row, weight=1)
+privacy = ttk.LabelFrame(content, text="TraceOS handling model", padding=16)
+privacy.pack(fill="x", pady=(0, 12))
+ttk.Label(
+    privacy,
+    text=(
+        "Local-first. No built-in telemetry. Network and forensic utilities are "
+        "started only by the user. Original evidence is never modified by the "
+        "case workspace helpers."
+    ),
+    wraplength=780,
+    justify="left",
+).pack(anchor="w")
 
-tk.Label(root, text="Local-first • No telemetry • User-invoked network tools", font=("Sans", 9)).pack(pady=(4, 18))
+footer = ttk.Frame(root, padding=(26, 8, 26, 18))
+footer.pack(fill="x")
+ttk.Button(footer, text="Refresh", command=refresh_status).pack(side="left")
+ttk.Label(
+    footer,
+    text="TraceOS  •  XFCE  •  Debian Trixie",
+    style="Subtitle.TLabel",
+).pack(side="right")
+
+refresh_status()
 root.mainloop()
