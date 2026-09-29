@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="$(cat /usr/share/traceos/VERSION 2>/dev/null || echo "0.1.0")"
+
+case "${1:-status}" in
+  status)
+    clear
+    cat <<EOF
+╔══════════════════════════════════════════════╗
+║                TRACEOS                       ║
+║       Digital Investigation Linux            ║
+╠══════════════════════════════════════════════╣
+║ Version: $VERSION                            ║
+║ Desktop: XFCE                                ║
+║ Base:    Debian GNU/Linux                    ║
+╠══════════════════════════════════════════════╣
+║  cases      Case workspace                   ║
+║  tools      TraceOS toolkit                  ║
+║  ai         Local AI assistant               ║
+║  about      Project information               ║
+╚══════════════════════════════════════════════╝
+EOF
+    ;;
+  cases)
+    exec bash -lc 'mkdir -p "$HOME/Cases"; cd "$HOME/Cases"; exec bash'
+    ;;
+  tools)
+    echo "TraceOS toolkit integration is coming next."
+    ;;
+  ai)
+    if command -v ari >/dev/null 2>&1; then
+      exec ari
+    fi
+    echo "Ari is not installed in this image yet."
+    echo "The AI layer will be added in a later milestone."
+    ;;
+  about)
+    echo "TraceOS $VERSION"
+    echo "Debian-based investigation and forensic desktop."
+    ;;
+  *)
+    echo "Usage: traceos {status|cases|tools|ai|about}"
+    exit 2
+    ;;
+esac
