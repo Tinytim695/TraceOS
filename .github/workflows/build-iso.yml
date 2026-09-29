@@ -25,8 +25,8 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y \
             live-build \
             debootstrap \
             xorriso \
@@ -63,19 +63,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial none             -monitor none             -snapshot             -no-reboot &
+          rm -f traceos-qemu-serial.log
+          qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial file:traceos-qemu-serial.log             -monitor none             -snapshot             -no-reboot &
           QEMU_PID=$!
-          trap 'kill "$QEMU_PID" 2>/dev/null || true' EXIT
+          trap 'kill "$QEMU_PID" 2>/dev/null || true'
 
-          sleep 20
+          sleep 25
 
-          if kill -0 "$QEMU_PID" 2>/dev/null; then
-            echo "[TraceOS] QEMU remained alive for 20s after ISO boot handoff."
-          else
-            wait "$QEMU_PID" || true
-            echo "[TraceOS] QEMU exited before the 20s boot smoke-test window." >&2
+          if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "[TraceOS] QEMU exited before the boot smoke-test window." >&2
+            cat traceos-qemu-serial.log || true
             exit 1
           fi
+
+          if ! grep -Eq 'Linux version|Kernel command line' traceos-qemu-serial.log; then
+            echo "[TraceOS] QEMU stayed alive but no Linux kernel boot output reached serial." >&2
+            cat traceos-qemu-serial.log || true
+            exit 1
+          fi
+
+          echo "[TraceOS] QEMU BIOS boot smoke test passed."
+          cat traceos-qemu-serial.log || true
 
       - name: Attest ISO provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
