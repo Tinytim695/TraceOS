@@ -21,7 +21,7 @@ case "${1:-status}" in
     printf 'Cases:    %s\n' "$(find "$CASES_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
     printf 'Network:  user-invoked tools only\n'
     printf 'Telemetry: none built in\n\n'
-    printf 'Commands: traceos {status|cases|tools|ai|about|case}\n\n'
+    printf 'Commands: traceos {status|cases|tools|osint|ai|update|about|case}\n\n'
     ;;
 
   cases)
