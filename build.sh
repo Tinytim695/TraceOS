@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 # Keep the bundled Blackbird lock in one authoritative source file.
-install -D config/third-party/blackbird-requirements.txt   config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
+install -D config/third-party/blackbird-requirements.txt \
+  config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
 
 command -v lb >/dev/null 2>&1 || {
   echo "live-build is required. Install it with: sudo apt install live-build"

@@ -57,6 +57,12 @@ jobs:
           fi
 
 
+      - name: Blackbird dependency consistency
+        shell: bash
+        run: |
+          cmp -s config/third-party/blackbird-requirements.txt \
+            config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
+
       - name: Python dependency audit
         shell: bash
         run: |

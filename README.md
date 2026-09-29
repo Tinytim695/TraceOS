@@ -54,7 +54,7 @@ A separate recovery/factory-reset workflow will be developed for installed syste
 
 ## Forensic desktop safety
 
-TraceOS disables desktop auto-mount/auto-open behaviour at session start and disables Thunar thumbnails by default. The Thunar volume-management auto-mount helper is not installed. For deliberate evidence access, `traceos-evidence-mount /dev/<partition>` mounts a block-device partition read-only with `nosuid,nodev,noexec`; ext2/3/4 also use `noload` to prevent journal replay. Use `traceos-evidence-umount` when finished. These helpers do not provide hardware write blocking.
+TraceOS disables desktop auto-mount/auto-open behaviour at session start and disables Thunar thumbnails by default. TraceOS disables Thunar volume-management auto-mount behaviour and the desktop auto-mount/auto-open settings. For deliberate evidence access, `traceos-evidence-mount /dev/<partition>` mounts a block-device partition read-only with `nosuid,nodev,noexec`; ext2/3/4 also use `noload` to prevent journal replay. Use `traceos-evidence-umount` when finished. These helpers do not provide hardware write blocking.
 
 ## Updates
 

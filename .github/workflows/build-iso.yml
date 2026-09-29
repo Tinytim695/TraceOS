@@ -64,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -f traceos-qemu-serial.log
-          qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial file:traceos-qemu-serial.log             -monitor none             -snapshot             -no-reboot &
+          timeout 50s qemu-system-x86_64             -accel tcg,thread=multi             -m 2048             -smp 2             -cdrom live-image-amd64.hybrid.iso             -boot d             -display none             -serial file:traceos-qemu-serial.log             -monitor none             -snapshot             -no-reboot &
           QEMU_PID=$!
           trap 'kill "$QEMU_PID" 2>/dev/null || true'
 
@@ -77,7 +77,7 @@ jobs:
           fi
 
           if ! grep -Eq 'Linux version|Kernel command line' traceos-qemu-serial.log; then
-            echo "[TraceOS] QEMU stayed alive but no Linux kernel boot output reached serial." >&2
+            echo "[TraceOS] No Linux kernel boot output reached serial." >&2
             cat traceos-qemu-serial.log || true
             exit 1
           fi
@@ -98,4 +98,5 @@ jobs:
             live-image-amd64.hybrid.iso
             traceos-0.1.0-amd64.iso.sha256
             traceos-iso-layout.txt
+            traceos-qemu-serial.log
           if-no-files-found: error
