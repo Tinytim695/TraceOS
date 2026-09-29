@@ -22,6 +22,7 @@ sudo lb config \
   --mirror-chroot http://deb.debian.org/debian \
   --mirror-binary http://deb.debian.org/debian \
   --mirror-debian-installer http://deb.debian.org/debian \
+  --security false \
   --binary-images iso-hybrid \
   --debian-installer live \
   --apt-recommends true \
