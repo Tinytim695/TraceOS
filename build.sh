@@ -23,7 +23,10 @@ sudo lb config \
   --linux-flavours amd64 \
   --bootappend-live "boot=live components username=traceos hostname=traceos"
 
-echo "[TraceOS] Building ISO..."
+echo "[TraceOS] Preparing executable build hooks..."
+sudo chmod +x config/hooks/live/*.hook.chroot 2>/dev/null || true
+
+ echo "[TraceOS] Building ISO..."
 sudo lb build
 
 echo "[TraceOS] Build complete."
