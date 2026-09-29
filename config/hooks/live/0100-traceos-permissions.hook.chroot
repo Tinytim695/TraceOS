@@ -3,6 +3,7 @@ set -e
 
 chmod 0755 /usr/local/bin/traceos
 chmod 0755 /usr/local/bin/traceos-control
+chmod 0755 /usr/local/bin/traceos-session
 chmod 0755 /usr/local/bin/traceos-osint
 mkdir -p /usr/share/traceos
 mkdir -p /etc/skel/Cases
