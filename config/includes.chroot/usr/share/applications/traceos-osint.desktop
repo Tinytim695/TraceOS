@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TraceOS OSINT Workbench
+Comment=User-invoked OSINT command-line tools
+Exec=xfce4-terminal --title="TraceOS OSINT" --command=/usr/local/bin/traceos-osint
+Icon=utilities-terminal
+Terminal=false
+Categories=System;Utility;Security;
+StartupNotify=true
