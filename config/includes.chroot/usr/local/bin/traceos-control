@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import tkinter as tk
+from tkinter import messagebox
+
+VERSION = "0.1.0"
+
+def run(command):
+    try:
+        subprocess.Popen(command, shell=True)
+    except Exception as exc:
+        messagebox.showerror("TraceOS", str(exc))
+
+def open_cases():
+    os.makedirs(os.path.expanduser("~/Cases"), exist_ok=True)
+    run('thunar "$HOME/Cases"')
+
+root = tk.Tk()
+root.title("TraceOS Control Centre")
+root.geometry("820x520")
+root.minsize(720, 460)
+
+tk.Label(root, text="TRACEOS", font=("Sans", 28, "bold")).pack(pady=(24, 2))
+tk.Label(root, text=f"Digital Investigation Linux • {VERSION}", font=("Sans", 11)).pack(pady=(0, 18))
+
+frame = tk.Frame(root)
+frame.pack(fill="both", expand=True, padx=28, pady=10)
+
+buttons = [
+    ("📂  Cases", open_cases),
+    ("💻  Terminal", lambda: run("xfce4-terminal")),
+    ("📁  Files", lambda: run("thunar")),
+    ("📡  Network", lambda: run("nm-connection-editor")),
+    ("🔎  TraceOS Console", lambda: run("xfce4-terminal --title='TraceOS Console' --command=/usr/local/bin/traceos")),
+    ("🤖  Ari", lambda: run("xfce4-terminal --title='Ari' --command=/usr/local/bin/traceos ai")),
+]
+
+for index, (label, callback) in enumerate(buttons):
+    tk.Button(frame, text=label, command=callback, font=("Sans", 13), height=2, width=24).grid(
+        row=index // 2, column=index % 2, padx=12, pady=12, sticky="nsew"
+    )
+
+for col in range(2):
+    frame.grid_columnconfigure(col, weight=1)
+for row in range(3):
+    frame.grid_rowconfigure(row, weight=1)
+
+tk.Label(root, text="Local-first • No telemetry • User-invoked network tools", font=("Sans", 9)).pack(pady=(4, 18))
+root.mainloop()
