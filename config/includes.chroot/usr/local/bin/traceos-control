@@ -77,6 +77,10 @@ def open_console():
     )
 
 
+def open_osint():
+    launch(\["xfce4-terminal", "--title=TraceOS OSINT", "--command=/usr/local/bin/traceos-osint"\])
+
+
 def open_ari():
     launch(
         [
@@ -149,6 +153,7 @@ buttons = [
     ("Files", open_files),
     ("Network", open_network),
     ("TraceOS Console", open_console),
+    ("OSINT Workbench", open_osint),
     ("Ari", open_ari),
 ]
 
