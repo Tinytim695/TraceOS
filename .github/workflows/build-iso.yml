@@ -3,7 +3,6 @@ name: Build TraceOS ISO
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -36,10 +35,11 @@ jobs:
             debian-archive-keyring \
             file
 
-      - name: Install current live-build
+      - name: Install pinned live-build
         run: |
-          git clone --depth 1 https://salsa.debian.org/live-team/live-build.git /tmp/live-build
+          git clone https://salsa.debian.org/live-team/live-build.git /tmp/live-build
           cd /tmp/live-build
+          git checkout --detach 531cdb98
           sudo make install
           lb --version
 
