@@ -40,7 +40,7 @@ check_osint_updates() {
         ;;
       blackbird@*)
         pinned="${package#*@}"
-        latest="$(git ls-remote https://github.com/antoniaci/blackbird.git HEAD 2>/dev/null | awk '{print $1}' || true)"
+        latest="$(timeout 8 git ls-remote https://github.com/antoniaci/blackbird.git HEAD 2>/dev/null | awk '{print $1}' || true)"
         if [[ -n "$latest" && "$latest" == "$pinned" ]]; then
           printf '  [OK] %-12s %s\n' "blackbird" "$pinned"
         elif [[ -n "$latest" ]]; then
