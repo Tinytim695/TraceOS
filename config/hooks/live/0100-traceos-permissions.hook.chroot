@@ -7,6 +7,8 @@ chmod 0755 /usr/local/bin/traceos-session
 chmod 0755 /usr/local/bin/traceos-osint
 chmod 0755 /usr/local/bin/traceos-update
 chmod 0755 /usr/local/bin/traceos-session-hardening
+chmod 0755 /usr/local/bin/traceos-evidence-mount
+chmod 0755 /usr/local/bin/traceos-evidence-umount
 chmod 0755 /usr/local/bin/blackbird
 mkdir -p /usr/share/traceos
 mkdir -p /etc/skel/Cases
