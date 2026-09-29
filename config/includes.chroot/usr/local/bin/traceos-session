@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+CMDLINE="$(cat /proc/cmdline 2>/dev/null || true)"
+MODE="amnesic"
+
+case " $CMDLINE " in
+  *" persistence "*)
+    if printf '%s' "$CMDLINE" | grep -q 'persistence-encryption=luks'; then
+      MODE="persistent (LUKS)"
+    else
+      MODE="persistent"
+    fi
+    ;;
+  *" nopersistence "*)
+    MODE="amnesic"
+    ;;
+esac
+
+case "${1:-status}" in
+  status)
+    printf 'TraceOS session: %s\n' "$MODE"
+    ;;
+  mode)
+    printf '%s\n' "$MODE"
+    ;;
+  *)
+    printf '%s\n' 'Usage: traceos-session {status|mode}'
+    exit 2
+    ;;
+esac
