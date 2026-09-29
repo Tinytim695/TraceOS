@@ -23,6 +23,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y             live-build             debootstrap             xorriso             squashfs-tools             qemu-utils             file
 
+      - name: Install current live-build
+        run: |
+          git clone --depth 1 https://salsa.debian.org/live-team/live-build.git /tmp/live-build
+          cd /tmp/live-build
+          sudo make install
+          lb --version
+
       - name: Build ISO
         run: |
           chmod +x build.sh
