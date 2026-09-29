@@ -58,5 +58,6 @@ A separate recovery/factory-reset workflow will be developed for installed syste
 - DNAProcess integration
 - Image forensics integration
 - OSINT workspace
+- Core OSINT tools bundled in the live image
 - Local Ari/llama.cpp integration
 - Installer and signed releases
