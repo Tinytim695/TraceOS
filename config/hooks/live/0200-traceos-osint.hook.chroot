@@ -1,8 +1,6 @@
 #!/bin/sh
 set -eu
 
-# Install OSINT command-line applications into an isolated system-wide pipx store.
-# These tools are intentionally installed but never executed automatically.
 export PIPX_GLOBAL_HOME=/opt/pipx
 export PIPX_GLOBAL_BIN_DIR=/usr/local/bin
 export PIPX_GLOBAL_MAN_DIR=/usr/local/share/man
@@ -16,19 +14,44 @@ install_tool() {
     pipx install --global "$package==$version"
 }
 
-install_tool sherlock-project 0.16.0
-install_tool holehe 1.61
+install_tool sherlock-project 0.16.2
 install_tool maigret 0.6.6
-install_tool socialscan 2.0.1
 install_tool h8mail 2.5.6
 
-# Keep a small machine-readable inventory for the TraceOS dashboard/CLI.
+# Blackbird is actively maintained but distributed from source rather than
+# a released PyPI package. Pin an exact upstream commit and locked deps.
+BLACKBIRD_COMMIT="b45505080ef51bb3ef52dc29879ee6bef31e5b94"
+BLACKBIRD_DIR="/opt/traceos-blackbird"
+
+echo "[TraceOS] Installing Blackbird at $BLACKBIRD_COMMIT"
+rm -rf "$BLACKBIRD_DIR"
+git clone https://github.com/antoniaci/blackbird.git "$BLACKBIRD_DIR"
+cd "$BLACKBIRD_DIR"
+git checkout --detach "$BLACKBIRD_COMMIT"
+python3 -m venv "$BLACKBIRD_DIR/venv"
+"$BLACKBIRD_DIR/venv/bin/pip" install --no-cache-dir --disable-pip-version-check -r requirements.txt
+
+cat > /usr/local/bin/blackbird <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="/opt/traceos-blackbird"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/traceos-blackbird"
+
+mkdir -p "$STATE_DIR"
+ln -sfn "$APP_DIR/assets" "$STATE_DIR/assets"
+ln -sfn "$APP_DIR/src" "$STATE_DIR/src"
+
+cd "$STATE_DIR"
+exec "$APP_DIR/venv/bin/python" "$APP_DIR/blackbird.py" "$@"
+EOF
+chmod 0755 /usr/local/bin/blackbird
+
 cat > /usr/share/traceos/osint-tools.txt <<'EOF'
-sherlock-project==0.16.0|sherlock|Username account discovery
-holehe==1.61|holehe|Email account presence checks
-maigret==0.6.6|maigret|Username investigation across sites
-socialscan==2.0.1|socialscan|Username/email platform checks
-h8mail==2.5.6|h8mail|Email OSINT and breach-oriented lookups
+sherlock-project==0.16.2|sherlock|OSINT username discovery
+maigret==0.6.6|maigret|OSINT username investigation across thousands of sites
+h8mail==2.5.6|h8mail|OSINT email and breach-oriented lookups
+blackbird@b45505080ef51bb3ef52dc29879ee6bef31e5b94|blackbird|OSINT username/email search across hundreds of platforms
 EOF
 
 echo "[TraceOS] OSINT tool installation complete."
