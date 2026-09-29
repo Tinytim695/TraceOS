@@ -36,6 +36,8 @@ jobs:
             config/includes.chroot/usr/local/bin/traceos-session \
             config/includes.chroot/usr/local/bin/traceos-update \
             config/includes.chroot/usr/local/bin/traceos-session-hardening \
+            config/includes.chroot/usr/local/bin/traceos-evidence-mount \
+            config/includes.chroot/usr/local/bin/traceos-evidence-umount \
             config/includes.chroot/usr/local/bin/blackbird
 
       - name: Python compile check
