@@ -55,6 +55,13 @@ jobs:
           fi
 
 
+      - name: Python dependency audit
+        shell: bash
+        run: |
+          python3 -m venv /tmp/traceos-audit
+          /tmp/traceos-audit/bin/pip install --disable-pip-version-check --quiet pip-audit
+          /tmp/traceos-audit/bin/pip-audit -r config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
+
       - name: Destructive-command guard
         shell: bash
         run: |
