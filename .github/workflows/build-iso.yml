@@ -131,7 +131,7 @@ jobs:
           chmod +x scripts/qemu-ui-smoke.sh
           scripts/qemu-ui-smoke.sh live-image-amd64.hybrid.iso
           echo "[TraceOS] Graphical screenshots:"
-          find traceos-ui-screenshots -maxdepth 1 -type f -name '*.png' -print -exec ls -lh {} \\;
+          ls -lh traceos-ui-screenshots/*.png
           
       - name: Attest ISO provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
