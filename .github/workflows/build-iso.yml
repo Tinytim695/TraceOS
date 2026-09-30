@@ -11,7 +11,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: traceos-iso-${{ github.ref }}
+  group: traceos-iso-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
       - name: Install pinned live-build
         run: |
           rm -rf /tmp/live-build
-          git clone --filter=blob:none --no-checkout https://salsa.debian.org/live-team/live-build.git /tmp/live-build
+          timeout 180s git clone --filter=blob:none --no-checkout https://salsa.debian.org/live-team/live-build.git /tmp/live-build
           cd /tmp/live-build
           timeout 180s git fetch --depth 1 origin 531cdb98
           git checkout --detach 531cdb98
