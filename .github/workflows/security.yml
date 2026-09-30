@@ -41,9 +41,7 @@ jobs:
 
       - name: Python compile check
         run: |
-          python3 -m py_compile \\
-            config/includes.chroot/usr/local/bin/traceos-control \\
-            config/includes.chroot/usr/local/bin/traceos-shade
+          python3 -m py_compile config/includes.chroot/usr/local/bin/traceos-control config/includes.chroot/usr/local/bin/traceos-shade
 
       - name: Bandit
         run: |
