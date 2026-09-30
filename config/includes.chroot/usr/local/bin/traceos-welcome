@@ -2,7 +2,21 @@
 set -eu
 
 no_welcome="$(printenv TRACEOS_NO_WELCOME 2>/dev/null || printf '0')"
+cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+
 if [ -n "${DISPLAY:-}" ] && [ "$no_welcome" != "1" ]; then
+    page=""
+    case " $cmdline " in
+        *" traceos-qemu-page=osint "*) page="--osint" ;;
+        *" traceos-qemu-page=shade "*) page="--shade" ;;
+    esac
+
     sleep 2
+    if [ "$page" = "--osint" ]; then
+        exec /usr/local/bin/traceos-control --osint
+    fi
+    if [ "$page" = "--shade" ]; then
+        exec /usr/local/bin/traceos-shade
+    fi
     exec /usr/local/bin/traceos-control --welcome
 fi
