@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TraceOS Quick Shade
+Comment=Android-inspired local status and notification surface
+Exec=/usr/local/bin/traceos-shade
+Icon=traceos
+Categories=System;Utility;
+Terminal=false
