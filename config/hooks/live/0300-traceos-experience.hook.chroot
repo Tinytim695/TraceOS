@@ -9,7 +9,7 @@ if command -v convert >/dev/null 2>&1; then
   convert -background none /usr/share/traceos/traceos-logo.svg -resize 512x512 /usr/share/traceos/traceos-logo.png
   convert /usr/share/backgrounds/traceos/traceos-wallpaper.svg -resize 1920x1080 /usr/share/backgrounds/traceos/traceos-wallpaper.png
   for size in 32 48 64 128 256; do
-    convert -background none /usr/share/traceos/traceos-logo.svg -resize "$size"x"$size" "/usr/share/icons/hicolor/$size"x"$size"/apps/traceos.png"
+    convert -background none /usr/share/traceos/traceos-logo.svg -resize "${size}x${size}" "/usr/share/icons/hicolor/${size}x${size}/apps/traceos.png"
   done
 fi
 
