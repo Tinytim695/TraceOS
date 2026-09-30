@@ -30,9 +30,18 @@ def new_case(name):
     CASES.mkdir(parents=True,exist_ok=True); base=slugify(name); p=CASES/base; i=2
     while p.exists(): p=CASES/f"{base}-{i}"; i+=1
     for x in ("evidence","working","exports","reports","hashes","notes"): (p/x).mkdir(parents=True)
+    os.chmod(p,0o700)
+    for x in ("evidence","working","exports","reports","hashes","notes"): os.chmod(p/x,0o700)
     (p/"CASE.md").write_text(f"# {name}\n\nCreated by TraceOS {VERSION} at {now()}.\n\nSource evidence is not modified by TraceOS case helpers. Vault copies are hashed with SHA-256.\n",encoding="utf-8")
+    os.chmod(p/"CASE.md",0o600)
     (p/"hashes"/"evidence.tsv").write_text("timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",encoding="utf-8")
+    os.chmod(p/"hashes"/"evidence.tsv",0o600)
     set_case(p); print(f"Created and selected case: {p}"); return p
+def sha256_file(path, chunk_size=1024*1024):
+    digest=hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""): digest.update(chunk)
+    return digest.hexdigest()
 def session_mode():
     try: c=Path("/proc/cmdline").read_text()
     except OSError: return "UNKNOWN"
@@ -71,11 +80,29 @@ def add_evidence(src):
     if not p: print('Create a case first: traceos case new "Case Name"'); return 2
     src=Path(src).expanduser()
     if not src.is_file(): print(f"Not a file: {src}",file=sys.stderr); return 2
-    digest=hashlib.sha256(src.read_bytes()).hexdigest(); stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    dest=p/"evidence"/f"E{stamp}_{src.name}"; shutil.copy2(src,dest); os.chmod(dest,0o444)
+    stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dest=p/"evidence"/f"E{stamp}_{src.name}"
+    suffix=1
+    while dest.exists():
+        dest=p/"evidence"/f"E{stamp}_{suffix}_{src.name}"
+        suffix+=1
+    try:
+        source_hash=sha256_file(src)
+        shutil.copy2(src,dest)
+        vault_hash=sha256_file(dest)
+        if source_hash != vault_hash:
+            dest.unlink(missing_ok=True)
+            print("[TraceOS] Evidence copy hash mismatch; source may have changed during acquisition.",file=sys.stderr)
+            return 1
+        os.chmod(dest,0o444)
+    except (OSError,ValueError) as exc:
+        dest.unlink(missing_ok=True)
+        print(f"[TraceOS] Evidence acquisition failed: {exc}",file=sys.stderr)
+        return 1
     size=src.stat().st_size; mime=mimetypes.guess_type(src.name)[0] or "application/octet-stream"
-    with (p/"hashes"/"evidence.tsv").open("a",encoding="utf-8") as h: h.write(f"{now()}\t{src}\t{dest}\t{digest}\t{size}\t{mime}\n")
-    print(f"Evidence added: {dest}\nSHA-256: {digest}\nSize: {size} bytes\nMIME: {mime}"); return 0
+    with (p/"hashes"/"evidence.tsv").open("a",encoding="utf-8") as h:
+        h.write(f"{now()}\t{src}\t{dest}\t{source_hash}\t{size}\t{mime}\n")
+    print(f"Evidence added: {dest}\nSHA-256: {source_hash}\nSize: {size} bytes\nMIME: {mime}"); return 0
 def list_evidence():
     p=current_case()
     if not p: print("No current case."); return
@@ -165,13 +192,20 @@ def doctor():
 def ai():
     if have("ari"):return subprocess.call(["ari"])
     print("Trace AI uses the configured local model only. No external AI service is contacted by TraceOS."); return 0
-def update():
-    r=run(["sudo","apt-get","update"],600)
-    if r:print(r.stdout);return r.returncode
-    return 1
+def update(args):
+    helper="/usr/local/bin/traceos-update"
+    if not Path(helper).exists():
+        print("[TraceOS] Updater helper is not installed.",file=sys.stderr); return 1
+    mode=args or ["check"]
+    if mode[0] not in {"check","update"} or len(mode)>1:
+        print("Usage: traceos update [check|update]",file=sys.stderr); return 2
+    return subprocess.call([helper,*mode])
 def main(a):
     c,rest=(a[0],a[1:]) if a else ("status",[])
     if c=="status":status();return 0
+    if c=="session":
+        if rest and rest[0] not in {"status","mode"}: print("Usage: traceos session {status|mode}"); return 2
+        print(session_mode()); return 0
     if c=="welcome":status();print("Welcome to TraceOS. Open the Control Centre or start with a new case.");return 0
     if c=="case":
         x=rest[0] if rest else "list"
@@ -197,9 +231,9 @@ def main(a):
     if c=="demo":return demo()
     if c=="doctor":return doctor()
     if c=="ai":return ai()
-    if c=="update":return update()
+    if c=="update":return update(rest)
     if c=="about":
         print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\nOSINT workbench, network tools, reports, timeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
         return 0
-    print("Usage: traceos {status|welcome|case|evidence|analyse|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
+    print("Usage: traceos {status|welcome|session|case|evidence|analyse|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
 if __name__=="__main__":raise SystemExit(main(sys.argv[1:]))
