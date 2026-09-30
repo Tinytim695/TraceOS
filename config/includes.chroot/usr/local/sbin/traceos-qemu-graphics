@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+case " $(cat /proc/cmdline 2>/dev/null || true) " in
+    *" traceos-qemu-page="*) ;;
+    *) exit 0 ;;
+esac
+
+log=/run/traceos-qemu-graphics.log
+{
+    echo "[TraceOS] QEMU graphics bootstrap: $(date -Is)"
+    echo "[TraceOS] cmdline: $(cat /proc/cmdline 2>/dev/null || true)"
+    systemctl enable lightdm.service || true
+    systemctl restart lightdm.service || systemctl start lightdm.service || true
+    sleep 8
+    systemctl --no-pager --full status lightdm.service || true
+    echo "[TraceOS] display manager state:"
+    systemctl --no-pager --no-legend list-units 'display-manager.service' || true
+    echo "[TraceOS] seats:"
+    loginctl list-seats || true
+} >"$log" 2>&1
+
+exit 0

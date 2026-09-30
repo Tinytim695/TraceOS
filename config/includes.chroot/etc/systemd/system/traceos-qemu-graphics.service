@@ -1,0 +1,13 @@
+[Unit]
+Description=TraceOS QEMU graphical session bootstrap
+ConditionKernelCommandLine=traceos-qemu-page
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/traceos-qemu-graphics
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

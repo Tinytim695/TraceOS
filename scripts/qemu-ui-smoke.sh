@@ -17,11 +17,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-xorriso -osirrox on -indev "$ISO" -extract /live/vmlinuz "$STATE/vmlinuz"
-xorriso -osirrox on -indev "$ISO" -extract /live/initrd.img "$STATE/initrd.img"
-test -s "$STATE/vmlinuz"
-test -s "$STATE/initrd.img"
-
 capture_page() {
     local page="$1"
     local monitor="$STATE/monitor-$page.sock"
@@ -32,22 +27,10 @@ capture_page() {
 
     echo "[TraceOS] QEMU graphical page: $page"
 
-    qemu-system-x86_64 \
-        -accel tcg,thread=multi \
-        -m 3072 \
-        -smp 2 \
-        -vga std \
-        -nic none \
-        -drive "file=$ISO,media=cdrom,readonly=on,format=raw" \
-        -kernel "$STATE/vmlinuz" \
-        -initrd "$STATE/initrd.img" \
-        -append "boot=live components username=traceos hostname=traceos traceos-qemu-page=$page" \
-        -display "vnc=unix:$vnc_socket" \
-        -monitor "unix:$monitor,server=on,wait=off" \
-        -serial "file:$STATE/serial-$page.log" \
-        -snapshot \
-        -no-reboot \
-        >"$STATE/launch-$page.log" 2>&1 &
+    # Boot the ISO through its real El Torito boot path. This is deliberately
+    # different from the kernel-only smoke test: it exercises the same boot
+    # path that a user gets when starting TraceOS from USB.
+    qemu-system-x86_64         -accel tcg,thread=multi         -cpu max         -m 3072         -smp 2         -vga std         -nic none         -drive "file=$ISO,media=cdrom,readonly=on,format=raw"         -boot order=d         -append "traceos-qemu-page=$page"         -display "vnc=unix:$vnc_socket"         -monitor "unix:$monitor,server=on,wait=off"         -serial "file:$STATE/serial-$page.log"         -snapshot         -no-reboot         >"$STATE/launch-$page.log" 2>&1 &
     QEMU_PID=$!
 
     for _ in $(seq 1 30); do
@@ -58,8 +41,9 @@ capture_page() {
     done
     test -S "$monitor"
 
-    # Live-boot + LightDM + XFCE + TraceOS autostart needs time under TCG.
-    sleep 150
+    # TCG is slow, and this run intentionally exercises GRUB/Live boot,
+    # LightDM, XFCE and the TraceOS autostart path.
+    sleep 180
 
     python3 - "$monitor" "$ppm" <<'PY'
 import socket
@@ -88,10 +72,16 @@ PY
     identify "$png"
     test -s "$png"
 
-    # A real rendered UI should have measurable pixel variation.
     spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
     echo "[TraceOS] $page framebuffer standard deviation: $spread"
-    awk "BEGIN { exit !($spread > 0.02) }"
+    if ! awk "BEGIN { exit !($spread > 0.02) }"; then
+        echo "[TraceOS] Graphical framebuffer is still blank/static." >&2
+        echo "[TraceOS] Serial tail:" >&2
+        tail -n 120 "$STATE/serial-$page.log" >&2 || true
+        echo "[TraceOS] QEMU launch log:" >&2
+        tail -n 80 "$STATE/launch-$page.log" >&2 || true
+        exit 1
+    fi
 
     rm -f "$ppm"
     kill "$QEMU_PID" 2>/dev/null || true
@@ -104,4 +94,4 @@ capture_page osint
 capture_page shade
 
 echo "[TraceOS] QEMU screenshots ready:"
-find "$OUT" -maxdepth 1 -type f -name '*.png' -print -exec ls -lh {} \;
+find "$OUT" -maxdepth 1 -type f -name '*.png' -print -exec ls -lh {} +
