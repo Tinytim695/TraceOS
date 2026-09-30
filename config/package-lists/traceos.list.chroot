@@ -16,6 +16,7 @@ udisks2
 gvfs
 gvfs-backends
 pavucontrol
+blueman
 firefox-esr
 xserver-xorg
 xorg
