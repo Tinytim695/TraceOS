@@ -315,7 +315,10 @@ class TraceOSApp:
                 messagebox.showerror("TraceOS", str(exc), parent=self.root)
 
     def quick_shade(self) -> None:
-        self.open_terminal(["/usr/local/bin/traceos-shade"], "TraceOS Quick Shade")
+        try:
+            subprocess.Popen(["/usr/local/bin/traceos-shade"])
+        except OSError as exc:
+            messagebox.showerror("TraceOS Quick Shade", str(exc), parent=self.root)
 
     def run_job(self, args: list[str], label: str = "TraceOS") -> None:
         if self.active_process and self.active_process.poll() is None:
