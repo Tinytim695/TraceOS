@@ -1,6 +1,5 @@
 [Unit]
 Description=TraceOS QEMU graphical session bootstrap
-ConditionKernelCommandLine=traceos-qemu-page
 After=multi-user.target
 Wants=multi-user.target
 
