@@ -65,7 +65,8 @@ class App:
         row=tk.Frame(self.content,bg=BG); row.pack(fill="x",padx=23,pady=10)
         p=case(); d=Path.home()/"Cases"; count=sum(x.is_dir() for x in d.iterdir()) if d.exists() else 0
         r=run(["nmcli","-t","-f","STATE","general"]); net=r.stdout.strip().upper() if r and r.stdout.strip() else "UNKNOWN"
-        for title,value,color in [("Current case",name(p),ACCENT),("Case workspaces",str(count),ACCENT2),("Network",net,GOOD),("Session","AMNESIC",PURPLE)]:
+        sr=run([TRACE,"session","mode"]); session=sr.stdout.strip().upper() if sr and sr.stdout.strip() else "UNKNOWN"
+        for title,value,color in [("Current case",name(p),ACCENT),("Case workspaces",str(count),ACCENT2),("Network",net,GOOD),("Session",session,PURPLE)]:
             b=tk.Frame(row,bg=CARD,highlightthickness=1,highlightbackground="#1d324b"); b.pack(side="left",fill="both",expand=True,padx=5)
             tk.Label(b,text=title.upper(),bg=CARD,fg=MUTED,font=("Sans",8,"bold")).pack(anchor="w",padx=15,pady=(12,3))
             tk.Label(b,text=value,bg=CARD,fg=color,font=("Sans",15,"bold")).pack(anchor="w",padx=15,pady=(0,12))
