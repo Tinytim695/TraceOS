@@ -79,9 +79,14 @@ class TraceOSApp:
     def __init__(self, root: tk.Tk, welcome: bool = False, start_page: str = "dashboard") -> None:
         self.root = root
         self.root.title("TraceOS Control Centre")
-        self.root.geometry("1240x820")
-        self.root.minsize(1040, 700)
+        self.root.geometry("1360x860")
+        self.root.minsize(1080, 720)
         self.root.configure(bg=BG)
+        self.root.option_add("*Font", "DejaVu Sans 10")
+        try:
+            self.root.state("zoomed")
+        except tk.TclError:
+            pass
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
         self.active_process: subprocess.Popen[str] | None = None
@@ -228,6 +233,19 @@ class TraceOSApp:
         self.content = tk.Frame(body, bg=BG)
         self.content.pack(side="left", fill="both", expand=True)
 
+        status = tk.Frame(self.root, bg="#06111d", height=30)
+        status.pack(fill="x", side="bottom")
+        status.pack_propagate(False)
+        tk.Label(
+            status,
+            text="TRACEOS 0.1.0   •   LOCAL-FIRST   •   USER-INVOKED EXTERNAL ACTIONS   •   CASE DATA STAYS ON THIS MACHINE",
+            bg="#06111d", fg=MUTED, font=("Sans", 8, "bold")
+        ).pack(side="left", padx=18, pady=7)
+        tk.Label(
+            status, text="● READY", bg="#06111d", fg=GOOD,
+            font=("Sans", 8, "bold")
+        ).pack(side="right", padx=18, pady=7)
+
     def small_button(self, parent: tk.Widget, text: str, command, side: str = "left", primary: bool = False) -> None:
         bg = ACCENT if primary else CARD2
         fg = "#041016" if primary else TEXT
@@ -366,7 +384,7 @@ class TraceOSApp:
                 self.output_widget.delete("1.0", "end")
                 self.output_widget.insert("1.0", self.job_output)
                 self.output_widget.see("end")
-                self.output_widget.configure(state="normal")
+                self.output_widget.configure(state="disabled")
         if finished:
             code = self.active_process.poll() if self.active_process else 0
             self.job_output += f"\n[TraceOS] Task finished with exit code {code}.\n"
