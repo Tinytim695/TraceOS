@@ -423,8 +423,10 @@ class TraceOSApp:
         lower.pack(fill="both", expand=True, padx=28, pady=8)
 
         flow = self.card(lower, expand=True)
+        flow.pack(side="left", fill="both", expand=True, padx=(0, 6), pady=0)
         flow.pack_propagate(False)
         launch = self.card(lower, expand=True)
+        launch.pack(side="left", fill="both", expand=True, padx=(6, 0), pady=0)
         launch.pack_propagate(False)
 
         tk.Label(flow, text="INVESTIGATION FLOW", bg=CARD, fg=MUTED, font=("Sans", 9, "bold")).pack(anchor="w", padx=18, pady=(17, 9))
