@@ -27,22 +27,45 @@ capture_page() {
 
     echo "[TraceOS] QEMU graphical page: $page"
 
-    # Boot the ISO through its real El Torito boot path. This is deliberately
-    # different from the kernel-only smoke test: it exercises the same boot
-    # path that a user gets when starting TraceOS from USB.
-    qemu-system-x86_64         -accel tcg,thread=multi         -cpu max         -m 3072         -smp 2         -vga std         -nic none         -drive "file=$ISO,media=cdrom,readonly=on,format=raw"         -boot order=d         -append "traceos-qemu-page=$page"         -display "vnc=unix:$vnc_socket"         -monitor "unix:$monitor,server=on,wait=off"         -serial "file:$STATE/serial-$page.log"         -snapshot         -no-reboot         >"$STATE/launch-$page.log" 2>&1 &
+    # Boot the actual ISO through its El Torito boot path. Do not use
+    # QEMU -append here: that option is for direct kernel boot and is not
+    # the way to pass arguments through an ISO's GRUB bootloader.
+    qemu-system-x86_64 \
+        -accel tcg,thread=multi \
+        -cpu max \
+        -m 3072 \
+        -smp 2 \
+        -vga std \
+        -nic none \
+        -drive "file=$ISO,media=cdrom,readonly=on,format=raw" \
+        -boot order=d \
+        -display "vnc=unix:$vnc_socket" \
+        -monitor "unix:$monitor,server=on,wait=off" \
+        -serial "file:$STATE/serial-$page.log" \
+        -snapshot \
+        -no-reboot \
+        >"$STATE/launch-$page.log" 2>&1 &
     QEMU_PID=$!
 
     for _ in $(seq 1 30); do
         if [[ -S "$monitor" ]]; then
             break
         fi
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "[TraceOS] QEMU exited before opening its monitor." >&2
+            cat "$STATE/launch-$page.log" >&2 || true
+            exit 1
+        fi
         sleep 1
     done
-    test -S "$monitor"
+    if [[ ! -S "$monitor" ]]; then
+        echo "[TraceOS] QEMU monitor socket was not created." >&2
+        cat "$STATE/launch-$page.log" >&2 || true
+        exit 1
+    fi
 
-    # TCG is slow, and this run intentionally exercises GRUB/Live boot,
-    # LightDM, XFCE and the TraceOS autostart path.
+    # TCG is slow. Give the real ISO boot path time to reach LightDM,
+    # XFCE and the TraceOS welcome/control centre.
     sleep 180
 
     python3 - "$monitor" "$ppm" <<'PY'
@@ -89,9 +112,9 @@ PY
     unset QEMU_PID
 }
 
+# First prove the real desktop renders. Additional interactive pages will be
+# added once this baseline screenshot is reliable.
 capture_page dashboard
-capture_page osint
-capture_page shade
 
 echo "[TraceOS] QEMU screenshots ready:"
 find "$OUT" -maxdepth 1 -type f -name '*.png' -print -exec ls -lh {} +
