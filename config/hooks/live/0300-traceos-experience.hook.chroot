@@ -14,7 +14,7 @@ if command -v convert >/dev/null 2>&1; then
 fi
 
 cp /usr/share/traceos/traceos-logo.png /usr/share/plymouth/themes/traceos/traceos-logo.png 2>/dev/null || true
-chmod 0755 /usr/local/bin/traceos /usr/local/bin/traceos-control /usr/local/bin/traceos-welcome
+chmod 0755 /usr/local/bin/traceos /usr/local/bin/traceos-control /usr/local/bin/traceos-welcome /usr/local/bin/traceos-shade
 chmod +x /usr/share/plymouth/themes/traceos/traceos.script
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
   plymouth-set-default-theme -R traceos
