@@ -45,9 +45,7 @@ jobs:
 
       - name: Bandit
         run: |
-          bandit -q -lll -iii \\
-            config/includes.chroot/usr/local/bin/traceos-control \\
-            config/includes.chroot/usr/local/bin/traceos-shade
+          bandit -q -lll -iii config/includes.chroot/usr/local/bin/traceos-control config/includes.chroot/usr/local/bin/traceos-shade
 
       - name: Secret pattern scan
         shell: bash
