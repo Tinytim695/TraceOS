@@ -114,7 +114,7 @@ def list_evidence():
 def analyse(src):
     p=Path(src).expanduser()
     if not p.exists(): print(f"Not found: {p}",file=sys.stderr); return 2
-    digest=hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "directory"
+    digest=sha256_file(p) if p.is_file() else "directory"
     print(f"\nTRACEOS LOCAL ANALYSIS\n─────────────────────\nPath: {p}\nSize: {p.stat().st_size if p.is_file() else 0} bytes\nModified: {dt.datetime.fromtimestamp(p.stat().st_mtime,dt.timezone.utc).isoformat()}\nSHA-256: {digest}")
     if p.is_file() and have("file"):
         r=run(["file","-b",str(p)])
@@ -185,7 +185,7 @@ def demo():
     p=current_case(); sample=p/"working"/"demo-evidence.txt"; sample.write_text("Synthetic TraceOS demonstration evidence. No real personal data.\n",encoding="utf-8")
     add_evidence(str(sample)); (p/"notes"/"demo-note.md").write_text("# Demo note\n\nSynthetic and safe to explore.\n",encoding="utf-8"); report(); print("Demo Lab ready."); return 0
 def doctor():
-    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","ari"]
+    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","blueman-manager","ari"]
     print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")
     for c in req:print(f" {'[OK]' if have(c) else '[FAIL]'} required  {c}")
     for c in opt:print(f" {'[OK]' if have(c) else '[--]'} optional  {c}")
