@@ -59,7 +59,7 @@ capture_page() {
     test -S "$monitor"
 
     # Live-boot + LightDM + XFCE + TraceOS autostart needs time under TCG.
-    sleep 55
+    sleep 150
 
     python3 - "$monitor" "$ppm" <<'PY'
 import socket
