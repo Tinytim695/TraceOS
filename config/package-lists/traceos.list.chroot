@@ -10,6 +10,7 @@ thunar-archive-plugin
 # Desktop integration
 network-manager
 network-manager-gnome
+bluez
 blueman
 polkitd
 pkexec
