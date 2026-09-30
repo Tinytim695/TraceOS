@@ -33,6 +33,18 @@ The resulting image is:
 live-image-amd64.hybrid.iso
 ```
 
+## Pre-USB validation
+
+Every main-branch ISO build runs a clean image build, ISO layout validation, a Linux live-kernel boot smoke test, and a graphical QEMU smoke test that captures the Dashboard, OSINT Centre, and Quick Shade from the real built ISO. The CI job also publishes a small QEMU screenshot artifact separately from the large ISO artifact so the desktop can be inspected without downloading the full image.
+
+Before flashing a downloaded ISO, verify its SHA-256 against the accompanying `traceos-0.1.0-amd64.iso.sha256` file. Flashing the image to a USB device is destructive to the selected device, so identify the target device carefully and verify the checksum before writing it.
+
+The first physical USB boot should be treated as a hardware validation pass. Check Wi-Fi/networking, display resolution, audio, USB storage detection, Bluetooth where available, read-only evidence mounting, suspend/shutdown behaviour, and the default amnesic session before relying on the image for real work.
+
+## Demo Lab
+
+Demo Lab always creates a separate synthetic case containing clearly marked demonstration evidence. It does not inject demo material into the currently selected case.
+
 ## Safety model
 
 TraceOS is designed for legitimate administration, incident response, forensics, CTFs, and security testing on systems you are authorized to assess. Network and security utilities are user-invoked rather than automatically run against external targets.
