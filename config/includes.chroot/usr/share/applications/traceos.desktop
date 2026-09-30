@@ -2,8 +2,8 @@
 Type=Application
 Name=TraceOS Console
 Comment=TraceOS investigation console
-Exec=xfce4-terminal --title="TraceOS Console" --command=/usr/local/bin/traceos
-Icon=utilities-terminal
+Exec=xfce4-terminal --title="TraceOS Console" --execute /usr/local/bin/traceos status
+Icon=traceos
 Terminal=false
 Categories=System;Utility;Security;
 StartupNotify=true

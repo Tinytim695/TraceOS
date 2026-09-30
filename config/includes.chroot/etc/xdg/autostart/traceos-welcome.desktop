@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TraceOS Welcome
+Comment=Open the TraceOS Control Centre after login
+Exec=/usr/local/bin/traceos-welcome
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

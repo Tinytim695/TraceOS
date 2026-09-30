@@ -1,28 +1,28 @@
 menu hshift 0
 menu width 82
-menu title TraceOS - Live Investigation System
+menu title TraceOS - Digital Investigation Workstation
 
 label traceos-amnesic
     menu label ^TraceOS Amnesic (no persistent storage)
     menu default
     linux @LINUX@
     initrd @INITRD@
-    append @APPEND_LIVE@ nopersistence
+    append @APPEND_LIVE@ nopersistence splash
 
 label traceos-persistent
     menu label TraceOS ^Persistent
     linux @LINUX@
     initrd @INITRD@
-    append @APPEND_LIVE@ persistence
+    append @APPEND_LIVE@ persistence splash
 
 label traceos-persistent-luks
     menu label TraceOS Persistent ^Encrypted (LUKS)
     linux @LINUX@
     initrd @INITRD@
-    append @APPEND_LIVE@ persistence persistence-encryption=luks
+    append @APPEND_LIVE@ persistence persistence-encryption=luks splash
 
 label traceos-failsafe
-    menu label TraceOS ^Failsafe (Amnesic)
+    menu label ^TraceOS Failsafe (Amnesic)
     linux @LINUX@
     initrd @INITRD@
     append @APPEND_LIVE_FAILSAFE@ nopersistence
@@ -35,13 +35,13 @@ label traceos-persistent-usb
     menu label Persistent from ^USB
     linux @LINUX@
     initrd @INITRD@
-    append @APPEND_LIVE@ persistence persistence-media=removable-usb
+    append @APPEND_LIVE@ persistence persistence-media=removable-usb splash
 
 label traceos-persistent-luks-usb
     menu label Encrypted Persistent from U^SB
     linux @LINUX@
     initrd @INITRD@
-    append @APPEND_LIVE@ persistence persistence-media=removable-usb persistence-encryption=luks
+    append @APPEND_LIVE@ persistence persistence-media=removable-usb persistence-encryption=luks splash
 
 label mainmenu
     menu label ^Back

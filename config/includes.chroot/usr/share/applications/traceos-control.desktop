@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=TraceOS Control Centre
-Comment=TraceOS graphical launcher
+Comment=TraceOS investigation cockpit
 Exec=/usr/local/bin/traceos-control
-Icon=utilities-terminal
+Icon=traceos
 Terminal=false
 Categories=System;Utility;Security;
 StartupNotify=true

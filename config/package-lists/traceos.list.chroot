@@ -68,6 +68,12 @@ cryptsetup
 cryptsetup-initramfs
 rsync
 
+# Branding / boot UX
+plymouth
+plymouth-themes
+fonts-dejavu
+librsvg2-common
+
 # Firmware
 firmware-linux
 

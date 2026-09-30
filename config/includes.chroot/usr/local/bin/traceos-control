@@ -1,243 +1,149 @@
 #!/usr/bin/env python3
-import getpass
-import os
-import platform
-import shutil
-import subprocess
-import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+import os, subprocess, sys, tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, simpledialog
 
-VERSION = "0.1.0"
-CASES_DIR = os.path.expanduser("~/Cases")
+BG="#050811"; PANEL="#0a1220"; CARD="#0e192b"; CARD2="#12233a"; TEXT="#eaf6ff"; MUTED="#7895b5"
+ACCENT="#72f1e8"; ACCENT2="#50b8ff"; PURPLE="#9c7bff"; GOOD="#72e6a7"; WARN="#f0c674"; TRACE="/usr/local/bin/traceos"
 
-
-def local_command(args):
+def run(a,terminal=False,title="TraceOS"):
     try:
-        return subprocess.run(
-            args,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
+        if terminal: subprocess.Popen(["xfce4-terminal",f"--title={title}","--execute",*a])
+        else: return subprocess.run(a,capture_output=True,text=True,check=False)
+    except OSError as e: messagebox.showerror(title,str(e))
 
+def case():
+    r=run([TRACE,"case","current"])
+    if r and r.returncode==0 and r.stdout.strip()!="NONE": return Path(r.stdout.strip())
+    return None
 
-def launch(args, error_title="TraceOS"):
-    executable = args[0]
-    if shutil.which(executable) is None:
-        messagebox.showwarning(error_title, f"{executable} is not installed in this image.")
-        return
+def name(p):
+    if not p:return "NONE"
     try:
-        subprocess.Popen(args)
-    except OSError as exc:
-        messagebox.showerror(error_title, str(exc))
+        for line in (p/"CASE.md").read_text(encoding="utf-8").splitlines():
+            if line.startswith("# "): return line[2:].strip()
+    except OSError: pass
+    return p.name
 
-
-def open_cases():
-    os.makedirs(CASES_DIR, exist_ok=True)
-    launch(["thunar", CASES_DIR])
-
-
-def create_case():
-    name = simpledialog.askstring("New Case", "Case name:")
-    if not name or not name.strip():
-        return
-
-    result = local_command(["/usr/local/bin/traceos", "case", "new", name.strip()])
-    if result is None or result.returncode != 0:
-        detail = (result.stderr or result.stdout or "Unable to create case.").strip()
-        messagebox.showerror("TraceOS", detail)
-        return
-
-    messagebox.showinfo("Case created", (result.stdout or "Case created.").strip())
-    refresh_status()
-
-
-def open_terminal():
-    launch(["xfce4-terminal"])
-
-
-def open_files():
-    launch(["thunar"])
-
-
-def open_network():
-    launch(["nm-connection-editor"])
-
-
-def open_console():
-    launch(
-        [
-            "xfce4-terminal",
-            "--title=TraceOS Console",
-            "--command=/usr/local/bin/traceos",
-        ]
-    )
-
-
-def open_osint():
-    launch(["xfce4-terminal", "--title=TraceOS OSINT", "--command=/usr/local/bin/traceos-osint"])
-
-
-def open_session():
-    launch(["xfce4-terminal", "--title=TraceOS Session", "--command=/usr/local/bin/traceos-session status"])
-
-
-def open_updates():
-    launch(["xfce4-terminal", "--title=TraceOS Updates", "--command=/usr/local/bin/traceos-update check"])
-
-
-def open_ari():
-    launch(
-        [
-            "xfce4-terminal",
-            "--title=Ari",
-            "--command=/usr/local/bin/traceos ai",
-        ]
-    )
-
-
-def session_state():
-    try:
-        with open("/proc/cmdline", "r", encoding="utf-8") as handle:
-            cmdline = " " + handle.read().strip() + " "
-    except OSError:
-        return "unknown"
-    if " nopersistence " in cmdline:
-        return "Amnesic (no persistence)"
-    if " persistence " in cmdline:
-        if "persistence-encryption=luks" in cmdline:
-            return "Persistent (LUKS)"
-        return "Persistent"
-    return "Live default"
-
-
-def network_state():
-    result = local_command(["nmcli", "-t", "-f", "STATE", "general"])
-    if result and result.returncode == 0:
-        state = result.stdout.strip().splitlines()[0] if result.stdout.strip() else "unknown"
-        return state
-    return "unknown"
-
-
-def refresh_status():
-    os.makedirs(CASES_DIR, exist_ok=True)
-    try:
-        case_count = sum(
-            os.path.isdir(os.path.join(CASES_DIR, item))
-            for item in os.listdir(CASES_DIR)
-        )
-    except OSError:
-        case_count = 0
-
-    user_value.set(getpass.getuser())
-    host_value.set(platform.node() or "unknown")
-    kernel_value.set(platform.release() or "unknown")
-    network_value.set(network_state())
-    cases_value.set(str(case_count))
-    session_value.set(session_state())
-
-
-root = tk.Tk()
-root.title("TraceOS Control Centre")
-root.geometry("900x620")
-root.minsize(780, 540)
-
-style = ttk.Style(root)
-try:
-    style.theme_use("clam")
-except tk.TclError:
-    pass
-
-style.configure("Title.TLabel", font=("Sans", 26, "bold"))
-style.configure("Subtitle.TLabel", font=("Sans", 11))
-style.configure("Action.TButton", font=("Sans", 11), padding=(12, 10))
-
-header = ttk.Frame(root, padding=(26, 22, 26, 10))
-header.pack(fill="x")
-ttk.Label(header, text="TRACEOS", style="Title.TLabel").pack(anchor="w")
-ttk.Label(
-    header,
-    text=f"Digital Investigation Linux  •  v{VERSION}",
-    style="Subtitle.TLabel",
-).pack(anchor="w", pady=(2, 0))
-
-content = ttk.Frame(root, padding=(26, 8, 26, 8))
-content.pack(fill="both", expand=True)
-
-actions = ttk.Frame(content)
-actions.pack(fill="x", pady=(0, 14))
-
-buttons = [
-    ("New Case", create_case),
-    ("Cases", open_cases),
-    ("Terminal", open_terminal),
-    ("Files", open_files),
-    ("Network", open_network),
-    ("TraceOS Console", open_console),
-    ("OSINT Workbench", open_osint),
-    ("Session", open_session),
-    ("Updates", open_updates),
-    ("Ari", open_ari),
-]
-
-for index, (label, callback) in enumerate(buttons):
-    button = ttk.Button(actions, text=label, command=callback, style="Action.TButton")
-    button.grid(row=index // 2, column=index % 2, padx=6, pady=6, sticky="ew")
-
-for column in range(2):
-    actions.columnconfigure(column, weight=1)
-
-status_card = ttk.LabelFrame(content, text="System status", padding=16)
-status_card.pack(fill="x", pady=(0, 12))
-
-user_value = tk.StringVar()
-host_value = tk.StringVar()
-kernel_value = tk.StringVar()
-network_value = tk.StringVar()
-cases_value = tk.StringVar()
-session_value = tk.StringVar()
-
-rows = [
-    ("User", user_value),
-    ("Host", host_value),
-    ("Kernel", kernel_value),
-    ("NetworkManager", network_value),
-    ("Case workspaces", cases_value),
-    ("Session", session_value),
-]
-
-for row, (label, variable) in enumerate(rows):
-    ttk.Label(status_card, text=label).grid(
-        row=row, column=0, sticky="w", padx=(0, 30), pady=4
-    )
-    ttk.Label(status_card, textvariable=variable).grid(
-        row=row, column=1, sticky="w", pady=4
-    )
-
-privacy = ttk.LabelFrame(content, text="TraceOS handling model", padding=16)
-privacy.pack(fill="x", pady=(0, 12))
-ttk.Label(
-    privacy,
-    text=(
-        "Local-first. No built-in telemetry. Network and forensic utilities are "
-        "started only by the user. Original evidence is never modified by the "
-        "case workspace helpers."
-    ),
-    wraplength=780,
-    justify="left",
-).pack(anchor="w")
-
-footer = ttk.Frame(root, padding=(26, 8, 26, 18))
-footer.pack(fill="x")
-ttk.Button(footer, text="Refresh", command=refresh_status).pack(side="left")
-ttk.Label(
-    footer,
-    text="TraceOS  •  XFCE  •  Debian Trixie",
-    style="Subtitle.TLabel",
-).pack(side="right")
-
-refresh_status()
-root.mainloop()
+class App:
+    def __init__(self,root,welcome=False):
+        self.root=root; self.root.title("TraceOS Control Centre"); self.root.geometry("1180x760"); self.root.minsize(980,640); self.root.configure(bg=BG)
+        self.content=tk.Frame(root,bg=BG); self.content.pack(side="right",fill="both",expand=True); self.build(); self.dashboard()
+        if welcome:self.root.after(500,lambda:messagebox.showinfo("Welcome to TraceOS","Your investigation cockpit is ready.\n\nStart a case, inspect Demo Lab, or open the OSINT Workbench.",parent=self.root))
+    def build(self):
+        h=tk.Frame(self.root,bg=PANEL,height=82); h.pack(side="top",fill="x"); h.pack_propagate(False)
+        logo="/usr/share/traceos/traceos-logo.png"
+        if os.path.exists(logo):
+            try:
+                self.logo=tk.PhotoImage(file=logo); s=max(1,self.logo.width()//48)
+                if s>1:self.logo=self.logo.subsample(s)
+                tk.Label(h,image=self.logo,bg=PANEL).pack(side="left",padx=(18,10))
+            except tk.TclError: pass
+        tk.Label(h,text="TRACEOS",bg=PANEL,fg=TEXT,font=("Sans",22,"bold")).pack(anchor="w",pady=(13,0))
+        tk.Label(h,text="Digital Investigation Workstation",bg=PANEL,fg=MUTED,font=("Sans",9)).pack(anchor="w")
+        tk.Button(h,text="NEW CASE",command=self.new_case,bg=ACCENT,fg="#041016",relief="flat",font=("Sans",9,"bold"),padx=16,pady=7).pack(side="right",padx=18,pady=18)
+        body=tk.Frame(self.root,bg=BG); body.pack(side="top",fill="both",expand=True)
+        s=tk.Frame(body,bg=PANEL,width=210); s.pack(side="left",fill="y"); s.pack_propagate(False)
+        tk.Label(s,text="WORKSPACE",bg=PANEL,fg=MUTED,font=("Sans",8,"bold")).pack(anchor="w",padx=18,pady=(20,8))
+        for label,fn in [("◉  Dashboard",self.dashboard),("▣  Evidence Vault",self.evidence),("⌁  Network",self.network),("◎  OSINT",self.osint),("▤  Reports",self.reports),("▥  Timeline",self.timeline)]: self.nav(s,label,fn)
+        tk.Label(s,text="SYSTEM",bg=PANEL,fg=MUTED,font=("Sans",8,"bold")).pack(anchor="w",padx=18,pady=(20,8))
+        for label,fn in [("⌘  Terminal",lambda:run(["bash"],True,"TraceOS Terminal")),("▸  Trace Console",lambda:run([TRACE,"status"],True,"TraceOS Console")),("★  Trace AI",lambda:run([TRACE,"ai"],True,"Trace AI")),("◇  Demo Lab",lambda:run([TRACE,"demo"],True,"TraceOS Demo Lab")),("⚙  System Doctor",lambda:run([TRACE,"doctor"],True,"TraceOS Doctor"))]: self.nav(s,label,fn)
+        tk.Label(s,text="LOCAL-FIRST",bg=PANEL,fg=GOOD,font=("Sans",8,"bold")).pack(anchor="w",padx=18,pady=(24,2))
+        tk.Label(s,text="No built-in telemetry\nExternal actions are user-invoked",bg=PANEL,fg=MUTED,justify="left",font=("Sans",8)).pack(anchor="w",padx=18)
+    def nav(self,p,label,fn):
+        tk.Button(p,text=label,command=fn,anchor="w",bg=PANEL,fg=TEXT,activebackground=CARD2,activeforeground=ACCENT,relief="flat",bd=0,font=("Sans",10),padx=18,pady=9).pack(fill="x")
+    def clear(self):
+        for w in self.content.winfo_children():w.destroy()
+    def heading(self,kicker,title,sub):
+        self.clear(); tk.Label(self.content,text=kicker.upper(),bg=BG,fg=ACCENT,font=("Sans",8,"bold")).pack(anchor="w",padx=28,pady=(25,3))
+        tk.Label(self.content,text=title,bg=BG,fg=TEXT,font=("Sans",25,"bold")).pack(anchor="w",padx=28)
+        tk.Label(self.content,text=sub,bg=BG,fg=MUTED,font=("Sans",10)).pack(anchor="w",padx=28,pady=(3,12))
+    def button(self,p,text,fn,side="left"):
+        tk.Button(p,text=text,command=fn,bg=ACCENT,fg="#041016",relief="flat",font=("Sans",9,"bold"),padx=13,pady=7).pack(side=side,padx=5)
+    def dashboard(self):
+        self.heading("TraceOS","Investigation cockpit","Cases, evidence, network, OSINT and reports through one TraceOS front door.")
+        row=tk.Frame(self.content,bg=BG); row.pack(fill="x",padx=23,pady=10)
+        p=case(); d=Path.home()/"Cases"; count=sum(x.is_dir() for x in d.iterdir()) if d.exists() else 0
+        r=run(["nmcli","-t","-f","STATE","general"]); net=r.stdout.strip().upper() if r and r.stdout.strip() else "UNKNOWN"
+        for title,value,color in [("Current case",name(p),ACCENT),("Case workspaces",str(count),ACCENT2),("Network",net,GOOD),("Session","AMNESIC",PURPLE)]:
+            b=tk.Frame(row,bg=CARD,highlightthickness=1,highlightbackground="#1d324b"); b.pack(side="left",fill="both",expand=True,padx=5)
+            tk.Label(b,text=title.upper(),bg=CARD,fg=MUTED,font=("Sans",8,"bold")).pack(anchor="w",padx=15,pady=(12,3))
+            tk.Label(b,text=value,bg=CARD,fg=color,font=("Sans",15,"bold")).pack(anchor="w",padx=15,pady=(0,12))
+        left=tk.Frame(self.content,bg=CARD); left.pack(side="left",fill="both",expand=True,padx=(28,8),pady=10)
+        right=tk.Frame(self.content,bg=CARD); right.pack(side="left",fill="both",expand=True,padx=(8,28),pady=10)
+        tk.Label(left,text="INVESTIGATION FLOW",bg=CARD,fg=MUTED,font=("Sans",9,"bold")).pack(anchor="w",padx=18,pady=(18,10))
+        for title,desc,fn in [("01  Start / select case","Create a clean workspace.",self.new_case),("02  Add evidence","Hash and vault a separate copy.",self.add_evidence),("03  Analyse locally","Inspect a file without uploading it.",self.analyse),("04  Generate report","Build a Markdown case report.",self.report)]:
+            b=tk.Frame(left,bg=CARD2); b.pack(fill="x",padx=16,pady=4)
+            tk.Button(b,text=title,command=fn,bg=CARD2,fg=TEXT,relief="flat",anchor="w",font=("Sans",10,"bold")).pack(fill="x",padx=12,pady=(10,0))
+            tk.Label(b,text=desc,bg=CARD2,fg=MUTED,font=("Sans",8)).pack(anchor="w",padx=12,pady=(0,10))
+        tk.Label(right,text="QUICK LAUNCH",bg=CARD,fg=MUTED,font=("Sans",9,"bold")).pack(anchor="w",padx=18,pady=(18,10))
+        for title,fn in [("Evidence Vault",self.evidence),("Network Command Centre",self.network),("OSINT Workbench",self.osint),("Reports",self.reports),("Timeline",self.timeline)]:
+            tk.Button(right,text="→  "+title,command=fn,bg=CARD2,fg=TEXT,activebackground=CARD2,activeforeground=ACCENT,relief="flat",anchor="w",font=("Sans",10)).pack(fill="x",padx=16,pady=4,ipady=7)
+    def new_case(self):
+        v=simpledialog.askstring("New TraceOS Case","Case name:",parent=self.root)
+        if v:
+            r=run([TRACE,"case","new",v.strip()])
+            if r and r.returncode==0:self.dashboard()
+            else:messagebox.showerror("TraceOS",(r.stdout or r.stderr or "Unable to create case.").strip())
+    def add_evidence(self):
+        v=filedialog.askopenfilename(parent=self.root,title="Select evidence file")
+        if v:
+            r=run([TRACE,"evidence","add",v])
+            if r and r.returncode==0:messagebox.showinfo("Evidence Vault",r.stdout.strip(),parent=self.root); self.evidence()
+            else:messagebox.showerror("Evidence Vault",(r.stdout or r.stderr or "Unable to add evidence.").strip())
+    def analyse(self):
+        v=filedialog.askopenfilename(parent=self.root,title="Select file for local analysis")
+        if v:run([TRACE,"analyse",v],True,"TraceOS Local Analysis")
+    def report(self):
+        r=run([TRACE,"report"])
+        if r and r.returncode==0:messagebox.showinfo("TraceOS Reports",r.stdout.strip(),parent=self.root)
+        else:messagebox.showerror("TraceOS Reports",(r.stdout or r.stderr or "No current case.").strip())
+        self.reports()
+    def evidence(self):
+        self.heading("Case tools","Evidence Vault","Separate working copies, SHA-256 integrity records and a readable audit trail.")
+        box=tk.Frame(self.content,bg=CARD); box.pack(fill="both",expand=True,padx=28,pady=10); p=case()
+        if not p:tk.Label(box,text="NO CURRENT CASE",bg=CARD,fg=WARN,font=("Sans",14,"bold")).pack(anchor="w",padx=18,pady=18)
+        else:
+            m=p/"hashes"/"evidence.tsv"; rows=m.read_text(encoding="utf-8").splitlines()[1:] if m.exists() else []
+            for row in rows[-14:]:
+                q=row.split("\t")
+                if len(q)==6:
+                    x=tk.Frame(box,bg=CARD2); x.pack(fill="x",padx=16,pady=4)
+                    tk.Label(x,text=Path(q[2]).name,bg=CARD2,fg=TEXT,font=("Sans",9,"bold")).pack(anchor="w",padx=10,pady=(8,0))
+                    tk.Label(x,text=f"{q[0]}  •  {q[4]} bytes  •  {q[5]}",bg=CARD2,fg=MUTED,font=("Monospace",8)).pack(anchor="w",padx=10)
+                    tk.Label(x,text=q[3],bg=CARD2,fg=ACCENT,font=("Monospace",8)).pack(anchor="w",padx=10,pady=(0,8))
+        self.button(self.content,"ADD EVIDENCE",self.add_evidence,"right")
+    def network(self):
+        self.heading("Network","Command Centre","Passive local status plus explicit, user-invoked Nmap scans.")
+        box=tk.Frame(self.content,bg=CARD); box.pack(fill="both",expand=True,padx=28,pady=10)
+        tk.Label(box,text="AUTHORIZED USE ONLY",bg=CARD,fg=WARN,font=("Sans",10,"bold")).pack(anchor="w",padx=18,pady=(18,3))
+        r=run([TRACE,"network","status"]); t=tk.Text(box,bg="#07101c",fg=TEXT,relief="flat",font=("Monospace",9)); t.pack(fill="both",expand=True,padx=16,pady=14); t.insert("1.0",(r.stdout if r else "No status available.").strip()); t.configure(state="disabled")
+        self.button(self.content,"USER-INVOKED NMAP",self.nmap,"right")
+        tk.Button(self.content,text="NETWORK SETTINGS",command=lambda:run(["nm-connection-editor"]),bg=CARD2,fg=TEXT,relief="flat",font=("Sans",9,"bold"),padx=12,pady=7).pack(side="left",padx=(28,5),pady=(4,16))
+    def nmap(self):
+        v=simpledialog.askstring("Nmap","Authorized target:",parent=self.root)
+        if v:run([TRACE,"network","nmap",v.strip()],True,"TraceOS Nmap")
+    def osint(self):
+        self.heading("OSINT","Workbench","External services are contacted only when you explicitly launch a tool.")
+        box=tk.Frame(self.content,bg=CARD); box.pack(fill="both",expand=True,padx=28,pady=10)
+        tk.Label(box,text="USER-INVOKED EXTERNAL LOOKUPS",bg=CARD,fg=WARN,font=("Sans",10,"bold")).pack(anchor="w",padx=18,pady=(18,3))
+        for title,detail in [("Sherlock","Username discovery"),("Maigret","Username investigation"),("h8mail","Email OSINT"),("Blackbird","Username/email search")]:
+            x=tk.Frame(box,bg=CARD2); x.pack(fill="x",padx=16,pady=4)
+            tk.Label(x,text=title,bg=CARD2,fg=TEXT,font=("Sans",10,"bold")).pack(side="left",padx=12,pady=10)
+            tk.Label(x,text=detail,bg=CARD2,fg=MUTED,font=("Sans",8)).pack(side="left")
+            tk.Button(x,text="OPEN",command=lambda t=title.lower():run([TRACE,"osint",t],True,"TraceOS "+title),bg=CARD2,fg=ACCENT,relief="flat",font=("Sans",8,"bold")).pack(side="right",padx=12)
+        self.button(self.content,"OPEN FULL WORKBENCH",lambda:run([TRACE,"osint"],True,"TraceOS OSINT"),"right")
+    def reports(self):
+        self.heading("Case tools","Reports","Generated Markdown reports stay inside the current case workspace.")
+        box=tk.Frame(self.content,bg=CARD); box.pack(fill="both",expand=True,padx=28,pady=10); p=case()
+        if p:
+            for f in sorted((p/"reports").glob("*"),reverse=True):tk.Label(box,text="▤  "+f.name,bg=CARD2,fg=TEXT,anchor="w",font=("Monospace",9)).pack(fill="x",padx=16,pady=3,ipady=5)
+        else:tk.Label(box,text="NO CURRENT CASE",bg=CARD,fg=WARN,font=("Sans",14,"bold")).pack(anchor="w",padx=18,pady=18)
+        self.button(self.content,"GENERATE REPORT",self.report,"right")
+    def timeline(self):
+        self.heading("Case tools","Timeline","Chronological events recorded by the TraceOS evidence ledger.")
+        box=tk.Frame(self.content,bg=CARD); box.pack(fill="both",expand=True,padx=28,pady=10)
+        r=run([TRACE,"timeline"]); t=tk.Text(box,bg="#07101c",fg=TEXT,relief="flat",font=("Monospace",9)); t.pack(fill="both",expand=True,padx=16,pady=16); t.insert("1.0",(r.stdout if r else "No timeline available.").strip()); t.configure(state="disabled")
+        self.button(self.content,"REFRESH",self.timeline,"right")
+if __name__=="__main__":
+    root=tk.Tk(); App(root,"--welcome" in sys.argv); root.mainloop()

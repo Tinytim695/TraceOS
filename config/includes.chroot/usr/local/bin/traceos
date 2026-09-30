@@ -1,156 +1,205 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-VERSION="$(cat /usr/share/traceos/VERSION 2>/dev/null || echo "0.1.0")"
-CASES_DIR="$HOME/Cases"
-
-have() {
-  command -v "$1" >/dev/null 2>&1
-}
-
-case "${1:-status}" in
-  status)
-    printf '\nTRACEOS %s\n' "$VERSION"
-    printf '%s\n' 'Digital Investigation Linux'
-    printf '%s\n\n' '----------------------------------------------'
-    printf 'User:     %s\n' "$(id -un 2>/dev/null || printf '?')"
-    printf 'Host:     %s\n' "$(hostname 2>/dev/null || printf '?')"
-    printf 'Kernel:   %s\n' "$(uname -r 2>/dev/null || printf '?')"
-    printf 'Desktop:  XFCE\n'
-    printf 'Base:     Debian GNU/Linux 13 "trixie"\n'
-    printf 'Cases:    %s\n' "$(find "$CASES_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
-    printf 'Network:  user-invoked tools only\n'
-    printf 'Telemetry: none built in\n\n'
-    printf 'Commands: traceos {status|cases|tools|osint|ai|update|about|case}\n\n'
-    ;;
-
-  cases)
-    mkdir -p "$CASES_DIR"
-    if have thunar; then
-      exec thunar "$CASES_DIR"
-    fi
-    cd "$CASES_DIR"
-    exec bash
-    ;;
-
-  tools)
-    printf '\nTRACEOS TOOLBOX\n'
-    printf '%s\n\n' 'Installed utilities are listed only; TraceOS does not auto-run them.'
-    tools=(
-      "nmap|Network/service inspection"
-      "exiftool|Metadata inspection"
-      "tesseract|OCR"
-      "imagemagick|Image processing"
-      "ffmpeg|Audio/video inspection"
-      "sqlite3|SQLite database inspection"
-      "ripgrep|Fast local text search"
-      "file|File-type identification"
-      "strings|Printable-string extraction"
-      "sha256sum|Cryptographic hashing"
-      "sherlock|OSINT username discovery"
-      "maigret|OSINT username investigation"
-      "h8mail|OSINT email lookups"
-      "blackbird|OSINT username/email search"
-      "traceos-evidence-mount|Read-only evidence mounting"
-    )
-    for entry in "${tools[@]}"; do
-      name="${entry%%|*}"
-      purpose="${entry#*|}"
-      if have "$name"; then
-        printf '  [OK]   %-14s %s\n' "$name" "$purpose"
-      else
-        printf '  [--]   %-14s %s\n' "$name" "$purpose"
-      fi
-    done
-    printf '\n'
-    ;;
-
-  osint)
-    exec /usr/local/bin/traceos-osint "${@:2}"
-    ;;
-
-  ai)
-    if have ari; then
-      exec ari
-    fi
-    printf '%s\n' 'Ari is not installed in this image yet.'
-    printf '%s\n' 'The local AI layer is reserved for a later milestone.'
-    ;;
-
-  case)
-    action="${2:-list}"
-    case "$action" in
-      new)
-        shift 2
-        name="$*"
-        if [[ -z "$name" ]]; then
-          printf '%s\n' 'Usage: traceos case new "Case Name"'
-          exit 2
-        fi
-        slug="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '-')"
-        slug="${slug#-}"
-        slug="${slug%-}"
-        [[ -n "$slug" ]] || { printf '%s\n' 'Invalid case name.' >&2; exit 2; }
-        case_dir="$CASES_DIR/$slug"
-        if [[ -e "$case_dir" ]]; then
-          printf 'Case already exists: %s\n' "$case_dir"
-          exit 1
-        fi
-        mkdir -p "$case_dir"/{evidence,working,exports,reports}
-        cat > "$case_dir/CASE.md" <<EOF
-# $name
-
-Created by TraceOS $VERSION.
-
-## Workspace
-- evidence/   Original evidence or examiner-authorized copies
-- working/    Analysis workspace
-- exports/    Deliberately exported artefacts
-- reports/    Notes and reports
-
-## Handling note
-TraceOS does not automatically upload, modify, or delete evidence.
-Preserve original files and work from copies when appropriate.
-EOF
-        printf 'Created case: %s\n' "$case_dir"
-        ;;
-
-      list)
-        mkdir -p "$CASES_DIR"
-        printf '\nTRACEOS CASES\n'
-        found=0
-        while IFS= read -r dir; do
-          found=1
-          printf '  %s\n' "$(basename "$dir")"
-        done < <(find "$CASES_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | sort)
-        (( found )) || printf '  No cases yet.\n'
-        printf '\n'
-        ;;
-
-      *)
-        printf '%s\n' 'Usage: traceos case {new "Case Name"|list}'
-        exit 2
-        ;;
-    esac
-    ;;
-
-  update)
-    if [[ $# -gt 1 ]]; then
-      exec /usr/local/bin/traceos-update "${@:2}"
-    fi
-    exec /usr/local/bin/traceos-update update
-    ;;
-
-  about)
-    printf '\nTraceOS %s\n' "$VERSION"
-    printf '%s\n' 'Debian-based investigation and forensic desktop.'
-    printf '%s\n' 'Local-first, user-invoked tooling, no built-in telemetry.'
-    printf '%s\n' 'Amnesic mode means no persistent live overlay, not secure disk erasure.'
-    printf '%s\n\n' 'Designed for authorized investigation, administration, security testing and CTF work.'
-    ;;
-
-  *)
-    printf '%s\n' 'Usage: traceos {status|cases|tools|osint|ai|update|about|case}'
-    exit 2
-    ;;
-esac
+#!/usr/bin/env python3
+import datetime as dt, hashlib, mimetypes, os, shutil, subprocess, sys
+from pathlib import Path
+VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
+HOME=Path.home(); CASES=HOME/"Cases"; STATE=Path(os.environ.get("XDG_CONFIG_HOME", HOME/".config"))/"traceos"/"current_case"
+def now(): return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+def have(c): return shutil.which(c) is not None
+def run(a,t=30):
+    try: return subprocess.run(a,text=True,capture_output=True,timeout=t,check=False)
+    except (OSError,subprocess.SubprocessError): return None
+def current_case():
+    try:
+        p=Path(STATE.read_text().strip()); return p if p.is_dir() else None
+    except OSError: return None
+def case_name(p):
+    if not p:return "NONE"
+    try:
+        for line in (p/"CASE.md").read_text(encoding="utf-8").splitlines():
+            if line.startswith("# "): return line[2:].strip()
+    except OSError: pass
+    return p.name
+def set_case(p): STATE.parent.mkdir(parents=True,exist_ok=True); STATE.write_text(str(p)+"\n",encoding="utf-8")
+def slugify(n):
+    o=[]
+    for c in n.lower():
+        if c.isalnum() or c in "._-": o.append(c)
+        elif not o or o[-1]!="-": o.append("-")
+    return "".join(o).strip("-") or "case"
+def new_case(name):
+    CASES.mkdir(parents=True,exist_ok=True); base=slugify(name); p=CASES/base; i=2
+    while p.exists(): p=CASES/f"{base}-{i}"; i+=1
+    for x in ("evidence","working","exports","reports","hashes","notes"): (p/x).mkdir(parents=True)
+    (p/"CASE.md").write_text(f"# {name}\n\nCreated by TraceOS {VERSION} at {now()}.\n\nSource evidence is not modified by TraceOS case helpers. Vault copies are hashed with SHA-256.\n",encoding="utf-8")
+    (p/"hashes"/"evidence.tsv").write_text("timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",encoding="utf-8")
+    set_case(p); print(f"Created and selected case: {p}"); return p
+def session_mode():
+    try: c=Path("/proc/cmdline").read_text()
+    except OSError: return "UNKNOWN"
+    if "nopersistence" in c:return "AMNESIC"
+    if "persistence-encryption=luks" in c:return "PERSISTENT LUKS"
+    if "persistence" in c:return "PERSISTENT"
+    return "LIVE DEFAULT"
+def network_mode():
+    r=run(["nmcli","-t","-f","STATE","general"],3); return r.stdout.strip().splitlines()[0].upper() if r and r.stdout.strip() else "UNKNOWN"
+def status():
+    n=sum(p.is_dir() for p in CASES.iterdir()) if CASES.exists() else 0; p=current_case()
+    print(f"""
+╭──────────────── TRACEOS ────────────────╮
+│ DIGITAL INVESTIGATION WORKSTATION       │
+│ Version    {VERSION:<28}│
+├─────────────────────────────────────────┤
+│ Case       {case_name(p)[:29]:<29}│
+│ Workspaces {n:<29}│
+│ Session    {session_mode():<29}│
+│ Network    {network_mode():<29}│
+│ Telemetry  none built in               │
+╰─────────────────────────────────────────╯
+""")
+def list_cases():
+    CASES.mkdir(parents=True,exist_ok=True); print("\nTRACEOS CASES\n─────────────")
+    found=False
+    for p in sorted(CASES.iterdir()):
+        if p.is_dir(): print(f" {'*' if p==current_case() else ' '} {case_name(p)}  [{p.name}]"); found=True
+    if not found: print("  No cases yet.")
+def show_tools():
+    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search")]
+    print("\nTRACEOS TOOLBOX\n───────────────")
+    for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
+def add_evidence(src):
+    p=current_case()
+    if not p: print('Create a case first: traceos case new "Case Name"'); return 2
+    src=Path(src).expanduser()
+    if not src.is_file(): print(f"Not a file: {src}",file=sys.stderr); return 2
+    digest=hashlib.sha256(src.read_bytes()).hexdigest(); stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dest=p/"evidence"/f"E{stamp}_{src.name}"; shutil.copy2(src,dest); os.chmod(dest,0o444)
+    size=src.stat().st_size; mime=mimetypes.guess_type(src.name)[0] or "application/octet-stream"
+    with (p/"hashes"/"evidence.tsv").open("a",encoding="utf-8") as h: h.write(f"{now()}\t{src}\t{dest}\t{digest}\t{size}\t{mime}\n")
+    print(f"Evidence added: {dest}\nSHA-256: {digest}\nSize: {size} bytes\nMIME: {mime}"); return 0
+def list_evidence():
+    p=current_case()
+    if not p: print("No current case."); return
+    m=p/"hashes"/"evidence.tsv"; rows=m.read_text(encoding="utf-8").splitlines()[1:] if m.exists() else []
+    print(f"\nEVIDENCE VAULT / {case_name(p)}\n")
+    for r in rows:
+        q=r.split("\t")
+        if len(q)==6: print(f" {q[0]}  {Path(q[2]).name}\n    {q[3]}  {q[4]} bytes  {q[5]}")
+def analyse(src):
+    p=Path(src).expanduser()
+    if not p.exists(): print(f"Not found: {p}",file=sys.stderr); return 2
+    digest=hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else "directory"
+    print(f"\nTRACEOS LOCAL ANALYSIS\n─────────────────────\nPath: {p}\nSize: {p.stat().st_size if p.is_file() else 0} bytes\nModified: {dt.datetime.fromtimestamp(p.stat().st_mtime,dt.timezone.utc).isoformat()}\nSHA-256: {digest}")
+    if p.is_file() and have("file"):
+        r=run(["file","-b",str(p)])
+        if r and r.stdout.strip(): print(f"File: {r.stdout.strip()}")
+    if p.is_file() and have("exiftool"):
+        r=run(["exiftool","-s","-G1","-a",str(p)])
+        if r and r.stdout.strip(): print("\nMetadata\n"+r.stdout.strip())
+    return 0
+def report():
+    p=current_case()
+    if not p: print("No current case."); return 2
+    m=p/"hashes"/"evidence.tsv"; rows=[r.split("\t") for r in m.read_text(encoding="utf-8").splitlines()[1:] if r.strip()] if m.exists() else []
+    out=p/"reports"/f"TraceOS-report-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.md"
+    lines=["# TraceOS Investigation Report","",f"Case: {case_name(p)}",f"Generated: {now()}","","## Handling","TraceOS preserves source files and works from separate vault copies.","","## Evidence","","| Timestamp | Vault copy | SHA-256 | Size | MIME |","|---|---|---|---:|---|"]
+    for q in rows:
+        if len(q)==6: lines.append(f"| {q[0]} | {Path(q[2]).name} | {q[3]} | {q[4]} | {q[5]} |")
+    out.write_text("\n".join(lines)+"\n",encoding="utf-8"); print(f"Report written: {out}"); return 0
+def timeline():
+    p=current_case()
+    if not p: print("No current case."); return 2
+    m=p/"hashes"/"evidence.tsv"; events=[]
+    if m.exists():
+        for r in m.read_text(encoding="utf-8").splitlines()[1:]:
+            q=r.split("\t")
+            if len(q)==6: events.append((q[0],f"Evidence added: {Path(q[2]).name}"))
+    print(f"\nTRACEOS TIMELINE / {case_name(p)}\n")
+    for s,t in sorted(events): print(f" {s}  {t}")
+    if not events: print(" No timeline events recorded.")
+    return 0
+def network(a):
+    if not a or a[0]=="status":
+        print(f"NetworkManager: {network_mode()}"); r=run(["ip","-br","addr"],5)
+        if r: print(r.stdout.strip())
+        return 0
+    if a[0]=="nmap" and len(a)>1:
+        print("AUTHORIZED USE ONLY: scan systems you own or are explicitly authorized to test.")
+        r=run(["nmap",*a[1:]],300)
+        if not r:return 1
+        print(r.stdout)
+        if r.stderr.strip():print(r.stderr,file=sys.stderr)
+        return r.returncode
+    print("Usage: traceos network {status|nmap TARGET}"); return 2
+def osint(a):
+    tools=["sherlock","maigret","h8mail","blackbird"]
+    if not a:
+        print("\nTRACEOS OSINT WORKBENCH\n")
+        for i,t in enumerate(tools,1):print(f" {i}) {t}")
+        c=input("Selection: ").strip()
+        if c=="0":return 0
+        try:a=[tools[int(c)-1]]
+        except (ValueError,IndexError):return 2
+    if a[0] not in tools or not have(a[0]):print(f"Tool unavailable: {a[0]}");return 1
+    if len(a)==1 and a[0] in {"sherlock","maigret"}:
+        u=input("Username: ").strip()
+        if not u:return 2
+        a.append(u)
+    print("External lookups happen only because you launched this command.")
+    r=run(a,300)
+    if r:
+        print(r.stdout)
+        if r.stderr.strip():print(r.stderr,file=sys.stderr)
+        return r.returncode
+    return 1
+def demo():
+    if not current_case():new_case("TraceOS Demo Investigation")
+    p=current_case(); sample=p/"working"/"demo-evidence.txt"; sample.write_text("Synthetic TraceOS demonstration evidence. No real personal data.\n",encoding="utf-8")
+    add_evidence(str(sample)); (p/"notes"/"demo-note.md").write_text("# Demo note\n\nSynthetic and safe to explore.\n",encoding="utf-8"); report(); print("Demo Lab ready."); return 0
+def doctor():
+    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","ari"]
+    print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")
+    for c in req:print(f" {'[OK]' if have(c) else '[FAIL]'} required  {c}")
+    for c in opt:print(f" {'[OK]' if have(c) else '[--]'} optional  {c}")
+    for p in ["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]:print(f" {'[OK]' if Path(p).exists() else '[--]'} asset  {p}")
+    return 0
+def ai():
+    if have("ari"):return subprocess.call(["ari"])
+    print("Trace AI uses the configured local model only. No external AI service is contacted by TraceOS."); return 0
+def update():
+    r=run(["sudo","apt-get","update"],600)
+    if r:print(r.stdout);return r.returncode
+    return 1
+def main(a):
+    c,rest=(a[0],a[1:]) if a else ("status",[])
+    if c=="status":status();return 0
+    if c=="welcome":status();print("Welcome to TraceOS. Open the Control Centre or start with a new case.");return 0
+    if c=="case":
+        x=rest[0] if rest else "list"
+        if x=="new":
+            name=" ".join(rest[1:]).strip()
+            if not name: print('Usage: traceos case new "Case Name"'); return 2
+            new_case(name);return 0
+        if x=="list":list_cases();return 0
+        if x=="current":print(current_case() or "NONE");return 0
+        if x=="use" and len(rest)>1:
+            p=Path(rest[1]).expanduser()
+            if p.is_dir():set_case(p);print(f"Selected case: {case_name(p)}");return 0
+        print("Usage: traceos case {new NAME|list|current|use CASE_DIR}");return 2
+    if c=="evidence":
+        if rest and rest[0]=="add" and len(rest)>1:return add_evidence(rest[1])
+        list_evidence();return 0
+    if c=="analyse":return analyse(rest[0]) if rest else 2
+    if c=="tools":show_tools();return 0
+    if c=="network":return network(rest)
+    if c=="osint":return osint(rest)
+    if c=="report":return report()
+    if c=="timeline":return timeline()
+    if c=="demo":return demo()
+    if c=="doctor":return doctor()
+    if c=="ai":return ai()
+    if c=="update":return update()
+    if c=="about":
+        print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\nOSINT workbench, network tools, reports, timeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
+        return 0
+    print("Usage: traceos {status|welcome|case|evidence|analyse|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
+if __name__=="__main__":raise SystemExit(main(sys.argv[1:]))
