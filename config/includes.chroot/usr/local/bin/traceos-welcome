@@ -1,6 +1,8 @@
 #!/bin/sh
-NO_WELCOME=$(printenv TRACEOS_NO_WELCOME 2>/dev/null || printf '0')
-if [ -n "$DISPLAY" ] && [ "$NO_WELCOME" != "1" ]; then
-    sleep 3
+set -eu
+
+no_welcome="$(printenv TRACEOS_NO_WELCOME 2>/dev/null || printf '0')"
+if [ -n "${DISPLAY:-}" ] && [ "$no_welcome" != "1" ]; then
+    sleep 2
     exec /usr/local/bin/traceos-control --welcome
 fi

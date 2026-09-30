@@ -1,11 +1,68 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
 <defs>
-<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#050811"/><stop offset=".55" stop-color="#071324"/><stop offset="1" stop-color="#0b071b"/></linearGradient>
-<radialGradient id="glow"><stop stop-color="#72f1e8" stop-opacity=".18"/><stop offset="1" stop-color="#72f1e8" stop-opacity="0"/></radialGradient>
-<pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse"><path d="M64 0H0V64" fill="none" stroke="#7ca8ca" stroke-opacity=".08"/></pattern>
+  <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#03050b"/>
+    <stop offset=".42" stop-color="#071426"/>
+    <stop offset=".72" stop-color="#0a1027"/>
+    <stop offset="1" stop-color="#160822"/>
+  </linearGradient>
+  <radialGradient id="cyanGlow" cx=".5" cy=".42" r=".55">
+    <stop offset="0" stop-color="#72f1e8" stop-opacity=".22"/>
+    <stop offset=".52" stop-color="#50b8ff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#50b8ff" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="purpleGlow" cx=".78" cy=".22" r=".45">
+    <stop offset="0" stop-color="#9c7bff" stop-opacity=".18"/>
+    <stop offset="1" stop-color="#9c7bff" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#08162a"/>
+    <stop offset="1" stop-color="#03050b"/>
+  </linearGradient>
+  <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+    <path d="M64 0H0V64" fill="none" stroke="#8bb6d8" stroke-opacity=".07"/>
+  </pattern>
+  <filter id="soft">
+    <feGaussianBlur stdDeviation="18"/>
+  </filter>
 </defs>
-<rect width="1920" height="1080" fill="url(#bg)"/><circle cx="960" cy="470" r="600" fill="url(#glow)"/><rect width="1920" height="1080" fill="url(#grid)"/>
-<g transform="translate(960 430)"><circle r="185" fill="none" stroke="#72f1e8" stroke-width="5" opacity=".25"/><circle r="132" fill="none" stroke="#50b8ff" stroke-width="3" opacity=".4"/><path d="M-88-70H88v46H31v138h-62V-24h-57z" fill="#72f1e8"/><path d="M0-260V-185M0 185V260M-260 0H-185M185 0H260" stroke="#72f1e8" stroke-width="6" stroke-linecap="round" opacity=".75"/></g>
-<text x="960" y="700" fill="#eaf6ff" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="54" font-weight="700" letter-spacing="8">TRACEOS</text>
-<text x="960" y="750" fill="#8ca7c2" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="19" letter-spacing="5">DIGITAL INVESTIGATION WORKSTATION</text>
+
+<rect width="1920" height="1080" fill="url(#sky)"/>
+<rect width="1920" height="1080" fill="url(#cyanGlow)"/>
+<rect width="1920" height="1080" fill="url(#purpleGlow)"/>
+
+<ellipse cx="970" cy="675" rx="580" ry="100" fill="#72f1e8" opacity=".09" filter="url(#soft)"/>
+
+<path d="M0 690 L220 520 L370 625 L575 410 L780 650 L960 470 L1140 635 L1360 390 L1585 620 L1740 485 L1920 650 L1920 1080 L0 1080Z"
+      fill="#040913"/>
+<path d="M0 760 L210 625 L390 700 L590 535 L760 720 L955 575 L1130 700 L1360 530 L1560 715 L1760 585 L1920 700 L1920 1080 L0 1080Z"
+      fill="#07111d" opacity=".92"/>
+
+<path d="M0 760 C330 735 510 800 820 772 C1110 746 1340 770 1920 735 L1920 1080 L0 1080Z"
+      fill="url(#water)"/>
+<path d="M0 776 C360 750 575 805 840 781 C1150 752 1380 785 1920 750"
+      fill="none" stroke="#72f1e8" stroke-opacity=".20" stroke-width="2"/>
+
+<g opacity=".13">
+  <path d="M0 840H1920M0 920H1920M0 1000H1920" stroke="#72f1e8"/>
+  <path d="M160 780V1080M420 780V1080M680 780V1080M940 780V1080M1200 780V1080M1460 780V1080M1720 780V1080" stroke="#50b8ff"/>
+</g>
+<rect width="1920" height="1080" fill="url(#grid)" opacity=".45"/>
+
+<g transform="translate(960 430)">
+  <circle r="190" fill="none" stroke="#72f1e8" stroke-width="4" opacity=".20"/>
+  <circle r="136" fill="none" stroke="#50b8ff" stroke-width="3" opacity=".34"/>
+  <circle r="95" fill="#050811" fill-opacity=".42" stroke="#9c7bff" stroke-opacity=".22"/>
+  <path d="M-88-70H88v46H31v138h-62V-24h-57z" fill="#72f1e8"/>
+  <path d="M0-260V-188M0 188V260M-260 0H-188M188 0H260"
+        stroke="#72f1e8" stroke-width="6" stroke-linecap="round" opacity=".70"/>
+  <circle cx="0" cy="0" r="15" fill="#eaf6ff"/>
+</g>
+
+<text x="960" y="700" fill="#eaf6ff" text-anchor="middle"
+      font-family="DejaVu Sans, sans-serif" font-size="56" font-weight="700" letter-spacing="9">TRACEOS</text>
+<text x="960" y="748" fill="#8ca7c2" text-anchor="middle"
+      font-family="DejaVu Sans, sans-serif" font-size="18" letter-spacing="5">DIGITAL INVESTIGATION WORKSTATION</text>
+<text x="960" y="1022" fill="#72f1e8" fill-opacity=".55" text-anchor="middle"
+      font-family="DejaVu Sans, sans-serif" font-size="12" letter-spacing="4">LOCAL-FIRST  •  USER-INVOKED EXTERNAL ACTIONS</text>
 </svg>

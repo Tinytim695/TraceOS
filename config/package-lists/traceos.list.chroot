@@ -17,11 +17,11 @@ udisks2
 gvfs
 gvfs-backends
 pavucontrol
-blueman
 firefox-esr
 xserver-xorg
 xorg
 dbus-x11
+xdg-utils
 package-update-indicator
 
 # Core CLI
@@ -38,6 +38,7 @@ procps
 psmisc
 lsof
 file
+binutils
 less
 nano
 vim-tiny

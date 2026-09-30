@@ -1,34 +1,31 @@
 #!/bin/sh
 set -eu
 
-CMDLINE="$(cat /proc/cmdline 2>/dev/null || true)"
-MODE="amnesic (no persistent storage)"
+cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+mode="amnesic (no persistent storage)"
 
-case " $CMDLINE " in
+case " $cmdline " in
   *" nopersistence "*)
-    MODE="amnesic (no persistent storage)"
+    mode="amnesic (no persistent storage)"
     ;;
   *" persistence "*)
-    if printf '%s' "$CMDLINE" | grep -q 'persistence-encryption=luks'; then
-      MODE="persistent (LUKS)"
+    if printf '%s' "$cmdline" | grep -q 'persistence-encryption=luks'; then
+      mode="persistent (LUKS)"
     else
-      MODE="persistent"
+      mode="persistent"
     fi
     ;;
 esac
 
 case "${1:-status}" in
   status)
-    printf 'TraceOS session: %s
-' "$MODE"
+    printf 'TraceOS session: %s\n' "$mode"
     ;;
   mode)
-    printf '%s
-' "$MODE"
+    printf '%s\n' "$mode"
     ;;
   *)
-    printf '%s
-' 'Usage: traceos-session {status|mode}'
+    printf '%s\n' 'Usage: traceos-session {status|mode}'
     exit 2
     ;;
 esac
