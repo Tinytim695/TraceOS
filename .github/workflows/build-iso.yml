@@ -139,7 +139,7 @@ jobs:
           subject-path: live-image-amd64.hybrid.iso
 
       - name: Upload ISO artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0
         with:
           name: traceos-0.1.0-amd64
           path: |
@@ -147,6 +147,12 @@ jobs:
             traceos-0.1.0-amd64.iso.sha256
             traceos-iso-layout.txt
             traceos-qemu-serial.log
+          if-no-files-found: error
+
+      - name: Upload QEMU screenshots
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0
+        with:
+          name: traceos-qemu-ui-screenshots
+          path: |
             traceos-ui-screenshots/*.png
-            traceos-ui-screenshots/serial-*.log
           if-no-files-found: error
