@@ -4,7 +4,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog
 
 BG="#050811"; PANEL="#0a1220"; CARD="#0e192b"; CARD2="#12233a"; TEXT="#eaf6ff"; MUTED="#7895b5"
-ACCENT="#72f1e8"; ACCENT2="#50b8ff"; PURPLE="#9c7bff"; GOOD="#72e6a7"; WARN="#f0c674"; TRACE="/usr/local/bin/traceos"
+ACCENT="#72f1e8"; ACCENT2="#50b8ff"; PURPLE="#9c7bff"; GOOD="#72e6a7"; WARN="#f0c674"; TRACE="/usr/local/bin/traceos"; SESSION="/usr/local/bin/traceos-session"
 
 def run(a,terminal=False,title="TraceOS"):
     try:
@@ -28,7 +28,7 @@ def name(p):
 class App:
     def __init__(self,root,welcome=False):
         self.root=root; self.root.title("TraceOS Control Centre"); self.root.geometry("1180x760"); self.root.minsize(980,640); self.root.configure(bg=BG)
-        self.content=tk.Frame(root,bg=BG); self.content.pack(side="right",fill="both",expand=True); self.build(); self.dashboard()
+        self.content=tk.Frame(root,bg=BG); self.content.pack(side="right",fill="both",expand=True); self.build(); self.osint() if "--osint" in sys.argv else self.dashboard()
         if welcome:self.root.after(500,lambda:messagebox.showinfo("Welcome to TraceOS","Your investigation cockpit is ready.\n\nStart a case, inspect Demo Lab, or open the OSINT Workbench.",parent=self.root))
     def build(self):
         h=tk.Frame(self.root,bg=PANEL,height=82); h.pack(side="top",fill="x"); h.pack_propagate(False)
