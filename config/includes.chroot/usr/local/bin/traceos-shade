@@ -45,6 +45,9 @@ def network_usage():
     except (OSError, ValueError):
         return "Local traffic"
 
+def session_mode():
+    return command_text(["/usr/local/bin/traceos-session", "mode"], "Unknown").strip()
+
 def battery():
     for cap in Path("/sys/class/power_supply").glob("BAT*/capacity"):
         try:
