@@ -11,13 +11,13 @@ permissions:
   attestations: write
 
 concurrency:
-  group: traceos-iso-${{ github.sha }}
+  group: traceos-iso-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
 
     steps:
       - name: Checkout
@@ -41,11 +41,13 @@ jobs:
 
       - name: Install pinned live-build
         run: |
-          rm -rf /tmp/live-build
-          timeout 180s git clone --filter=blob:none --no-checkout https://salsa.debian.org/live-team/live-build.git /tmp/live-build
+          rm -rf /tmp/live-build /tmp/live-build.tar.gz
+          timeout 180s curl -fsSL --retry 5 --retry-delay 2 --max-time 180 \
+            https://salsa.debian.org/live-team/live-build/-/archive/531cdb98/live-build-531cdb98.tar.gz \
+            -o /tmp/live-build.tar.gz
+          mkdir -p /tmp/live-build
+          tar -xzf /tmp/live-build.tar.gz -C /tmp/live-build --strip-components=1
           cd /tmp/live-build
-          timeout 180s git fetch --depth 1 origin 531cdb98
-          git checkout --detach 531cdb98
           sudo make install
           lb --version
 
@@ -121,6 +123,117 @@ jobs:
             cat traceos-qemu-serial.log || true
             exit 1
           fi
+
+      - name: QEMU graphical UI screenshot smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf traceos-ui-screenshots traceos-ui
+          mkdir -p traceos-ui-screenshots traceos-ui
+
+          xorriso -osirrox on -indev live-image-amd64.hybrid.iso \
+            -extract /live/vmlinuz traceos-ui/vmlinuz
+          xorriso -osirrox on -indev live-image-amd64.hybrid.iso \
+            -extract /live/initrd.img traceos-ui/initrd.img
+          test -s traceos-ui/vmlinuz
+          test -s traceos-ui/initrd.img
+
+          capture_page() {
+            page="$1"
+            monitor="traceos-ui/monitor-$page.sock"
+            vnc_socket="traceos-ui/vnc-$page.sock"
+            ppm="traceos-ui-screenshots/traceos-$page.ppm"
+            png="traceos-ui-screenshots/traceos-$page.png"
+            rm -f "$monitor" "$vnc_socket" "$ppm" "$png"
+
+            echo "[TraceOS] Booting graphical page: $page"
+            qemu-system-x86_64 \
+              -accel tcg,thread=multi \
+              -m 3072 \
+              -smp 2 \
+              -vga std \
+              -drive file=live-image-amd64.hybrid.iso,media=cdrom,readonly=on,format=raw \
+              -kernel traceos-ui/vmlinuz \
+              -initrd traceos-ui/initrd.img \
+              -append "boot=live components username=traceos hostname=traceos traceos-qemu-page=$page" \
+              -display "vnc=unix:$vnc_socket" \
+              -monitor "unix:$monitor,server=on,wait=off" \
+              -serial "file:traceos-ui/serial-$page.log" \
+              -snapshot \
+              -no-reboot \
+              >"traceos-ui/launch-$page.log" 2>&1 &
+            qpid=$!
+
+            for _ in $(seq 1 30); do
+              [ -S "$monitor" ] && break
+              sleep 1
+            done
+            test -S "$monitor"
+
+            # Wait for the live system, LightDM autologin, XFCE and the
+            # requested TraceOS application to render.
+            sleep 55
+
+            python3 - "$monitor" "$ppm" <<'PY'
+import socket
+import sys
+import time
+
+monitor, ppm = sys.argv[1], sys.argv[2]
+last = b""
+for _ in range(15):
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(5)
+        s.connect(monitor)
+        s.sendall(b"help screendump\n")
+        time.sleep(0.3)
+        try:
+            while True:
+                data = s.recv(8192)
+                if not data:
+                    break
+                last += data
+                if b"screendump" in last:
+                    break
+        except socket.timeout:
+            pass
+        s.sendall(("screendump " + ppm + "\n").encode())
+        time.sleep(2)
+        try:
+            last += s.recv(8192)
+        except socket.timeout:
+            pass
+        s.close()
+        break
+    except OSError:
+        time.sleep(1)
+else:
+    raise SystemExit("Unable to connect to QEMU monitor")
+print(last.decode("utf-8", "replace")[-2500:])
+PY
+
+            test -s "$ppm"
+            convert "$ppm" -resize 1280x720 -strip -quality 86 "$png"
+            identify "$png"
+            test -s "$png"
+
+            # Reject an almost-black/flat framebuffer. This does not try to
+            # judge aesthetics, only whether a graphical surface rendered.
+            spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+            echo "[TraceOS] framebuffer standard deviation: $spread"
+            awk "BEGIN { exit !($spread > 0.02) }"
+
+            kill "$qpid" 2>/dev/null || true
+            wait "$qpid" 2>/dev/null || true
+          }
+
+          capture_page dashboard
+          capture_page osint
+          capture_page shade
+
+          echo "[TraceOS] Graphical screenshots:"
+          find traceos-ui-screenshots -maxdepth 1 -type f -name '*.png' -print -exec ls -lh {} \;
 
       - name: Attest ISO provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
