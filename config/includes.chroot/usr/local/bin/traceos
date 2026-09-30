@@ -181,16 +181,26 @@ def osint(a):
         return r.returncode
     return 1
 def demo():
-    if not current_case():new_case("TraceOS Demo Investigation")
-    p=current_case(); sample=p/"working"/"demo-evidence.txt"; sample.write_text("Synthetic TraceOS demonstration evidence. No real personal data.\n",encoding="utf-8")
-    add_evidence(str(sample)); (p/"notes"/"demo-note.md").write_text("# Demo note\n\nSynthetic and safe to explore.\n",encoding="utf-8"); report(); print("Demo Lab ready."); return 0
+    previous=current_case()
+    p=new_case("TraceOS Demo Investigation")
+    sample=p/"working"/"demo-evidence.txt"; sample.write_text("Synthetic TraceOS demonstration evidence. No real personal data.\n",encoding="utf-8")
+    add_evidence(str(sample)); (p/"notes"/"demo-note.md").write_text("# Demo note\n\nSynthetic and safe to explore.\n",encoding="utf-8"); report()
+    print(f"Demo Lab ready: {p}")
+    if previous: print(f"Previous case remains untouched: {previous}")
+    return 0
 def doctor():
     req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","blueman-manager","ari"]
+    assets=["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]
+    configs=["/etc/xdg/autostart/traceos-welcome.desktop","/etc/lightdm/lightdm.conf.d/50-traceos.conf","/usr/local/bin/traceos-control","/usr/local/bin/traceos-shade"]
     print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")
-    for c in req:print(f" {'[OK]' if have(c) else '[FAIL]'} required  {c}")
+    failed=False
+    for c in req:
+        ok=have(c); failed=failed or not ok
+        print(f" {'[OK]' if ok else '[FAIL]'} required  {c}")
     for c in opt:print(f" {'[OK]' if have(c) else '[--]'} optional  {c}")
-    for p in ["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]:print(f" {'[OK]' if Path(p).exists() else '[--]'} asset  {p}")
-    return 0
+    for p in assets:print(f" {'[OK]' if Path(p).exists() else '[--]'} asset  {p}")
+    for p in configs:print(f" {'[OK]' if Path(p).exists() else '[FAIL]'} config  {p}")
+    return 1 if failed else 0
 def ai():
     if have("ari"):return subprocess.call(["ari"])
     print("Trace AI uses the configured local model only. No external AI service is contacted by TraceOS."); return 0
