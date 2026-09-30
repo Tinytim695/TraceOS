@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""TraceOS Quick Shade: a local, touch-friendly status and notification surface."""
+import datetime as dt
+import os
+import shutil
+import subprocess
+import tkinter as tk
+from pathlib import Path
+
+BG = "#000000"
+PANEL = "#0d0d0d"
+CARD = "#1b1b1b"
+CARD_DARK = "#232323"
+TEXT = "#f5f5f5"
+MUTED = "#a6a6a6"
+TRACE = "#72f1e8"
+GOOD = "#82e8a9"
+WARN = "#f2cf76"
+
+def command_text(args, default=""):
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, check=False, timeout=3)
+        return (r.stdout or "").strip() or default
+    except (OSError, subprocess.SubprocessError):
+        return default
+
+def wifi_state():
+    value = command_text(["nmcli", "-t", "-f", "WIFI", "general"], "unknown").lower()
+    if value == "enabled":
+        conn = command_text(["nmcli", "-t", "-f", "STATE", "general"], "unknown").lower()
+        return "Connected" if "connected" in conn else "Enabled"
+    return "Off"
+
+def network_usage():
+    total = 0
+    try:
+        for p in Path("/sys/class/net").iterdir():
+            if p.name == "lo":
+                continue
+            rx = p / "statistics/rx_bytes"
+            tx = p / "statistics/tx_bytes"
+            total += int(rx.read_text()) + int(tx.read_text())
+        gb = total / (1024 ** 3)
+        return f"{gb:.2f} GB traffic"
+    except (OSError, ValueError):
+        return "Local traffic"
+
+def battery():
+    for cap in Path("/sys/class/power_supply").glob("BAT*/capacity"):
+        try:
+            return f"{cap.read_text().strip()}%"
+        except OSError:
+            pass
+    return "AC power"
+
+def rounded_rect(canvas, x1, y1, x2, y2, radius=26, fill=CARD, outline=""):
+    canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, fill=fill, outline=outline)
+    canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, fill=fill, outline=outline)
+    canvas.create_arc(x1, y1, x1 + 2 * radius, y1 + 2 * radius, start=90, extent=90, fill=fill, outline=outline)
+    canvas.create_arc(x2 - 2 * radius, y1, x2, y1 + 2 * radius, start=0, extent=90, fill=fill, outline=outline)
+    canvas.create_arc(x1, y2 - 2 * radius, x1 + 2 * radius, y2, start=180, extent=90, fill=fill, outline=outline)
+    canvas.create_arc(x2 - 2 * radius, y2 - 2 * radius, x2, y2, start=270, extent=90, fill=fill, outline=outline)
+
+class Shade:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("TraceOS Quick Shade")
+        self.root.configure(bg=BG)
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
+        w = max(900, self.root.winfo_screenwidth() - 80)
+        h = max(720, self.root.winfo_screenheight() - 80)
+        x = (self.root.winfo_screenwidth() - w) // 2
+        y = (self.root.winfo_screenheight() - h) // 2
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
+        self.canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
+        self.draw()
+        self.root.bind("<Escape>", lambda _e: self.root.destroy())
+        self.root.bind("<Control-q>", lambda _e: self.root.destroy())
+        self.root.bind("<Configure>", lambda _e: self.draw())
+        self.root.after(1000, self.tick)
+
+    def button(self, box, title, value, icon, action=None, active=True):
+        x1, y1, x2, y2 = box
+        fill = CARD_DARK if active else CARD
+        rounded_rect(self.canvas, x1, y1, x2, y2, 28, fill)
+        cx = x1 + 54
+        cy = y1 + 54
+        rounded_rect(self.canvas, cx - 27, cy - 27, cx + 27, cy + 27, 27,
+                     "#f5f5f5" if active else "#303030")
+        self.canvas.create_text(cx, cy, text=icon,
+                                fill="#111111" if active else TEXT,
+                                font=("DejaVu Sans", 22, "bold"))
+        self.canvas.create_text(x1 + 25, y2 - 44, anchor="w", text=title,
+                                fill=TEXT, font=("DejaVu Sans", 13, "bold"))
+        self.canvas.create_text(x1 + 25, y2 - 21, anchor="w", text=value,
+                                fill=MUTED, font=("DejaVu Sans", 10))
+        if action:
+            self.canvas.tag_bind(self.canvas.create_rectangle(x1, y1, x2, y2, outline="", fill="", tags=f"hit_{title}"),
+                                 "<Button-1>", lambda _e: action())
+
+    def pill(self, x1, y1, x2, y2, text, action):
+        rounded_rect(self.canvas, x1, y1, x2, y2, 28, CARD)
+        tag = self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2,
+                                      text=text, fill=TEXT, font=("DejaVu Sans", 11, "bold"))
+        self.canvas.tag_bind(tag, "<Button-1>", lambda _e: action())
+
+    def draw(self):
+        self.canvas.delete("all")
+        w = self.root.winfo_width()
+        if w < 100:
+            w = 900
+        now = dt.datetime.now()
+        self.canvas.create_text(32, 28, anchor="nw", text=now.strftime("%H:%M"),
+                                fill=TEXT, font=("DejaVu Sans", 24, "bold"))
+        self.canvas.create_text(32, 60, anchor="nw", text=now.strftime("%a, %d %b"),
+                                fill=MUTED, font=("DejaVu Sans", 11))
+        self.canvas.create_text(w - 32, 31, anchor="ne", text=f"TraceOS  •  {battery()}",
+                                fill=TEXT, font=("DejaVu Sans", 11, "bold"))
+
+        left = 32
+        gap = 18
+        right = w - 32
+        col = (right - left - gap) / 2
+        y = 110
+
+        self.button((left, y, left + col, y + 140), "Wi-Fi", wifi_state(), "⌁",
+                    lambda: self.launch(["nm-connection-editor"]))
+        self.button((left + col + gap, y, right, y + 140), "Bluetooth", "Local controls", "ᛒ",
+                    lambda: self.launch(["pavucontrol"]))
+        y += 158
+        self.button((left, y, left + col, y + 140), "Network", network_usage(), "↕",
+                    lambda: self.launch_terminal(["/usr/local/bin/traceos", "network", "status"]))
+        self.button((left + col + gap, y, right, y + 140), "Session", "Amnesic by default", "◉",
+                    lambda: self.launch_terminal(["/usr/local/bin/traceos", "status"]))
+        y += 184
+
+        self.canvas.create_text(left, y, anchor="nw", text="NOTIFICATIONS",
+                                fill=MUTED, font=("DejaVu Sans", 9, "bold"))
+        y += 28
+        notes = [
+            ("TRACEOS", "Local-first investigation workstation", "External lookups happen only when you launch them."),
+            ("CASE VAULT", "Evidence stays in your case workspace", "SHA-256 records protect the chain of custody."),
+            ("SYSTEM", "Quick Shade is running locally", "No built-in telemetry or automatic uploads.")
+        ]
+        for source, title, body in notes:
+            rounded_rect(self.canvas, left, y, right, y + 94, 22, PANEL)
+            self.canvas.create_oval(left + 16, y + 18, left + 54, y + 56, fill="#242424", outline="")
+            self.canvas.create_text(left + 35, y + 37, text="T", fill=TRACE,
+                                    font=("DejaVu Sans", 12, "bold"))
+            self.canvas.create_text(left + 70, y + 18, anchor="nw", text=source,
+                                    fill=MUTED, font=("DejaVu Sans", 9, "bold"))
+            self.canvas.create_text(left + 70, y + 38, anchor="nw", text=title,
+                                    fill=TEXT, font=("DejaVu Sans", 11, "bold"))
+            self.canvas.create_text(left + 70, y + 61, anchor="nw", text=body,
+                                    fill=MUTED, font=("DejaVu Sans", 9))
+            y += 104
+
+        bottom = self.root.winfo_height() - 70
+        self.pill(left, bottom, left + 150, bottom + 46, "◷  HISTORY",
+                  lambda: self.launch_terminal(["/usr/local/bin/traceos", "timeline"]))
+        self.pill(left + 165, bottom, left + 330, bottom + 46, "⚙  DOCTOR",
+                  lambda: self.launch_terminal(["/usr/local/bin/traceos", "doctor"]))
+        self.pill(right - 150, bottom, right, bottom + 46, "CLOSE", self.root.destroy)
+
+    def launch(self, args):
+        try:
+            subprocess.Popen(args)
+        except OSError:
+            pass
+
+    def launch_terminal(self, args):
+        self.root.destroy()
+        if shutil.which("xfce4-terminal"):
+            subprocess.Popen(["xfce4-terminal", "--title=TraceOS", "--execute", *args])
+
+    def tick(self):
+        if self.root.winfo_exists():
+            self.draw()
+            self.root.after(1000, self.tick)
+
+if __name__ == "__main__":
+    Shade().root.mainloop()
