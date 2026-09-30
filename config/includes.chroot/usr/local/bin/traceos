@@ -162,13 +162,15 @@ def osint(a):
     if not a:
         print("\nTRACEOS OSINT WORKBENCH\n")
         for i,t in enumerate(tools,1):print(f" {i}) {t}")
-        c=input("Selection: ").strip()
+        print("Selection: ",end="",flush=True)
+        c=sys.stdin.readline().strip()
         if c=="0":return 0
         try:a=[tools[int(c)-1]]
         except (ValueError,IndexError):return 2
     if a[0] not in tools or not have(a[0]):print(f"Tool unavailable: {a[0]}");return 1
     if len(a)==1 and a[0] in {"sherlock","maigret"}:
-        u=input("Username: ").strip()
+        print("Username: ",end="",flush=True)
+        u=sys.stdin.readline().strip()
         if not u:return 2
         a.append(u)
     print("External lookups happen only because you launched this command.")
