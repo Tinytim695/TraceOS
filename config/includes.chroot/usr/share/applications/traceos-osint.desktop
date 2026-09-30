@@ -2,7 +2,7 @@
 Type=Application
 Name=TraceOS OSINT Workbench
 Comment=User-invoked OSINT tools
-Exec=/usr/local/bin/traceos-control
+Exec=/usr/local/bin/traceos-control --osint
 Icon=traceos
 Terminal=false
 Categories=Utility;Security;
