@@ -36,7 +36,8 @@ jobs:
             gettext \
             po4a \
             debian-archive-keyring \
-            file
+            file \
+            imagemagick
 
       - name: Install pinned live-build
         run: |
@@ -133,4 +134,6 @@ jobs:
             traceos-0.1.0-amd64.iso.sha256
             traceos-iso-layout.txt
             traceos-qemu-serial.log
+            traceos-ui-screenshots/*.png
+            traceos-ui-screenshots/serial-*.log
           if-no-files-found: error
