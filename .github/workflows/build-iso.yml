@@ -76,7 +76,7 @@ jobs:
           unsquashfs -no-xattrs -q -d /tmp/traceos-root /tmp/traceos-filesystem.squashfs
           test -f /tmp/traceos-root/etc/systemd/system/traceos-qemu-graphics.service
           test -x /tmp/traceos-root/usr/local/sbin/traceos-qemu-graphics
-          test -L /tmp/traceos-root/etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service
+          test -L /tmp/traceos-root/etc/systemd/system/graphical.target.wants/traceos-qemu-graphics.service
           echo "[TraceOS] QEMU graphics bootstrap is present and enabled in the final squashfs."
 
       - name: QEMU live-kernel boot smoke test
