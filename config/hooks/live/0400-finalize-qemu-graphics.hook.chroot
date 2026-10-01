@@ -1,12 +1,12 @@
 #!/bin/sh
 set -eu
 
-# Keep the live image's desktop target and display manager explicitly enabled.
-# The QEMU bootstrap symlink is created by 0110-enable-qemu-graphics.hook.chroot.
-# Re-running "systemctl enable" here is redundant and can fail in the live-build
-# chroot even though the unit is already enabled.
+# LightDM's native systemd unit uses the display-manager.service alias rather
+# than a graphical.target.wants/lightdm.service dependency. Enable that unit
+# and make graphical.target the boot default.
 systemctl enable lightdm.service
 systemctl set-default graphical.target
 
-test -L /etc/systemd/system/graphical.target.wants/lightdm.service
+test -L /etc/systemd/system/default.target
+test -L /etc/systemd/system/display-manager.service
 test -L /etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service
