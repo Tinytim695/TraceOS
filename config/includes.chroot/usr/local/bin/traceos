@@ -3,14 +3,30 @@ import datetime as dt, hashlib, mimetypes, os, shutil, subprocess, sys
 from pathlib import Path
 VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
 HOME=Path.home(); CASES=HOME/"Cases"; STATE=Path(os.environ.get("XDG_CONFIG_HOME", HOME/".config"))/"traceos"/"current_case"
+os.umask(0o077)
 def now(): return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 def have(c): return shutil.which(c) is not None
 def run(a,t=30):
     try: return subprocess.run(a,text=True,capture_output=True,timeout=t,check=False)
     except (OSError,subprocess.SubprocessError): return None
+def case_root():
+    try:
+        return CASES.resolve()
+    except OSError:
+        return CASES.absolute()
+
+def is_safe_case_path(p):
+    try:
+        resolved=Path(p).expanduser().resolve(strict=True)
+        resolved.relative_to(case_root())
+        return resolved.is_dir()
+    except (OSError,ValueError):
+        return False
+
 def current_case():
     try:
-        p=Path(STATE.read_text().strip()); return p if p.is_dir() else None
+        p=Path(STATE.read_text(encoding="utf-8").strip())
+        return p.resolve(strict=True) if is_safe_case_path(p) else None
     except OSError: return None
 def case_name(p):
     if not p:return "NONE"
@@ -20,6 +36,15 @@ def case_name(p):
     except OSError: pass
     return p.name
 def set_case(p): STATE.parent.mkdir(parents=True,exist_ok=True); STATE.write_text(str(p)+"\n",encoding="utf-8")
+def safe_case_name(n):
+    n=" ".join(n.split()).strip()
+    if not n or any(ord(c)<32 for c in n):
+        raise ValueError("Case name must contain printable characters.")
+    return n
+
+def manifest_field(value):
+    return str(value).replace("\\","\\\\").replace("\t","\\t").replace("\r","\\r").replace("\n","\\n")
+
 def slugify(n):
     o=[]
     for c in n.lower():
@@ -27,7 +52,10 @@ def slugify(n):
         elif not o or o[-1]!="-": o.append("-")
     return "".join(o).strip("-") or "case"
 def new_case(name):
-    CASES.mkdir(parents=True,exist_ok=True); base=slugify(name); p=CASES/base; i=2
+    name=safe_case_name(name)
+    CASES.mkdir(parents=True,exist_ok=True)
+    os.chmod(CASES,0o700)
+    base=slugify(name); p=CASES/base; i=2
     while p.exists(): p=CASES/f"{base}-{i}"; i+=1
     for x in ("evidence","working","exports","reports","hashes","notes"): (p/x).mkdir(parents=True)
     os.chmod(p,0o700)
@@ -75,6 +103,37 @@ def show_tools():
     tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search")]
     print("\nTRACEOS TOOLBOX\n───────────────")
     for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
+def verify_evidence():
+    p=current_case()
+    if not p:
+        print("No current case."); return 2
+    m=p/"hashes"/"evidence.tsv"
+    if not m.exists():
+        print("No evidence ledger found."); return 0
+    rows=m.read_text(encoding="utf-8").splitlines()[1:]
+    checked=0; failures=0
+    for r in rows:
+        q=r.split("\t")
+        if len(q)!=6:
+            print("  [FAIL] malformed evidence ledger row")
+            failures+=1
+            continue
+        vault=Path(q[2]).expanduser()
+        expected=q[3]
+        if not vault.is_file() or not is_safe_case_path(vault):
+            print(f"  [FAIL] missing or out-of-case vault copy: {vault}")
+            failures+=1
+            continue
+        actual=sha256_file(vault)
+        checked+=1
+        if actual==expected:
+            print(f"  [OK]   {vault.name}  {actual}")
+        else:
+            print(f"  [FAIL] {vault.name}  expected={expected} actual={actual}")
+            failures+=1
+    print(f"Integrity check: {checked} checked, {failures} failed.")
+    return 1 if failures else 0
+
 def add_evidence(src):
     p=current_case()
     if not p: print('Create a case first: traceos case new "Case Name"'); return 2
@@ -224,15 +283,22 @@ def main(a):
         if x=="new":
             name=" ".join(rest[1:]).strip()
             if not name: print('Usage: traceos case new "Case Name"'); return 2
-            new_case(name);return 0
+            try:
+                new_case(name)
+            except ValueError as exc:
+                print(f"TraceOS: {exc}",file=sys.stderr); return 2
+            return 0
         if x=="list":list_cases();return 0
         if x=="current":print(current_case() or "NONE");return 0
         if x=="use" and len(rest)>1:
             p=Path(rest[1]).expanduser()
-            if p.is_dir():set_case(p);print(f"Selected case: {case_name(p)}");return 0
+            if is_safe_case_path(p):
+                set_case(p);print(f"Selected case: {case_name(p)}");return 0
+            print("Refusing: case must be inside ~/Cases.",file=sys.stderr); return 2
         print("Usage: traceos case {new NAME|list|current|use CASE_DIR}");return 2
     if c=="evidence":
         if rest and rest[0]=="add" and len(rest)>1:return add_evidence(rest[1])
+        if rest and rest[0]=="verify":return verify_evidence()
         list_evidence();return 0
     if c=="analyse":return analyse(rest[0]) if rest else 2
     if c=="tools":show_tools();return 0
