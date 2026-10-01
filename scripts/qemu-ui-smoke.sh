@@ -110,13 +110,17 @@ PY
 
     # A bootloader/error screen can have lots of pixel variation too. Require
     # actual TraceOS theme pixels before treating the screenshot as a desktop.
-    histogram="$(convert "$png" -resize 320x180 -format "%c" histogram:info:-)"
-    if ! grep -q "#72F1E8" <<<"$histogram"; then
+    histogram="$(convert "$png" -format "%c" histogram:info:-)"
+    accent_fraction="$(convert "$png" -fuzz 10% -fill white -opaque "#72F1E8" -fill black +opaque white -format "%[fx:mean]" info:)"
+    bg_fraction="$(convert "$png" -fuzz 10% -fill white -opaque "#050811" -fill black +opaque white -format "%[fx:mean]" info:)"
+    echo "[TraceOS] accent pixel fraction: $accent_fraction"
+    echo "[TraceOS] TraceOS background pixel fraction: $bg_fraction"
+    if ! awk "BEGIN { exit !($accent_fraction > 0.0005) }"; then
         echo "[TraceOS] Screenshot is not showing the expected TraceOS accent pixels." >&2
         echo "$histogram" >&2
         exit 1
     fi
-    if ! grep -q "#050811" <<<"$histogram"; then
+    if ! awk "BEGIN { exit !($bg_fraction > 0.01) }"; then
         echo "[TraceOS] Screenshot is missing the TraceOS desktop background signature." >&2
         echo "$histogram" >&2
         exit 1
