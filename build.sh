@@ -39,7 +39,20 @@ echo "[TraceOS] Preparing executable build hooks..."
 sudo chmod +x config/hooks/live/*.hook.chroot 2>/dev/null || true
 
 echo "[TraceOS] Building ISO..."
-sudo lb build
+# Debian mirrors can occasionally reset a large package download on CI.
+# Retry the live-build itself so a transient fetch error does not discard an
+# otherwise valid image build.
+for attempt in 1 2 3; do
+  if sudo lb build; then
+    break
+  fi
+  if [ "$attempt" -eq 3 ]; then
+    echo "[TraceOS] live-build failed after 3 attempts." >&2
+    exit 1
+  fi
+  echo "[TraceOS] live-build attempt $attempt failed; retrying..." >&2
+  sleep 5
+done
 
 echo "[TraceOS] Build complete."
 ls -lh live-image-amd64.hybrid.iso
