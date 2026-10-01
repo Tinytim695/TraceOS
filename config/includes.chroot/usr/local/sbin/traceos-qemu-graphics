@@ -1,15 +1,23 @@
 #!/bin/sh
 set -eu
 
-case " $(cat /proc/cmdline 2>/dev/null || true) " in
-    *" traceos-qemu-page="*) ;;
-    *) exit 0 ;;
-esac
+cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+
+# The helper is intentionally VM-only so it cannot restart the display
+# manager on a physical TraceOS laptop/desktop. Keep the explicit page flag
+# as a deterministic fallback for older test harnesses.
+if ! systemd-detect-virt --quiet --vm 2>/dev/null; then
+    case " $cmdline " in
+        *" traceos-qemu-page="*) ;;
+        *) exit 0 ;;
+    esac
+fi
 
 log=/run/traceos-qemu-graphics.log
 {
     echo "[TraceOS] QEMU graphics bootstrap: $(date -Is)"
-    echo "[TraceOS] cmdline: $(cat /proc/cmdline 2>/dev/null || true)"
+    echo "[TraceOS] virtualization: $(systemd-detect-virt 2>/dev/null || true)"
+    echo "[TraceOS] cmdline: $cmdline"
     systemctl enable lightdm.service || true
     systemctl restart lightdm.service || systemctl start lightdm.service || true
     sleep 8
