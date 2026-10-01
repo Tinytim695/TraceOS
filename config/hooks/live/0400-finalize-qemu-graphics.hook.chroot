@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+systemctl enable traceos-qemu-graphics.service
+
+test -L /etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service
