@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 
+# Keep the live image's desktop target and display manager explicitly enabled.
+# The QEMU bootstrap runs from multi-user.target and restarts LightDM only in
+# virtual machines, so a physical TraceOS install is not affected.
+systemctl enable lightdm.service
+systemctl set-default graphical.target
 systemctl enable traceos-qemu-graphics.service
 
+test -L /etc/systemd/system/graphical.target.wants/lightdm.service
 test -L /etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service
