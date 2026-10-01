@@ -5,39 +5,22 @@ no_welcome="$(printenv TRACEOS_NO_WELCOME 2>/dev/null || printf '0')"
 cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
 
 if [ -n "${DISPLAY:-}" ] && [ "$no_welcome" != "1" ]; then
-    log="/tmp/traceos-welcome.log"
+    page=""
+    case " $cmdline " in
+        *" traceos-qemu-page=dashboard "*) page="--dashboard" ;;
+        *" traceos-qemu-page=osint "*) page="--osint" ;;
+        *" traceos-qemu-page=shade "*) page="--shade" ;;
+    esac
 
-    # Xfdesktop uses per-monitor properties that are generated at runtime.
-    # Apply the TraceOS wallpaper to every existing workspace backdrop rather
-    # than relying on a fixed monitor name.
-    {
-        echo "[TraceOS] Desktop initialization: $(date -Is)"
-        if command -v xfconf-query >/dev/null 2>&1; then
-            xfconf-query -c xfce4-desktop -l 2>/dev/null |
-                grep '/last-image$' |
-                while IFS= read -r prop; do
-                    xfconf-query -c xfce4-desktop -p "$prop" -s "/usr/share/backgrounds/traceos/traceos-wallpaper.png" || true
-                done
-            xfdesktop --reload >/dev/null 2>&1 || true
-        fi
-
-        page=""
-        case " $cmdline " in
-            *" traceos-qemu-page=dashboard "*) page="--dashboard" ;;
-            *" traceos-qemu-page=osint "*) page="--osint" ;;
-            *" traceos-qemu-page=shade "*) page="--shade" ;;
-        esac
-
-        sleep 2
-        if [ "$page" = "--dashboard" ]; then
-            exec /usr/local/bin/traceos-control
-        fi
-        if [ "$page" = "--osint" ]; then
-            exec /usr/local/bin/traceos-control --osint
-        fi
-        if [ "$page" = "--shade" ]; then
-            exec /usr/local/bin/traceos-shade
-        fi
-        exec /usr/local/bin/traceos-control --welcome
-    } >"$log" 2>&1 &
+    sleep 2
+    if [ "$page" = "--dashboard" ]; then
+        exec /usr/local/bin/traceos-control
+    fi
+    if [ "$page" = "--osint" ]; then
+        exec /usr/local/bin/traceos-control --osint
+    fi
+    if [ "$page" = "--shade" ]; then
+        exec /usr/local/bin/traceos-shade
+    fi
+    exec /usr/local/bin/traceos-control --welcome
 fi
