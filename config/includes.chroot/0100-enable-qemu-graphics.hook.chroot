@@ -1,5 +1,0 @@
-#!/bin/sh
-set -eu
-
-install -d /etc/systemd/system/multi-user.target.wants
-ln -sf ../traceos-qemu-graphics.service /etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service
