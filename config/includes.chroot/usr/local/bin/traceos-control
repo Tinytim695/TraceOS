@@ -528,6 +528,14 @@ class TraceOSApp:
         toolbar.pack(fill="x", padx=28, pady=(0, 8))
         self.action_button(toolbar, "ADD EVIDENCE", self.add_evidence, primary=True).pack(side="left")
         self.action_button(toolbar, "ANALYSE FILE", self.analyse_evidence).pack(side="left", padx=7)
+        self.action_button(
+            toolbar, "VERIFY INTEGRITY",
+            lambda: self.network_or_output_page(
+                "Evidence Integrity",
+                "Recalculate SHA-256 for every vault copy and compare with the case ledger.",
+                [TRACE, "evidence", "verify"],
+            )
+        ).pack(side="left", padx=7)
         current = case_path()
         self.action_button(toolbar, "OPEN CASE FOLDER", lambda: self.open_path(current) if current else None).pack(side="right")
 
