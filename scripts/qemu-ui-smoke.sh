@@ -106,6 +106,21 @@ PY
         exit 1
     fi
 
+    # A bootloader/error screen can have lots of pixel variation too. Require
+    # actual TraceOS theme pixels before treating the screenshot as a desktop.
+    histogram="$(convert "$png" -resize 320x180 -format "%c" histogram:info:-)"
+    if ! grep -q "#72F1E8" <<<"$histogram"; then
+        echo "[TraceOS] Screenshot is not showing the expected TraceOS accent pixels." >&2
+        echo "$histogram" >&2
+        exit 1
+    fi
+    if ! grep -q "#050811" <<<"$histogram"; then
+        echo "[TraceOS] Screenshot is missing the TraceOS desktop background signature." >&2
+        echo "$histogram" >&2
+        exit 1
+    fi
+    echo "[TraceOS] TraceOS visual signature detected in $page screenshot."
+
     rm -f "$ppm"
     kill "$QEMU_PID" 2>/dev/null || true
     wait "$QEMU_PID" 2>/dev/null || true
