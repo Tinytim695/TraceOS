@@ -66,7 +66,9 @@ capture_page() {
 
     # TCG is slow. Give the real ISO boot path time to reach LightDM,
     # XFCE and the TraceOS welcome/control centre.
-    sleep 180
+    # TCG boot time can vary on shared CI runners. Allow a longer window before
+    # declaring the real graphical desktop absent.
+    sleep 240
 
     python3 - "$monitor" "$ppm" <<'PY'
 import socket
