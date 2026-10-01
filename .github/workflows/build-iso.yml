@@ -65,6 +65,20 @@ jobs:
           grep -q "El Torito" traceos-iso-layout.txt
           sha256sum live-image-amd64.hybrid.iso | tee traceos-0.1.0-amd64.iso.sha256
 
+      - name: Validate built graphics bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/traceos-root /tmp/traceos-filesystem.squashfs
+          xorriso -osirrox on -indev live-image-amd64.hybrid.iso \
+            -extract /live/filesystem.squashfs /tmp/traceos-filesystem.squashfs
+          test -s /tmp/traceos-filesystem.squashfs
+          unsquashfs -q -d /tmp/traceos-root /tmp/traceos-filesystem.squashfs
+          test -f /tmp/traceos-root/etc/systemd/system/traceos-qemu-graphics.service
+          test -x /tmp/traceos-root/usr/local/sbin/traceos-qemu-graphics
+          test -L /tmp/traceos-root/etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service
+          echo "[TraceOS] QEMU graphics bootstrap is present and enabled in the final squashfs."
+
       - name: QEMU live-kernel boot smoke test
         shell: bash
         run: |
