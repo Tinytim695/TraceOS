@@ -1,35 +1,56 @@
 #!/bin/sh
 set -u
 
-log="/tmp/traceos-xfce-session.log"
+log="${XDG_CACHE_HOME:-$HOME/.cache}/traceos/session.log"
+mkdir -p "${log%/*}" 2>/dev/null || true
 exec >>"$log" 2>&1
 
 echo "[TraceOS] session wrapper started: $(date -Is)"
 echo "[TraceOS] user=$(id -un) uid=$(id -u)"
+echo "[TraceOS] DESKTOP_SESSION=${DESKTOP_SESSION:-unset}"
+echo "[TraceOS] XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-unset}"
 echo "[TraceOS] DISPLAY=${DISPLAY:-unset}"
-echo "[TraceOS] XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-unset}"
 
-# Start the ordinary XFCE session and keep this LightDM session alive until
-# XFCE exits. The Control Centre is launched only after XFCE has had time to
-# establish its display/session services.
+# Let XFCE own the session. We intentionally do not start a second XFCE tree.
 startxfce4 &
 xfce_pid=$!
 
-sleep 15
+# Wait for a usable X display and XFCE root window, up to ~30s.
+ready=0
+for _ in $(seq 1 30); do
+    if [ -n "${DISPLAY:-}" ] && command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>&1; then
+        ready=1
+        break
+    fi
+    if ! kill -0 "$xfce_pid" 2>/dev/null; then
+        break
+    fi
+    sleep 1
+done
 
-if kill -0 "$xfce_pid" 2>/dev/null; then
-    echo "[TraceOS] XFCE is still running; launching Control Centre."
-    TRACEOS_NO_WELCOME=1 /usr/local/bin/traceos-control --welcome >>"$log" 2>&1 &
+if [ "$ready" -eq 1 ] && kill -0 "$xfce_pid" 2>/dev/null; then
+    echo "[TraceOS] X display is ready; launching Control Centre."
+    TRACEOS_NO_WELCOME=1 /usr/local/bin/traceos-control --welcome &
     control_pid=$!
+
+    # Give Tk time to create and map its top-level window.
+    sleep 10
+    if kill -0 "$control_pid" 2>/dev/null; then
+        echo "[TraceOS] Control Centre process is running: $control_pid"
+    else
+        echo "[TraceOS] Control Centre exited before verification."
+    fi
 else
-    echo "[TraceOS] XFCE exited before Control Centre launch."
+    echo "[TraceOS] X/xfce session did not become ready."
     control_pid=""
 fi
 
+# Keep LightDM's session tied to XFCE. When the desktop exits, clean up the
+# Control Centre and return the same exit status.
 wait "$xfce_pid"
 rc=$?
 
-if [ -n "$control_pid" ]; then
+if [ -n "${control_pid:-}" ]; then
     kill "$control_pid" 2>/dev/null || true
 fi
 

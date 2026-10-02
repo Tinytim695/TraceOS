@@ -1,6 +1,7 @@
 [Desktop Entry]
 Name=TraceOS
-Comment=TraceOS XFCE session with Control Centre startup
+Comment=TraceOS Investigation Workstation
 Exec=/usr/local/bin/traceos-xfce-session
+TryExec=/usr/local/bin/traceos-xfce-session
 Type=Application
 DesktopNames=XFCE;

@@ -24,6 +24,7 @@ xorg
 dbus-x11
 xdg-utils
 package-update-indicator
+x11-utils
 
 # Core CLI
 sudo
