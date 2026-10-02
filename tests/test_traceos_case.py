@@ -232,6 +232,7 @@ class CaseStoreTests(unittest.TestCase):
         self.assertTrue((moved / "case.json").is_file())
         self.assertTrue((record.path / "evidence").is_dir())
 
+    def test_required_subdir_symlink_rejected_at_write_boundary(self):
         record = self.store.create("Boundary Case")
         outside = self.home / "outside"
         outside.mkdir()
