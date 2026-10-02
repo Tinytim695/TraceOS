@@ -171,4 +171,5 @@ jobs:
           name: traceos-qemu-ui-screenshots
           path: |
             traceos-ui-screenshots/*.png
+            traceos-ui-screenshots/*.cfg
           if-no-files-found: warn
