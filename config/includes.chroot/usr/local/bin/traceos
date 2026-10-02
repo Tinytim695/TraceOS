@@ -1,70 +1,76 @@
 #!/usr/bin/env python3
 import datetime as dt, hashlib, mimetypes, os, shutil, subprocess, sys
 from pathlib import Path
+from traceos_case import CaseError, CaseStore
 VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
-HOME=Path.home(); CASES=HOME/"Cases"; STATE=Path(os.environ.get("XDG_CONFIG_HOME", HOME/".config"))/"traceos"/"current_case"
+HOME=Path.home()
+CASE_STORE=CaseStore()
+CASES=CASE_STORE.cases_root
+STATE=CASE_STORE.state_path
 os.umask(0o077)
-def now(): return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
-def have(c): return shutil.which(c) is not None
+
+def now():
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+def have(c):
+    return shutil.which(c) is not None
+
 def run(a,t=30):
-    try: return subprocess.run(a,text=True,capture_output=True,timeout=t,check=False)
-    except (OSError,subprocess.SubprocessError): return None
-def case_root():
     try:
-        return CASES.resolve()
-    except OSError:
-        return CASES.absolute()
+        return subprocess.run(a,text=True,capture_output=True,timeout=t,check=False)
+    except (OSError,subprocess.SubprocessError):
+        return None
+
+def case_root():
+    return CASE_STORE.cases_root
 
 def is_safe_case_path(p):
     try:
-        resolved=Path(p).expanduser().resolve(strict=True)
-        resolved.relative_to(case_root())
-        return resolved.is_dir()
-    except (OSError,ValueError):
+        CASE_STORE.validate_path(Path(p))
+        return True
+    except CaseError:
         return False
 
 def current_case():
-    try:
-        p=Path(STATE.read_text(encoding="utf-8").strip())
-        return p.resolve(strict=True) if is_safe_case_path(p) else None
-    except OSError: return None
+    record = CASE_STORE.current()
+    return record.path if record else None
+
 def case_name(p):
-    if not p:return "NONE"
-    try:
-        for line in (p/"CASE.md").read_text(encoding="utf-8").splitlines():
-            if line.startswith("# "): return line[2:].strip()
-    except OSError: pass
-    return p.name
-def set_case(p): STATE.parent.mkdir(parents=True,exist_ok=True); STATE.write_text(str(p)+"\n",encoding="utf-8")
+    if not p:
+        return "NONE"
+    return CASE_STORE.read(Path(p)).title
+
+def set_case(p):
+    return CASE_STORE.select(Path(p))
+
 def safe_case_name(n):
-    n=" ".join(n.split()).strip()
-    if not n or any(ord(c)<32 for c in n):
-        raise ValueError("Case name must contain printable characters.")
-    return n
+    return CASE_STORE.validate_title(n)
 
-def manifest_field(value):
-    return str(value).replace("\\","\\\\").replace("\t","\\t").replace("\r","\\r").replace("\n","\\n")
+def new_case(name, description=""):
+    record = CASE_STORE.create(name, description)
+    print(f"Created and selected case: {record.path}")
+    return record.path
 
-def slugify(n):
-    o=[]
-    for c in n.lower():
-        if c.isalnum() or c in "._-": o.append(c)
-        elif not o or o[-1]!="-": o.append("-")
-    return "".join(o).strip("-") or "case"
-def new_case(name):
-    name=safe_case_name(name)
-    CASES.mkdir(parents=True,exist_ok=True)
-    os.chmod(CASES,0o700)
-    base=slugify(name); p=CASES/base; i=2
-    while p.exists(): p=CASES/f"{base}-{i}"; i+=1
-    for x in ("evidence","working","exports","reports","hashes","notes"): (p/x).mkdir(parents=True)
-    os.chmod(p,0o700)
-    for x in ("evidence","working","exports","reports","hashes","notes"): os.chmod(p/x,0o700)
-    (p/"CASE.md").write_text(f"# {name}\n\nCreated by TraceOS {VERSION} at {now()}.\n\nSource evidence is not modified by TraceOS case helpers. Vault copies are hashed with SHA-256.\n",encoding="utf-8")
-    os.chmod(p/"CASE.md",0o600)
-    (p/"hashes"/"evidence.tsv").write_text("timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",encoding="utf-8")
-    os.chmod(p/"hashes"/"evidence.tsv",0o600)
-    set_case(p); print(f"Created and selected case: {p}"); return p
+def list_cases():
+    print("\nTRACEOS CASES\n─────────────")
+    entries = CASE_STORE.list_cases()
+    if not entries:
+        print("  No cases yet.")
+        return
+    try:
+        active = CASE_STORE.current()
+        active_path = active.path if active else None
+    except CaseError:
+        active_path = None
+    for entry in entries:
+        if entry.error:
+            print(f" ! {entry.path.name}  [ERROR] {entry.error}")
+            continue
+        record = entry.record
+        marker = "*" if record and record.path == active_path else " "
+        legacy = " LEGACY" if record and record.legacy else ""
+        print(f" {marker} {record.title}  [{record.path.name}]{legacy}")
+
 def sha256_file(path, chunk_size=1024*1024):
     digest=hashlib.sha256()
     with path.open("rb") as handle:
@@ -80,13 +86,20 @@ def session_mode():
 def network_mode():
     r=run(["nmcli","-t","-f","STATE","general"],3); return r.stdout.strip().splitlines()[0].upper() if r and r.stdout.strip() else "UNKNOWN"
 def status():
-    n=sum(p.is_dir() for p in CASES.iterdir()) if CASES.exists() else 0; p=current_case()
+    try:
+        entries = CASE_STORE.list_cases()
+        n = sum(1 for entry in entries if entry.record)
+        record = CASE_STORE.current()
+        case_label = record.title if record else "NONE"
+    except CaseError as exc:
+        n = 0
+        case_label = f"ERROR: {exc}"
     print(f"""
 ╭──────────────── TRACEOS ────────────────╮
 │ DIGITAL INVESTIGATION WORKSTATION       │
 │ Version    {VERSION:<28}│
 ├─────────────────────────────────────────┤
-│ Case       {case_name(p)[:29]:<29}│
+│ Case       {case_label[:29]:<29}│
 │ Workspaces {n:<29}│
 │ Session    {session_mode():<29}│
 │ Network    {network_mode():<29}│
@@ -281,21 +294,66 @@ def main(a):
     if c=="case":
         x=rest[0] if rest else "list"
         if x=="new":
-            name=" ".join(rest[1:]).strip()
-            if not name: print('Usage: traceos case new "Case Name"'); return 2
+            args = rest[1:]
+            description = ""
+            if "--description" in args:
+                index = args.index("--description")
+                title = " ".join(args[:index]).strip()
+                description = " ".join(args[index + 1:]).strip()
+            else:
+                title = " ".join(args).strip()
+            if not title:
+                print('Usage: traceos case new "Case Name" [--description "Description"]')
+                return 2
             try:
-                new_case(name)
-            except ValueError as exc:
-                print(f"TraceOS: {exc}",file=sys.stderr); return 2
+                new_case(title, description)
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 2
             return 0
-        if x=="list":list_cases();return 0
-        if x=="current":print(current_case() or "NONE");return 0
+        if x=="list":
+            try:
+                list_cases()
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 1
+            return 0
+        if x=="current":
+            try:
+                record = CASE_STORE.current()
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 1
+            print(record.path if record else "NONE")
+            return 0
+        if x=="read":
+            target = Path(rest[1]).expanduser() if len(rest)>1 else None
+            try:
+                record = CASE_STORE.current() if target is None else CASE_STORE.read(target)
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 1
+            if record is None:
+                print("No current case.")
+                return 0
+            print(f"Case path: {record.path}")
+            print(f"Case ID: {record.case_id or 'LEGACY'}")
+            print(f"Title: {record.title}")
+            print(f"Description: {record.description or '(none)'}")
+            print(f"Created UTC: {record.created_utc or 'UNKNOWN (legacy case)'}")
+            print(f"Schema version: {record.schema_version}")
+            print(f"Legacy: {'yes' if record.legacy else 'no'}")
+            return 0
         if x=="use" and len(rest)>1:
-            p=Path(rest[1]).expanduser()
-            if is_safe_case_path(p):
-                set_case(p);print(f"Selected case: {case_name(p)}");return 0
-            print("Refusing: case must be inside ~/Cases.",file=sys.stderr); return 2
-        print("Usage: traceos case {new NAME|list|current|use CASE_DIR}");return 2
+            try:
+                record = CASE_STORE.select(Path(rest[1]).expanduser())
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 2
+            print(f"Selected case: {record.path}")
+            return 0
+        print('Usage: traceos case {new NAME [--description DESCRIPTION]|list|current|read [CASE_DIR]|use CASE_DIR}')
+        return 2
     if c=="evidence":
         if rest and rest[0]=="add" and len(rest)>1:return add_evidence(rest[1])
         if rest and rest[0]=="verify":return verify_evidence()

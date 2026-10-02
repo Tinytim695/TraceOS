@@ -52,6 +52,12 @@ jobs:
           sudo make install
           lb --version
 
+      - name: Host-side case backbone tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
       - name: Build ISO
         run: |
           chmod +x build.sh

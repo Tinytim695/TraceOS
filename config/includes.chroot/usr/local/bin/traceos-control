@@ -14,6 +14,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from traceos_case import CaseError, CaseStore
+
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
 
@@ -41,25 +43,23 @@ def capture(args: list[str], timeout: int = 8) -> subprocess.CompletedProcess[st
         return None
 
 
+CASE_STORE = CaseStore()
+
 def case_path() -> Path | None:
-    result = capture([TRACE, "case", "current"])
-    if result and result.returncode == 0:
-        value = result.stdout.strip()
-        if value and value != "NONE":
-            return Path(value)
-    return None
+    try:
+        record = CASE_STORE.current()
+    except CaseError:
+        return None
+    return record.path if record else None
 
 
 def case_name(path: Path | None) -> str:
     if not path:
         return "No active case"
     try:
-        for line in (path / "CASE.md").read_text(encoding="utf-8").splitlines():
-            if line.startswith("# "):
-                return line[2:].strip()
-    except OSError:
-        pass
-    return path.name
+        return CASE_STORE.read(path).title
+    except CaseError:
+        return path.name
 
 
 def network_state() -> str:
@@ -192,6 +192,29 @@ class TraceOSApp:
         except OSError:
             pass
 
+    def refresh_case_header(self) -> None:
+        if not hasattr(self, "header_case"):
+            return
+        try:
+            record = CASE_STORE.current()
+        except CaseError as exc:
+            self.header_case.configure(
+                text=f"CASE ERROR  •  {exc}",
+                fg=DANGER,
+            )
+            return
+        if record is None:
+            self.header_case.configure(
+                text="NO ACTIVE CASE  •  ~/Cases IS EPHEMERAL IN AMNESIC LIVE SESSIONS",
+                fg=WARN,
+            )
+            return
+        identifier = "LEGACY" if record.legacy else record.case_id[:8]
+        self.header_case.configure(
+            text=f"CASE  •  {record.title}  •  {identifier}",
+            fg=GOOD,
+        )
+
     def setup_styles(self) -> None:
         style = ttk.Style(self.root)
         try:
@@ -269,7 +292,9 @@ class TraceOSApp:
         self.header_case.pack(side="left", padx=28)
 
         self.small_button(header, "QUICK SHADE", self.quick_shade, side="right")
+        self.small_button(header, "SELECT CASE", self.select_case, side="right")
         self.small_button(header, "NEW CASE", self.new_case, side="right", primary=True)
+        self.refresh_case_header()
 
         body = tk.Frame(self.root, bg=BG)
         body.pack(fill="both", expand=True)
@@ -504,12 +529,25 @@ class TraceOSApp:
 
         row = tk.Frame(self.content, bg=BG)
         row.pack(fill="x", padx=23, pady=(8, 8))
-        path = case_path()
-        cases_dir = Path.home() / "Cases"
-        count = sum(p.is_dir() for p in cases_dir.iterdir()) if cases_dir.exists() else 0
+        try:
+            current = CASE_STORE.current()
+            entries = CASE_STORE.list_cases()
+            current_label = (
+                f"{current.title}  •  {current.case_id[:8]}"
+                if current and current.case_id
+                else current.title if current else "No active case"
+            )
+            if current and current.legacy:
+                current_label = f"{current.title}  •  LEGACY"
+            count = sum(1 for entry in entries if entry.record)
+            case_error = None
+        except CaseError as exc:
+            current_label = "Case state error"
+            count = 0
+            case_error = str(exc)
 
         values = [
-            ("CURRENT CASE", case_name(path), ACCENT),
+            ("CURRENT CASE", current_label, ACCENT if not case_error else DANGER),
             ("CASE WORKSPACES", str(count), ACCENT2),
             ("NETWORK", network_state(), GOOD),
             ("SESSION", session_state(), PURPLE),
@@ -531,8 +569,19 @@ class TraceOSApp:
         launch.pack_propagate(False)
 
         tk.Label(flow, text="INVESTIGATION FLOW", bg=CARD, fg=MUTED, font=("Sans", 9, "bold")).pack(anchor="w", padx=18, pady=(17, 9))
+        if case_error:
+            tk.Label(
+                flow,
+                text=f"CASE STATE ERROR: {case_error}",
+                bg="#26131a",
+                fg=DANGER,
+                font=("Sans", 8, "bold"),
+                wraplength=480,
+                justify="left",
+            ).pack(fill="x", padx=16, pady=(4, 8))
+
         steps = [
-            ("01  Start / select case", "Create or switch to a clean workspace.", self.new_case),
+            ("01  Start / select case", "Create a case or choose an existing workspace.", self.select_case),
             ("02  Add evidence", "Vault a copy and record its SHA-256.", self.add_evidence),
             ("03  Analyse locally", "Inspect files without uploading them.", self.analyse_evidence),
             ("04  Generate report", "Write a readable Markdown case report.", self.generate_report),
@@ -561,18 +610,246 @@ class TraceOSApp:
             )
 
     def new_case(self) -> None:
-        from tkinter import simpledialog
-        value = simpledialog.askstring("New TraceOS Case", "Case name:", parent=self.root)
-        if not value:
-            return
-        result = capture([TRACE, "case", "new", value.strip()], timeout=15)
-        if result and result.returncode == 0:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("New TraceOS Case")
+        dialog.configure(bg=BG)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(True, True)
+        dialog.geometry("560x390")
+
+        tk.Label(
+            dialog,
+            text="NEW CASE",
+            bg=BG,
+            fg=ACCENT,
+            font=("Sans", 16, "bold"),
+        ).pack(anchor="w", padx=24, pady=(22, 3))
+        tk.Label(
+            dialog,
+            text="Create a private case workspace and make it the active case.",
+            bg=BG,
+            fg=MUTED,
+            font=("Sans", 9),
+        ).pack(anchor="w", padx=24, pady=(0, 14))
+
+        form = self.card(dialog, padx=18, pady=10)
+        form.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+
+        tk.Label(
+            form,
+            text="CASE TITLE",
+            bg=CARD,
+            fg=MUTED,
+            font=("Sans", 8, "bold"),
+        ).pack(anchor="w", padx=14, pady=(10, 4))
+        title_entry = tk.Entry(
+            form,
+            bg="#08111d",
+            fg=TEXT,
+            insertbackground=ACCENT,
+            relief="flat",
+            font=("Sans", 10),
+        )
+        title_entry.pack(fill="x", padx=14, pady=(0, 12))
+
+        tk.Label(
+            form,
+            text="DESCRIPTION",
+            bg=CARD,
+            fg=MUTED,
+            font=("Sans", 8, "bold"),
+        ).pack(anchor="w", padx=14, pady=(0, 4))
+        description = tk.Text(
+            form,
+            height=6,
+            bg="#08111d",
+            fg=TEXT,
+            insertbackground=ACCENT,
+            relief="flat",
+            font=("Sans", 9),
+            wrap="word",
+        )
+        description.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+
+        tk.Label(
+            form,
+            text="Authoritative metadata is stored in case.json. "
+                 "In an amnesic live session, ~/Cases does not survive reboot "
+                 "unless deliberately saved to persistent storage.",
+            bg=CARD,
+            fg=MUTED,
+            font=("Sans", 8),
+            wraplength=490,
+            justify="left",
+        ).pack(anchor="w", padx=14, pady=(0, 10))
+
+        buttons = tk.Frame(dialog, bg=BG)
+        buttons.pack(fill="x", padx=20, pady=(0, 18))
+
+        def create() -> None:
+            try:
+                record = CASE_STORE.create(
+                    title_entry.get(),
+                    description.get("1.0", "end").strip(),
+                )
+            except CaseError as exc:
+                messagebox.showerror(
+                    "TraceOS",
+                    str(exc),
+                    parent=dialog,
+                )
+                return
+            dialog.destroy()
+            self.refresh_case_header()
             self.dashboard()
-        else:
-            messagebox.showerror(
-                "TraceOS", (result.stdout or result.stderr or "Unable to create case.").strip(),
-                parent=self.root
+            self._trace_diag(
+                "case-created",
+                case_id=record.case_id or "legacy",
+                title=record.title,
             )
+
+        self.action_button(
+            buttons,
+            "CANCEL",
+            dialog.destroy,
+        ).pack(side="left")
+        self.action_button(
+            buttons,
+            "CREATE CASE",
+            create,
+            primary=True,
+        ).pack(side="right")
+        title_entry.focus_set()
+
+    def select_case(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select TraceOS Case")
+        dialog.configure(bg=BG)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.geometry("920x520")
+
+        tk.Label(
+            dialog,
+            text="SELECT CASE",
+            bg=BG,
+            fg=ACCENT,
+            font=("Sans", 16, "bold"),
+        ).pack(anchor="w", padx=24, pady=(22, 3))
+        tk.Label(
+            dialog,
+            text="Choose an existing workspace. Corrupt or unsafe entries stay visible but cannot be activated.",
+            bg=BG,
+            fg=MUTED,
+            font=("Sans", 9),
+        ).pack(anchor="w", padx=24, pady=(0, 8))
+
+        panel = self.card(dialog, padx=18, pady=10, expand=True)
+        panel.pack(fill="both", expand=True, padx=20, pady=10)
+
+        columns = ("title", "status", "case_id", "path")
+        tree = ttk.Treeview(
+            panel,
+            columns=columns,
+            show="headings",
+            style="Trace.Treeview",
+        )
+        tree.heading("title", text="CASE")
+        tree.heading("status", text="STATUS")
+        tree.heading("case_id", text="CASE ID")
+        tree.heading("path", text="PATH")
+        tree.column("title", width=230, anchor="w")
+        tree.column("status", width=90, anchor="center")
+        tree.column("case_id", width=180, anchor="w")
+        tree.column("path", width=330, anchor="w")
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        entries = CASE_STORE.list_cases()
+        if not entries:
+            tree["height"] = 4
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    "No cases yet",
+                    "EMPTY",
+                    "",
+                    "Create a new case to begin.",
+                ),
+            )
+        else:
+            for index, entry in enumerate(entries):
+                record = entry.record
+                tree.insert(
+                    "",
+                    "end",
+                    iid=str(index),
+                    values=(
+                        record.title if record else entry.path.name,
+                        entry.status,
+                        (
+                            record.case_id
+                            if record and record.case_id
+                            else "LEGACY" if record else ""
+                        ),
+                        str(entry.path),
+                    ),
+                )
+
+        footer = tk.Frame(dialog, bg=BG)
+        footer.pack(fill="x", padx=20, pady=(0, 18))
+
+        def activate() -> None:
+            selected = tree.selection()
+            if not selected or not entries:
+                messagebox.showinfo(
+                    "TraceOS",
+                    "There is no selectable case here yet.",
+                    parent=dialog,
+                )
+                return
+            entry = entries[int(selected[0])]
+            if entry.error:
+                messagebox.showerror(
+                    "TraceOS Case",
+                    f"Cannot select {entry.path.name}:\\n\\n{entry.error}",
+                    parent=dialog,
+                )
+                return
+            try:
+                record = CASE_STORE.select(entry.path)
+            except CaseError as exc:
+                messagebox.showerror(
+                    "TraceOS Case",
+                    str(exc),
+                    parent=dialog,
+                )
+                return
+            dialog.destroy()
+            self.refresh_case_header()
+            self.dashboard()
+            self._trace_diag(
+                "case-selected",
+                case_id=record.case_id or "legacy",
+                title=record.title,
+            )
+
+        tree.bind("<Double-1>", lambda _event: activate())
+        self.action_button(
+            footer,
+            "CLOSE",
+            dialog.destroy,
+        ).pack(side="left")
+        self.action_button(
+            footer,
+            "SELECT CASE",
+            activate,
+            primary=True,
+        ).pack(side="right")
+        if entries:
+            tree.selection_set("0")
+            tree.focus("0")
 
     def add_evidence(self) -> None:
         value = filedialog.askopenfilename(parent=self.root, title="Select evidence file")
