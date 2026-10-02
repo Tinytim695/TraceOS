@@ -7,32 +7,12 @@ exec >>"$log" 2>&1
 
 echo "[TraceOS] session wrapper started: $(date -Is)"
 echo "[TraceOS] user=$(id -un) uid=$(id -u)"
+echo "[TraceOS] home=$HOME"
 echo "[TraceOS] DESKTOP_SESSION=${DESKTOP_SESSION:-unset}"
 echo "[TraceOS] XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-unset}"
 echo "[TraceOS] DISPLAY=${DISPLAY:-unset}"
 
-startxfce4 &
-xfce_pid=$!
-
-# The XFCE autostart path is the primary launch mechanism. Keep this wrapper
-# as a redundant fallback for environments where XDG autostart is disabled.
-sleep 18
-
-if kill -0 "$xfce_pid" 2>/dev/null; then
-    echo "[TraceOS] XFCE is alive; invoking redundant Control Centre launcher."
-    /usr/local/bin/traceos-control-launch --welcome &
-    control_launcher_pid=$!
-else
-    echo "[TraceOS] XFCE exited before Control Centre launch."
-    control_launcher_pid=""
-fi
-
-wait "$xfce_pid"
-rc=$?
-
-if [ -n "${control_launcher_pid:-}" ]; then
-    kill "$control_launcher_pid" 2>/dev/null || true
-fi
-
-echo "[TraceOS] XFCE session exited with code $rc"
-exit "$rc"
+# The XFCE XDG autostart entry is the single automatic owner of the Control
+# Centre. Keeping it out of this wrapper avoids competing launch paths while
+# retaining the launcher's flock for manual/redundant invocations.
+exec startxfce4
