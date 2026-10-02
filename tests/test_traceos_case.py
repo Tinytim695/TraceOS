@@ -306,26 +306,26 @@ class CaseStoreTests(unittest.TestCase):
         source = self.home / "permission-source.txt"
         source.write_text("permission test\n", encoding="utf-8")
         original_fchmod = os.fchmod
-        injection = {"done": False}
-        moved = self.store.cases_root / "moved-during-chmod"
 
-        def raced_fchmod(fd, mode):
-            if not injection["done"]:
-                injection["done"] = True
-                acquired = Path(os.readlink(f"/proc/self/fd/{fd}"))
-                replacement = acquired.with_name(acquired.name)
-                acquired.rename(moved)
-                replacement.write_text("replacement", encoding="utf-8")
-                os.chmod(replacement, 0o600)
-            return original_fchmod(fd, mode)
+        with mock.patch.object(
+            cli.os,
+            "chmod",
+            side_effect=AssertionError("path-based chmod used for evidence"),
+        ):
+            with mock.patch.object(
+                cli.os,
+                "fchmod",
+                wraps=original_fchmod,
+            ) as fchmod_mock:
+                self.assertEqual(cli.add_evidence(str(source)), 0)
 
-        with mock.patch.object(cli.os, "fchmod", side_effect=raced_fchmod):
-            self.assertEqual(cli.add_evidence(str(source)), 0)
-
-        self.assertEqual(moved.stat().st_mode & 0o777, 0o444)
-        replacement = self.store.cases_root / "evidence" / moved.name
-        self.assertTrue(replacement.is_file())
-        self.assertEqual(replacement.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(fchmod_mock.call_count, 1)
+        self.assertEqual(fchmod_mock.call_args.args[1], 0o444)
+        evidence_files = list(
+            (self.store.current().path / "evidence").iterdir()
+        )
+        self.assertEqual(len(evidence_files), 1)
+        self.assertEqual(evidence_files[0].stat().st_mode & 0o777, 0o444)
 
     def test_evidence_source_swap_before_open_uses_opened_inode(self):
         loader = importlib.machinery.SourceFileLoader(
@@ -353,8 +353,9 @@ class CaseStoreTests(unittest.TestCase):
                 and Path(path) == source
             ):
                 injected["done"] = True
-                source.rename(replacement)
-                replacement.write_bytes(replacement_bytes)
+                original_path = self.home / "original-selected-source.txt"
+                source.rename(original_path)
+                source.write_bytes(replacement_bytes)
             return original_open(path, flags, mode, dir_fd=dir_fd)
 
         expected_hash = __import__("hashlib").sha256(replacement_bytes).hexdigest()
