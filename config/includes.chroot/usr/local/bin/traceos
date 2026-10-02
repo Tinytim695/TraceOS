@@ -191,6 +191,9 @@ def add_evidence(src):
         size=source_info.st_size
 
         source_hash=_sha256_fd(src_fd)
+        # Hashing consumed the descriptor; rewind the same opened inode
+        # before copying so the acquired bytes match the recorded hash.
+        os.lseek(src_fd,0,os.SEEK_SET)
 
         suffix=0
         while True:

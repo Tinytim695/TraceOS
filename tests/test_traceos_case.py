@@ -306,12 +306,11 @@ class CaseStoreTests(unittest.TestCase):
         source = self.home / "permission-source.txt"
         source.write_text("permission test\n", encoding="utf-8")
         original_fchmod = os.fchmod
-
         with mock.patch.object(
             cli.os,
             "chmod",
-            side_effect=AssertionError("path-based chmod used for evidence"),
-        ):
+            wraps=cli.os.chmod,
+        ) as chmod_mock:
             with mock.patch.object(
                 cli.os,
                 "fchmod",
@@ -323,6 +322,14 @@ class CaseStoreTests(unittest.TestCase):
         self.assertEqual(fchmod_mock.call_args.args[1], 0o444)
         evidence_files = list(
             (self.store.current().path / "evidence").iterdir()
+        )
+        self.assertEqual(
+            [
+                Path(call.args[0])
+                for call in chmod_mock.call_args_list
+                if call.args and Path(call.args[0]) in evidence_files
+            ],
+            [],
         )
         self.assertEqual(len(evidence_files), 1)
         self.assertEqual(evidence_files[0].stat().st_mode & 0o777, 0o444)
