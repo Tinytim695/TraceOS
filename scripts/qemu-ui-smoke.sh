@@ -48,6 +48,7 @@ trap cleanup EXIT
 
 capture_page() {
     local page="$1"
+    local keep_alive="${2:-false}"
     local monitor="$STATE/monitor-$page.sock"
     local vnc_socket="$STATE/vnc-$page.sock"
     local ppm="$OUT/traceos-$page.ppm"
@@ -176,14 +177,73 @@ PY
     assert_serial "CONTROL_CENTRE_READY" "the Control Centre readiness marker was observed"
 
     rm -f "$ppm"
-    kill "$QEMU_PID" 2>/dev/null || true
-    wait "$QEMU_PID" 2>/dev/null || true
-    unset QEMU_PID
+    if [[ "$keep_alive" != "true" ]]; then
+        kill "$QEMU_PID" 2>/dev/null || true
+        wait "$QEMU_PID" 2>/dev/null || true
+        unset QEMU_PID
+    fi
 }
 
-# First prove the real desktop renders. Additional interactive pages will be
-# added once this baseline screenshot is reliable.
-capture_page dashboard
+# First prove the real desktop renders. Keep the same guest alive for one
+# diagnostic interaction so the Dashboard remains the baseline gate.
+capture_page dashboard true
+
+# Diagnostic-only OSINT interaction. The shortcut is a normal user-facing
+# Control Centre binding; this first run records the resulting real-ISO
+# screenshot without making page recognition a CI gate yet.
+osint_ppm="$OUT/traceos-osint.ppm"
+osint_png="$OUT/traceos-osint.png"
+python3 - "$STATE/monitor-dashboard.sock" "$STATE/monitor-osint.log" <<'PY'
+import socket
+import sys
+import time
+
+monitor, log_path = sys.argv[1], sys.argv[2]
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5)
+s.connect(monitor)
+s.sendall(b"sendkey ctrl-shift-o\n")
+time.sleep(1)
+try:
+    response = s.recv(4096).decode("utf-8", "replace")
+except OSError as exc:
+    response = f"monitor recv failed: {exc}\n"
+s.close()
+open(log_path, "w", encoding="utf-8").write(response)
+print(response, end="")
+PY
+
+sleep 3
+python3 - "$STATE/monitor-dashboard.sock" "$osint_ppm" <<'PY'
+import socket
+import sys
+import time
+
+monitor, ppm = sys.argv[1], sys.argv[2]
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5)
+s.connect(monitor)
+s.sendall(b"screendump " + ppm.encode() + b"\n")
+time.sleep(2)
+s.close()
+PY
+
+test -s "$osint_ppm"
+convert "$osint_ppm" -resize 1280x720 -strip "$osint_png"
+identify "$osint_png"
+test -s "$osint_png"
+spread="$(convert "$osint_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+echo "[TraceOS] OSINT diagnostic screenshot framebuffer standard deviation: $spread"
+if ! awk "BEGIN { exit !($spread > 0.02) }"; then
+    echo "[TraceOS] OSINT diagnostic screenshot is blank/static." >&2
+    tail -n 220 "$STATE/serial-dashboard.log" >&2 || true
+    exit 1
+fi
+echo "[TraceOS] OSINT diagnostic screenshot captured (page recognition is not yet a CI gate)."
+
+kill "$QEMU_PID" 2>/dev/null || true
+wait "$QEMU_PID" 2>/dev/null || true
+unset QEMU_PID
 
 echo "[TraceOS] QEMU screenshots ready:"
 find "$OUT" -maxdepth 1 -type f -name '*.png' -print -exec ls -lh {} +
