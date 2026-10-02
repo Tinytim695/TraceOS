@@ -33,6 +33,18 @@ log=/run/traceos-qemu-graphics.log
     # the QEMU screenshot gate inspects the framebuffer.
     sleep 12
 
+    # The Control Centre writes a marker after its Tk window has been created.
+    # Surface that guest-side fact into the QEMU serial log so CI can verify
+    # the intended application launched, not merely a branded wallpaper.
+    for _ in $(seq 1 90); do
+        if [ -s /tmp/traceos-control-centre.ready ]; then
+            echo "[TraceOS] CONTROL_CENTRE_READY"
+            printf '%s\n' "[TraceOS] CONTROL_CENTRE_READY" >/dev/ttyS0 2>/dev/null || true
+            break
+        fi
+        sleep 1
+    done
+
     systemctl --no-pager --full status lightdm.service || true
     echo "[TraceOS] display manager state:"
     systemctl --no-pager --no-legend list-units 'display-manager.service' || true

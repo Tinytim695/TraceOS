@@ -38,6 +38,7 @@ tmux
 htop
 procps
 psmisc
+util-linux
 lsof
 file
 binutils

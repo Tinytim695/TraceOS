@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${DISPLAY:-}" ]; then
+    exit 0
+fi
+
+for _ in $(seq 1 45); do
+    if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+if ! xdpyinfo >/dev/null 2>&1; then
+    exit 0
+fi
+
+lock="${XDG_RUNTIME_DIR:-/tmp}/traceos-control-centre.lock"
+
+# flock is released automatically when the Control Centre exits. This lets
+# the LightDM session wrapper and XFCE autostart act as redundant launch paths
+# without ever creating two Control Centres.
+exec /usr/bin/flock -n "$lock" /usr/local/bin/traceos-control "$@"

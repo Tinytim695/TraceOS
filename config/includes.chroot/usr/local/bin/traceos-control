@@ -79,14 +79,19 @@ class TraceOSApp:
     def __init__(self, root: tk.Tk, welcome: bool = False, start_page: str = "dashboard") -> None:
         self.root = root
         self.root.title("TraceOS Control Centre")
-        self.root.geometry("1360x860")
-        self.root.minsize(1080, 720)
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        width = min(1360, max(900, screen_w - 40))
+        height = min(860, max(600, screen_h - 70))
+        self.root.geometry(f"{width}x{height}")
+        self.root.minsize(min(1080, width), min(720, height))
         self.root.configure(bg=BG)
         self.root.option_add("*Font", "DejaVu Sans 10")
         try:
             self.root.state("zoomed")
         except tk.TclError:
             pass
+        self.root.after(1800, self._write_ready_marker)
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
         self.active_process: subprocess.Popen[str] | None = None
@@ -108,6 +113,14 @@ class TraceOSApp:
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
+
+    def _write_ready_marker(self) -> None:
+        marker = Path("/tmp/traceos-control-centre.ready")
+        try:
+            self.root.update_idletasks()
+            marker.write_text("TRACEOS_CONTROL_CENTRE_READY\\n", encoding="utf-8")
+        except OSError:
+            pass
 
     def setup_styles(self) -> None:
         style = ttk.Style(self.root)
