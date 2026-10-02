@@ -19,9 +19,6 @@ log=/run/traceos-qemu-graphics.log
     echo "[TraceOS] virtualization: $(systemd-detect-virt 2>/dev/null || true)"
     echo "[TraceOS] cmdline: $cmdline"
 
-    # LightDM is already ordered by graphical.target. Never restart an
-    # existing display manager here because that can tear down an active
-    # session and leave a CI framebuffer looking blank.
     if ! systemctl is-active --quiet lightdm.service; then
         echo "[TraceOS] lightdm is not active; starting it."
         systemctl start lightdm.service || true
@@ -30,11 +27,9 @@ log=/run/traceos-qemu-graphics.log
     fi
 
     # Allow X, the user session and XFCE autostart entries to settle before
-    # the QEMU screenshot gate inspects the framebuffer.
+    # collecting runtime state.
     sleep 12
 
-    # The Control Centre writes a marker after its Tk window has been created.
-    # Surface both readiness and launcher diagnostics into the QEMU serial log.
     for _ in $(seq 1 90); do
         if [ -s /tmp/traceos-control-centre.ready ]; then
             echo "[TraceOS] CONTROL_CENTRE_READY"
@@ -43,12 +38,67 @@ log=/run/traceos-qemu-graphics.log
         sleep 1
     done
 
-    echo "[TraceOS] Control Centre launcher diagnostics:"
-    for f in /home/traceos/.cache/traceos/control-centre-launch.log /root/.cache/traceos/control-centre-launch.log; do
+    echo "[TraceOS] LightDM effective configuration:"
+    lightdm --show-config || true
+
+    echo "[TraceOS] session records:"
+    loginctl list-sessions --no-legend || true
+    for sid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+        echo "[TraceOS] session $sid details:"
+        loginctl show-session "$sid" -p Name -p Type -p Class -p State -p Desktop -p Remote -p Leader || true
+    done
+
+    # Find the actual graphical session user from the running XFCE process,
+    # which is more reliable than assuming the home directory name.
+    active_user="$(ps -eo user=,comm= | awk '$2=="xfce4-session"{print $1; exit}')"
+    echo "[TraceOS] LIVE_SESSION_USER=${active_user:-unknown}"
+
+    active_home=""
+    if [ -n "${active_user:-}" ]; then
+        active_home="$(getent passwd "$active_user" | cut -d: -f6 || true)"
+    fi
+    echo "[TraceOS] LIVE_SESSION_HOME=${active_home:-unknown}"
+
+    if [ -n "${active_user:-}" ]; then
+        echo "[TraceOS] LIVE_SESSION_PASSWD_ENTRY:"
+        getent passwd "$active_user" || true
+    fi
+
+    if pgrep -af '/usr/local/bin/traceos-xfce-session' >/dev/null 2>&1; then
+        echo "[TraceOS] TRACEOS_SESSION_WRAPPER_RUNNING"
+    else
+        echo "[TraceOS] TRACEOS_SESSION_WRAPPER_NOT_RUNNING"
+    fi
+
+    if pgrep -af '/usr/local/bin/traceos-control' >/dev/null 2>&1; then
+        echo "[TraceOS] CONTROL_CENTRE_PROCESS_RUNNING"
+        pgrep -af '/usr/local/bin/traceos-control' || true
+    else
+        echo "[TraceOS] CONTROL_CENTRE_PROCESS_NOT_RUNNING"
+    fi
+
+    echo "[TraceOS] Control Centre launcher/session diagnostics:"
+    found_logs=0
+    for home in /home/*; do
+        [ -d "$home" ] || continue
+        for f in "$home/.cache/traceos/control-centre-launch.log" "$home/.cache/traceos/session.log" "$home/.cache/traceos/welcome.log"; do
+            if [ -f "$f" ]; then
+                found_logs=1
+                echo "[TraceOS] --- $f ---"
+                cat "$f" || true
+            fi
+        done
+    done
+    for f in /root/.cache/traceos/control-centre-launch.log /root/.cache/traceos/session.log /root/.cache/traceos/welcome.log; do
         if [ -f "$f" ]; then
+            found_logs=1
+            echo "[TraceOS] --- $f ---"
             cat "$f" || true
         fi
     done
+    if [ "$found_logs" -eq 0 ]; then
+        echo "[TraceOS] No TraceOS launcher/session logs found under /home/* or /root."
+    fi
 
     echo "[TraceOS] Control Centre readiness marker:"
     if [ -s /tmp/traceos-control-centre.ready ]; then
