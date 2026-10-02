@@ -3,6 +3,7 @@ name: Build TraceOS ISO
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -63,6 +64,20 @@ jobs:
           xorriso -indev live-image-amd64.hybrid.iso -report_el_torito plain -report_system_area plain | tee traceos-iso-layout.txt
           grep -q "El Torito" traceos-iso-layout.txt
           sha256sum live-image-amd64.hybrid.iso | tee traceos-0.1.0-amd64.iso.sha256
+
+      - name: Validate built graphics bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/traceos-root /tmp/traceos-filesystem.squashfs
+          xorriso -osirrox on -indev live-image-amd64.hybrid.iso \
+            -extract /live/filesystem.squashfs /tmp/traceos-filesystem.squashfs
+          test -s /tmp/traceos-filesystem.squashfs
+          unsquashfs -no-xattrs -q -d /tmp/traceos-root /tmp/traceos-filesystem.squashfs
+          test -f /tmp/traceos-root/etc/systemd/system/traceos-qemu-graphics.service
+          test -x /tmp/traceos-root/usr/local/sbin/traceos-qemu-graphics
+          test -L /tmp/traceos-root/etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service
+          echo "[TraceOS] QEMU graphics bootstrap is present and enabled in the final squashfs."
 
       - name: QEMU live-kernel boot smoke test
         shell: bash
@@ -132,7 +147,7 @@ jobs:
           scripts/qemu-ui-smoke.sh live-image-amd64.hybrid.iso
           echo "[TraceOS] Graphical screenshots:"
           ls -lh traceos-ui-screenshots/*.png
-          
+
       - name: Attest ISO provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
@@ -150,9 +165,10 @@ jobs:
           if-no-files-found: error
 
       - name: Upload QEMU screenshots
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: traceos-qemu-ui-screenshots
           path: |
             traceos-ui-screenshots/*.png
-          if-no-files-found: error
+          if-no-files-found: warn

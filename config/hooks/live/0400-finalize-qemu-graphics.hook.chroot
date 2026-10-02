@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+# LightDM's native systemd unit uses the display-manager.service alias rather
+# than a graphical.target.wants/lightdm.service dependency. Enable that unit
+# and make graphical.target the boot default.
+systemctl enable lightdm.service
+systemctl set-default graphical.target
+
+test -L /etc/systemd/system/default.target
+test -L /etc/systemd/system/display-manager.service
+test -L /etc/systemd/system/multi-user.target.wants/traceos-qemu-graphics.service

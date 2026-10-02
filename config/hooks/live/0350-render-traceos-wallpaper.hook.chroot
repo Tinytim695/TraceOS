@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+src=/usr/share/backgrounds/traceos/traceos-wallpaper.svg
+dst=/usr/share/backgrounds/traceos/traceos-wallpaper.png
+
+test -s "$src"
+convert "$src" -background none -resize 1920x1080 "$dst"
+chmod 0644 "$dst"
+test -s "$dst"
