@@ -201,7 +201,7 @@ def add_evidence(src):
             try:
                 dest_fd=os.open(
                     candidate_name,
-                    os.O_WRONLY
+                    os.O_RDWR
                     | os.O_CREAT
                     | os.O_EXCL
                     | getattr(os,"O_CLOEXEC",0)
