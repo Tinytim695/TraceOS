@@ -1,10 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=TraceOS Welcome
-Comment=Open the TraceOS Control Centre after login
-Exec=/usr/local/bin/traceos-welcome
-TryExec=/usr/local/bin/traceos-welcome
+Comment=Control Centre is launched by the TraceOS LightDM session wrapper
+Exec=/usr/bin/true
 OnlyShowIn=XFCE;
 NoDisplay=true
-X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=8
+Hidden=true
+X-GNOME-Autostart-enabled=false

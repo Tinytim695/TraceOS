@@ -1,0 +1,37 @@
+#!/bin/sh
+set -u
+
+log="/tmp/traceos-xfce-session.log"
+exec >>"$log" 2>&1
+
+echo "[TraceOS] session wrapper started: $(date -Is)"
+echo "[TraceOS] user=$(id -un) uid=$(id -u)"
+echo "[TraceOS] DISPLAY=${DISPLAY:-unset}"
+echo "[TraceOS] XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-unset}"
+
+# Start the ordinary XFCE session and keep this LightDM session alive until
+# XFCE exits. The Control Centre is launched only after XFCE has had time to
+# establish its display/session services.
+startxfce4 &
+xfce_pid=$!
+
+sleep 15
+
+if kill -0 "$xfce_pid" 2>/dev/null; then
+    echo "[TraceOS] XFCE is still running; launching Control Centre."
+    TRACEOS_NO_WELCOME=1 /usr/local/bin/traceos-control --welcome >>"$log" 2>&1 &
+    control_pid=$!
+else
+    echo "[TraceOS] XFCE exited before Control Centre launch."
+    control_pid=""
+fi
+
+wait "$xfce_pid"
+rc=$?
+
+if [ -n "$control_pid" ]; then
+    kill "$control_pid" 2>/dev/null || true
+fi
+
+echo "[TraceOS] XFCE session exited with code $rc"
+exit "$rc"

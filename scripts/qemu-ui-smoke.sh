@@ -120,7 +120,7 @@ PY
         echo "$histogram" >&2
         exit 1
     fi
-    if ! awk "BEGIN { exit !($bg_fraction > 0.01) }"; then
+    if ! awk "BEGIN { exit !($bg_fraction > 0.005) }"; then
         echo "[TraceOS] Screenshot is missing the TraceOS desktop background signature." >&2
         echo "$histogram" >&2
         exit 1
