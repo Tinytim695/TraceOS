@@ -93,6 +93,8 @@ class TraceOSApp:
             pass
         self.root.after(1800, self._write_ready_marker)
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        # User-facing smoke-test shortcut: open the same OSINT page as the sidebar button.
+        self.root.bind_all("<Control-Shift-o>", lambda _event: self.osint())
 
         self.active_process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
