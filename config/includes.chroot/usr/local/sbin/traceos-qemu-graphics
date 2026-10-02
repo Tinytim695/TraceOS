@@ -18,6 +18,8 @@ log=/run/traceos-qemu-graphics.log
     echo "[TraceOS] QEMU graphics bootstrap: $(date -Is)"
     echo "[TraceOS] virtualization: $(systemd-detect-virt 2>/dev/null || true)"
     echo "[TraceOS] cmdline: $cmdline"
+    boot_username="$(printf "%s\n" "$cmdline" | tr " " "\n" | sed -n 's/^username=//p' | tail -n 1)"
+    echo "[TraceOS] BOOT_USERNAME=${boot_username:-unset}"
 
     if ! systemctl is-active --quiet lightdm.service; then
         echo "[TraceOS] lightdm is not active; starting it."
