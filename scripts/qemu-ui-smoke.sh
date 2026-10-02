@@ -168,6 +168,7 @@ PY
         echo "[TraceOS] Assertion passed: $description"
     }
 
+    assert_serial "BOOT_USERNAME=traceos" "the ISO boot command line requests username=traceos"
     assert_serial "LIVE_SESSION_USER=traceos" "the graphical session user is traceos"
     assert_serial "LIVE_SESSION_HOME=/home/traceos" "the graphical session home is /home/traceos"
     assert_serial "TRACEOS_XFCE_SESSION_RUNNING" "the TraceOS XFCE session is running"
