@@ -65,7 +65,7 @@ import sys
 import time
 
 monitor, command, log_path = sys.argv[1], sys.argv[2], sys.argv[3]
-prompt = b"(qemu) "
+prompt = b"(qemu)"
 
 def read_until_prompt(sock: socket.socket, deadline_seconds: float = 12.0) -> bytes:
     deadline = time.monotonic() + deadline_seconds
@@ -340,6 +340,11 @@ pixel_diff_transition="$(compare -metric AE "$osint_immediate_png" "$osint_png" 
     echo "PIXEL_DIFF_DASHBOARD_VS_IMMEDIATE_AE=$pixel_diff_immediate"
     echo "PIXEL_DIFF_DASHBOARD_VS_FINAL_AE=$pixel_diff_final"
     echo "PIXEL_DIFF_IMMEDIATE_VS_FINAL_AE=$pixel_diff_transition"
+    if [[ "$pixel_diff_final" == "0" ]]; then
+        echo "SCREENSHOT_CHANGED=no"
+    else
+        echo "SCREENSHOT_CHANGED=yes"
+    fi
     echo "FOCUS_AND_ACTIVE_WINDOW_FROM_SHORTCUT_EVENT="
     grep -F "stage=shortcut-received" "$serial_log" 2>/dev/null | tail -n 1 || true
 } >"$osint_matrix"
