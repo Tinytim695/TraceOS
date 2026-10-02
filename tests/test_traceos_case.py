@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import shutil
@@ -232,6 +233,54 @@ class CaseStoreTests(unittest.TestCase):
         self.assertTrue((moved / "case.json").is_file())
         self.assertTrue((record.path / "evidence").is_dir())
 
+    def test_required_subdir_real_directory_swap_rejected_at_write_boundary(self):
+        record = self.store.create("Directory Swap Boundary")
+        moved = self.home / "moved-evidence"
+        injected = {"case_fd": None, "done": False}
+        original_open = os.open
+
+        def raced_open(path, flags, mode=0o777, *, dir_fd=None):
+            if (
+                dir_fd is not None
+                and str(path) == record.path.name
+                and injected["case_fd"] is None
+            ):
+                fd = original_open(path, flags, mode, dir_fd=dir_fd)
+                injected["case_fd"] = fd
+                return fd
+            if (
+                not injected["done"]
+                and injected["case_fd"] is not None
+                and dir_fd == injected["case_fd"]
+                and str(path) == "evidence"
+            ):
+                injected["done"] = True
+                evidence = record.path / "evidence"
+                evidence.rename(moved)
+                replacement = record.path / "evidence"
+                replacement.mkdir(mode=0o700)
+                (replacement / "replacement-sentinel").write_text(
+                    "must remain untouched",
+                    encoding="utf-8",
+                )
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        try:
+            with mock.patch("traceos_case.os.open", side_effect=raced_open):
+                with self.assertRaises(CorruptCase):
+                    self.store.open_required_dir(record.path, "evidence")
+        finally:
+            if injected["case_fd"] is not None:
+                os.close(injected["case_fd"])
+
+        self.assertEqual(
+            (moved / "case.json").is_file(),
+            True,
+        )
+        self.assertTrue(
+            (record.path / "evidence" / "replacement-sentinel").is_file()
+        )
+
     def test_required_subdir_symlink_rejected_at_write_boundary(self):
         record = self.store.create("Boundary Case")
         outside = self.home / "outside"
@@ -247,6 +296,82 @@ class CaseStoreTests(unittest.TestCase):
             self.store.open_required_dir(record.path, "evidence")
 
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
+
+    def test_evidence_permission_change_is_fd_bound(self):
+        spec = importlib.util.spec_from_file_location(
+            "traceos_cli_permission_test",
+            CLI,
+        )
+        cli = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(cli)
+        cli.CASE_STORE = self.store
+
+        source = self.home / "permission-source.txt"
+        source.write_text("permission test\n", encoding="utf-8")
+        original_fchmod = os.fchmod
+        injection = {"done": False}
+        moved = self.store.cases_root / "moved-during-chmod"
+
+        def raced_fchmod(fd, mode):
+            if not injection["done"]:
+                injection["done"] = True
+                acquired = Path(os.readlink(f"/proc/self/fd/{fd}"))
+                replacement = acquired.with_name(acquired.name)
+                acquired.rename(moved)
+                replacement.write_text("replacement", encoding="utf-8")
+                os.chmod(replacement, 0o600)
+            return original_fchmod(fd, mode)
+
+        with mock.patch("traceos.os.fchmod", side_effect=raced_fchmod):
+            self.assertEqual(cli.add_evidence(str(source)), 0)
+
+        self.assertEqual(moved.stat().st_mode & 0o777, 0o444)
+        replacement = self.store.cases_root / "evidence" / moved.name
+        self.assertTrue(replacement.is_file())
+        self.assertEqual(replacement.stat().st_mode & 0o777, 0o600)
+
+    def test_evidence_source_swap_before_open_uses_opened_inode(self):
+        spec = importlib.util.spec_from_file_location(
+            "traceos_cli_source_swap_test",
+            CLI,
+        )
+        cli = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(cli)
+        cli.CASE_STORE = self.store
+
+        self.store.create("Source Swap Case")
+        source = self.home / "selected-source.txt"
+        original_bytes = b"original source bytes\n"
+        replacement_bytes = b"replacement source bytes\n"
+        source.write_bytes(original_bytes)
+        replacement = self.home / "replacement-source.txt"
+        injected = {"done": False}
+        original_open = os.open
+
+        def raced_open(path, flags, mode=0o777, *, dir_fd=None):
+            if (
+                not injected["done"]
+                and dir_fd is None
+                and Path(path) == source
+            ):
+                injected["done"] = True
+                source.rename(replacement)
+                replacement.write_bytes(replacement_bytes)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        expected_hash = __import__("hashlib").sha256(replacement_bytes).hexdigest()
+
+        with mock.patch("traceos.os.open", side_effect=raced_open):
+            self.assertEqual(cli.add_evidence(str(source)), 0)
+
+        current = self.store.current()
+        self.assertIsNotNone(current)
+        ledger = current.path / "hashes" / "evidence.tsv"
+        row = ledger.read_text(encoding="utf-8").splitlines()[1].split("\t")
+        self.assertEqual(row[3], expected_hash)
+        self.assertEqual(int(row[4]), len(replacement_bytes))
 
     def test_corrupt_manifest_and_incomplete_case_are_errors(self):
         record = self.store.create("Good Case")
@@ -269,24 +394,13 @@ class CaseStoreTests(unittest.TestCase):
 
     def test_legacy_case_is_read_compatible_without_migration(self):
         legacy = self.store.cases_root / "legacy-folder"
-        for name in (
-            "evidence",
-            "working",
-            "exports",
-            "reports",
-            "hashes",
-            "notes",
-        ):
+        for name in ("evidence", "working", "exports", "reports"):
             (legacy / name).mkdir(parents=True, exist_ok=True)
-        legacy.mkdir(exist_ok=True) if not legacy.exists() else None
         (legacy / "CASE.md").write_text(
             "# Legacy Investigation\n\nOlder notes.\n",
             encoding="utf-8",
         )
-        (legacy / "hashes" / "evidence.tsv").write_text(
-            "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",
-            encoding="utf-8",
-        )
+
         record = self.store.read(legacy)
         self.assertTrue(record.legacy)
         self.assertEqual(record.schema_version, 0)
@@ -295,6 +409,45 @@ class CaseStoreTests(unittest.TestCase):
         self.assertFalse((legacy / "case.json").exists())
         self.assertEqual(self.store.select(legacy), record)
         self.assertEqual(self.store.current(), record)
+
+        (legacy / "hashes").mkdir()
+        (legacy / "notes").mkdir()
+        (legacy / "hashes" / "evidence.tsv").write_text(
+            "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",
+            encoding="utf-8",
+        )
+        record = self.store.read(legacy)
+        self.assertTrue(record.legacy)
+
+    def test_legacy_optional_entries_must_be_safe_when_present(self):
+        for kind in ("notes-symlink", "hashes-file", "ledger-symlink", "ledger-fifo"):
+            with self.subTest(kind=kind):
+                case = self.store.cases_root / f"legacy-unsafe-{kind}"
+                for name in ("evidence", "working", "exports", "reports"):
+                    (case / name).mkdir(parents=True, exist_ok=True)
+                (case / "CASE.md").write_text(
+                    "# Unsafe Legacy\n",
+                    encoding="utf-8",
+                )
+
+                if kind == "notes-symlink":
+                    outside = self.home / "legacy-notes-outside"
+                    outside.mkdir()
+                    os.symlink(outside, case / "notes")
+                elif kind == "hashes-file":
+                    (case / "hashes").write_text("not-a-directory", encoding="utf-8")
+                else:
+                    (case / "hashes").mkdir()
+                    ledger = case / "hashes" / "evidence.tsv"
+                    if kind == "ledger-symlink":
+                        outside = self.home / "legacy-ledger-outside"
+                        outside.write_text("outside", encoding="utf-8")
+                        os.symlink(outside, ledger)
+                    else:
+                        os.mkfifo(ledger)
+
+                with self.assertRaises(CorruptCase):
+                    self.store.read(case)
 
     def test_unknown_folder_without_legacy_markers_is_error(self):
         unknown = self.store.cases_root / "unknown-folder"

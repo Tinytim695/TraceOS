@@ -22,6 +22,8 @@ from typing import Optional
 SCHEMA_VERSION = 1
 MANIFEST_NAME = "case.json"
 REQUIRED_DIRS = ("evidence", "working", "exports", "reports", "hashes", "notes")
+LEGACY_REQUIRED_DIRS = ("evidence", "working", "exports", "reports")
+LEGACY_OPTIONAL_DIRS = ("hashes", "notes")
 
 
 class CaseError(RuntimeError):
@@ -345,17 +347,68 @@ class CaseStore:
         return case_path.name
 
     @staticmethod
-    def _legacy_marker_state(case_path: Path) -> bool:
+    def _validate_legacy_layout(case_path: Path) -> None:
         case_md = case_path / "CASE.md"
-        ledger = case_path / "hashes" / "evidence.tsv"
         try:
             _read_regular_text(case_md, 1024 * 1024)
-            info = os.lstat(ledger)
-            if not stat.S_ISREG(info.st_mode):
-                return False
-            return True
-        except (OSError, CorruptCase):
-            return False
+        except CorruptCase as exc:
+            raise CorruptCase(
+                f"Case does not match the recognized legacy format: {case_path}"
+            ) from exc
+
+        unsafe = []
+        for name in LEGACY_REQUIRED_DIRS:
+            target = case_path / name
+            try:
+                info = os.lstat(target)
+            except FileNotFoundError:
+                unsafe.append(f"{name} (missing)")
+                continue
+            except OSError as exc:
+                raise CorruptCase(
+                    f"Unable to inspect legacy case directory: {target}"
+                ) from exc
+            if stat.S_ISLNK(info.st_mode):
+                unsafe.append(f"{name} (symlink)")
+            elif not stat.S_ISDIR(info.st_mode):
+                unsafe.append(f"{name} (not a directory)")
+
+        for name in LEGACY_OPTIONAL_DIRS:
+            target = case_path / name
+            try:
+                info = os.lstat(target)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise CorruptCase(
+                    f"Unable to inspect legacy case directory: {target}"
+                ) from exc
+            if stat.S_ISLNK(info.st_mode):
+                unsafe.append(f"{name} (symlink)")
+            elif not stat.S_ISDIR(info.st_mode):
+                unsafe.append(f"{name} (not a directory)")
+
+        ledger = case_path / "hashes" / "evidence.tsv"
+        try:
+            ledger_info = os.lstat(ledger)
+        except FileNotFoundError:
+            ledger_info = None
+        except OSError as exc:
+            raise CorruptCase(
+                f"Unable to inspect legacy evidence ledger: {ledger}"
+            ) from exc
+
+        if ledger_info is not None:
+            if stat.S_ISLNK(ledger_info.st_mode) or not stat.S_ISREG(ledger_info.st_mode):
+                unsafe.append("hashes/evidence.tsv (unsafe file)")
+            else:
+                _read_regular_text(ledger, 1024 * 1024)
+
+        if unsafe:
+            raise CorruptCase(
+                "Legacy case contains unsafe or incomplete entries: "
+                + ", ".join(unsafe)
+            )
 
     def open_required_dir(self, path: Path, name: str) -> int:
         """Open a required subdirectory with no-follow checks at the write boundary."""
@@ -365,9 +418,10 @@ class CaseStore:
         root = self._ensure_cases_root()
         try:
             expected_info = os.lstat(record.path)
+            expected_subdir_info = os.lstat(record.path / name)
         except OSError as exc:
             raise CorruptCase(
-                f"Unable to inspect case directory: {record.path}"
+                f"Unable to inspect case directory boundary: {record.path / name}"
             ) from exc
         flags = (
             os.O_RDONLY
@@ -387,7 +441,20 @@ class CaseStore:
                 raise CorruptCase(
                     "Case directory changed during secure open."
                 )
-            return os.open(name, flags, dir_fd=case_fd)
+            subdir_fd = os.open(name, flags, dir_fd=case_fd)
+            try:
+                actual_subdir_info = os.fstat(subdir_fd)
+                if (
+                    actual_subdir_info.st_dev != expected_subdir_info.st_dev
+                    or actual_subdir_info.st_ino != expected_subdir_info.st_ino
+                ):
+                    raise CorruptCase(
+                        f"Required directory changed during secure open: {record.path / name}"
+                    )
+                return subdir_fd
+            except BaseException:
+                os.close(subdir_fd)
+                raise
         except OSError as exc:
             raise CorruptCase(
                 f"Unsafe required directory at write boundary: "
@@ -482,12 +549,7 @@ class CaseStore:
         try:
             manifest_info = os.lstat(manifest)
         except FileNotFoundError:
-            if not self._legacy_marker_state(case_path):
-                raise CorruptCase(
-                    f"Case has no {MANIFEST_NAME} and does not match the "
-                    "recognized legacy case format."
-                )
-            self._validate_required_dirs(case_path)
+            self._validate_legacy_layout(case_path)
             return CaseRecord(
                 path=case_path,
                 case_id=None,

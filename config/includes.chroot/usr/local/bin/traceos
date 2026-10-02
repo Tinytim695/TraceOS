@@ -158,24 +158,39 @@ def add_evidence(src):
         print('Create a case first: traceos case new "Case Name"')
         return 2
     src=Path(src).expanduser()
-    if not src.is_file():
-        print(f"Not a file: {src}",file=sys.stderr)
-        return 2
 
     stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    source_hash=sha256_file(src)
-    size=src.stat().st_size
     mime=mimetypes.guess_type(src.name)[0] or "application/octet-stream"
 
     evidence_fd=None
     hashes_fd=None
     dest_name=None
     dest_fd=None
+    src_fd=None
     try:
         # Open both case directories using O_NOFOLLOW/O_DIRECTORY after
         # current-case resolution. This is the actual filesystem write boundary.
         evidence_fd=CASE_STORE.open_required_dir(p,"evidence")
         hashes_fd=CASE_STORE.open_required_dir(p,"hashes")
+
+        try:
+            src_fd=os.open(
+                src,
+                os.O_RDONLY
+                | getattr(os,"O_CLOEXEC",0)
+                | getattr(os,"O_NOFOLLOW",0),
+            )
+        except OSError as exc:
+            print(f"[TraceOS] Not a readable regular file: {src}: {exc}",file=sys.stderr)
+            return 2
+
+        source_info=os.fstat(src_fd)
+        if not stat.S_ISREG(source_info.st_mode):
+            print(f"[TraceOS] Not a regular file: {src}",file=sys.stderr)
+            return 2
+        size=source_info.st_size
+
+        source_hash=_sha256_fd(src_fd)
 
         suffix=0
         while True:
@@ -196,53 +211,24 @@ def add_evidence(src):
             except FileExistsError:
                 suffix+=1
 
-        src_fd=os.open(
-            src,
-            os.O_RDONLY
-            | getattr(os,"O_CLOEXEC",0)
-            | getattr(os,"O_NOFOLLOW",0),
-        )
-        try:
-            with os.fdopen(src_fd,"rb",closefd=True) as source_handle, os.fdopen(
-                dest_fd,"wb",closefd=True
-            ) as dest_handle:
-                dest_fd=None
-                shutil.copyfileobj(source_handle,dest_handle,1024*1024)
-                dest_handle.flush()
-                os.fsync(dest_handle.fileno())
-        except BaseException:
-            os.unlink(dest_name,dir_fd=evidence_fd)
-            dest_name=None
-            raise
+        with os.fdopen(src_fd,"rb",closefd=True) as source_handle, os.fdopen(
+            dest_fd,"wb",closefd=True
+        ) as dest_handle:
+            src_fd=None
+            dest_fd=None
+            shutil.copyfileobj(source_handle,dest_handle,1024*1024)
+            dest_handle.flush()
+            os.fsync(dest_handle.fileno())
 
-        # Re-open the just-created vault copy through the already-open case
-        # directory and verify the bytes before recording the ledger entry.
-        verify_fd=os.open(
-            dest_name,
-            os.O_RDONLY
-            | getattr(os,"O_CLOEXEC",0)
-            | getattr(os,"O_NOFOLLOW",0),
-            dir_fd=evidence_fd,
-        )
-        try:
-            vault_hash=_sha256_fd(verify_fd)
-        finally:
-            os.close(verify_fd)
+            vault_hash=_sha256_fd(dest_handle.fileno())
+            if source_hash != vault_hash:
+                raise CaseError(
+                    "Evidence copy hash mismatch; source may have changed during acquisition."
+                )
 
-        if source_hash != vault_hash:
-            os.unlink(dest_name,dir_fd=evidence_fd)
-            dest_name=None
-            print(
-                "[TraceOS] Evidence copy hash mismatch; source may have changed during acquisition.",
-                file=sys.stderr,
-            )
-            return 1
-
-        os.chmod(
-            p/"evidence"/dest_name,
-            0o444,
-            follow_symlinks=False,
-        )
+            # Keep the destination fd open through the permission change so
+            # a pathname rename/replacement cannot redirect chmod().
+            os.fchmod(dest_handle.fileno(),0o444)
 
         ledger_fd=os.open(
             "evidence.tsv",
@@ -268,6 +254,8 @@ def add_evidence(src):
         print(f"[TraceOS] Evidence acquisition failed: {exc}",file=sys.stderr)
         return 1
     finally:
+        if src_fd is not None:
+            os.close(src_fd)
         if dest_fd is not None:
             os.close(dest_fd)
         if evidence_fd is not None:
