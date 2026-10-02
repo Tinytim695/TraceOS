@@ -1,24 +1,38 @@
 #!/bin/sh
-set -eu
+set -u
+
+log_dir="${XDG_CACHE_HOME:-$HOME/.cache}/traceos"
+mkdir -p "$log_dir" 2>/dev/null || true
+log="$log_dir/control-centre-launch.log"
+
+{
+    echo "[TraceOS] Control Centre launcher started: $(date -Is)"
+    echo "[TraceOS] user=$(id -un) uid=$(id -u)"
+    echo "[TraceOS] DISPLAY=${DISPLAY:-unset}"
+    echo "[TraceOS] XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-unset}"
+} >>"$log" 2>&1
 
 if [ -z "${DISPLAY:-}" ]; then
-    exit 0
+    echo "[TraceOS] No DISPLAY; launcher will not start the GUI." >>"$log"
+    exit 1
 fi
 
-for _ in $(seq 1 45); do
-    if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>&1; then
+ready=0
+for _ in $(seq 1 60); do
+    if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>>"$log"; then
+        ready=1
         break
     fi
     sleep 1
 done
 
-if ! xdpyinfo >/dev/null 2>&1; then
-    exit 0
+if [ "$ready" -ne 1 ]; then
+    echo "[TraceOS] X display never became ready." >>"$log"
+    exit 1
 fi
 
-lock="${XDG_RUNTIME_DIR:-/tmp}/traceos-control-centre.lock"
+echo "[TraceOS] X display ready; starting Control Centre." >>"$log"
 
-# flock is released automatically when the Control Centre exits. This lets
-# the LightDM session wrapper and XFCE autostart act as redundant launch paths
-# without ever creating two Control Centres.
-exec /usr/bin/flock -n "$lock" /usr/local/bin/traceos-control "$@"
+# Do not hide Python/Tk failures. Capture them so the QEMU diagnostic service
+# can surface the exact exception in the serial log.
+exec /usr/bin/python3 -u /usr/local/bin/traceos-control "$@" >>"$log" 2>&1

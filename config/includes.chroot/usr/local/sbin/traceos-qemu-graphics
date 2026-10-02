@@ -34,8 +34,7 @@ log=/run/traceos-qemu-graphics.log
     sleep 12
 
     # The Control Centre writes a marker after its Tk window has been created.
-    # Surface that guest-side fact into the QEMU serial log so CI can verify
-    # the intended application launched, not merely a branded wallpaper.
+    # Surface both readiness and launcher diagnostics into the QEMU serial log.
     for _ in $(seq 1 90); do
         if [ -s /tmp/traceos-control-centre.ready ]; then
             echo "[TraceOS] CONTROL_CENTRE_READY"
@@ -43,6 +42,13 @@ log=/run/traceos-qemu-graphics.log
             break
         fi
         sleep 1
+    done
+
+    echo "[TraceOS] Control Centre launcher diagnostics:"
+    for f in /home/traceos/.cache/traceos/control-centre-launch.log /root/.cache/traceos/control-centre-launch.log; do
+        if [ -f "$f" ]; then
+            cat "$f" || true
+        fi
     done
 
     systemctl --no-pager --full status lightdm.service || true

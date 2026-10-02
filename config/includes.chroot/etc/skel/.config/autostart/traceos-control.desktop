@@ -7,4 +7,4 @@ TryExec=/usr/local/bin/traceos-control-launch
 OnlyShowIn=XFCE;
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=12
+X-GNOME-Autostart-Delay=8
