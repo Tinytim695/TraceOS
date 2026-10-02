@@ -205,7 +205,33 @@ class CaseStoreTests(unittest.TestCase):
             ["OK", "OK"],
         )
 
-    def test_required_subdir_symlink_rejected_at_write_boundary(self):
+    def test_required_dir_open_rejects_case_inode_swap(self):
+        record = self.store.create("Swap Boundary")
+        moved = self.store.cases_root / "swap-boundary-moved"
+        injected = {"done": False}
+        original_open = os.open
+
+        def raced_open(path, flags, mode=0o777, *, dir_fd=None):
+            if (
+                not injected["done"]
+                and dir_fd is not None
+                and str(path) == record.path.name
+            ):
+                injected["done"] = True
+                record.path.rename(moved)
+                replacement = record.path
+                replacement.mkdir(mode=0o700)
+                (replacement / "evidence").mkdir(mode=0o700)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        with mock.patch("traceos_case.os.open", side_effect=raced_open):
+            with self.assertRaises(CorruptCase):
+                self.store.open_required_dir(record.path, "evidence")
+
+        self.assertTrue(moved.is_dir())
+        self.assertTrue((moved / "case.json").is_file())
+        self.assertTrue((record.path / "evidence").is_dir())
+
         record = self.store.create("Boundary Case")
         outside = self.home / "outside"
         outside.mkdir()

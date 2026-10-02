@@ -363,6 +363,12 @@ class CaseStore:
             raise ValueError(f"Unsupported case directory: {name}")
         record = self.read(path)
         root = self._ensure_cases_root()
+        try:
+            expected_info = os.lstat(record.path)
+        except OSError as exc:
+            raise CorruptCase(
+                f"Unable to inspect case directory: {record.path}"
+            ) from exc
         flags = (
             os.O_RDONLY
             | getattr(os, "O_DIRECTORY", 0)
@@ -373,6 +379,14 @@ class CaseStore:
         case_fd = None
         try:
             case_fd = os.open(record.path.name, flags, dir_fd=root_fd)
+            actual_info = os.fstat(case_fd)
+            if (
+                actual_info.st_dev != expected_info.st_dev
+                or actual_info.st_ino != expected_info.st_ino
+            ):
+                raise CorruptCase(
+                    "Case directory changed during secure open."
+                )
             return os.open(name, flags, dir_fd=case_fd)
         except OSError as exc:
             raise CorruptCase(

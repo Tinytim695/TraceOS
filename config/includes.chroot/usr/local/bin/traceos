@@ -106,12 +106,6 @@ def status():
 │ Telemetry  none built in               │
 ╰─────────────────────────────────────────╯
 """)
-def list_cases():
-    CASES.mkdir(parents=True,exist_ok=True); print("\nTRACEOS CASES\n─────────────")
-    found=False
-    for p in sorted(CASES.iterdir()):
-        if p.is_dir(): print(f" {'*' if p==current_case() else ' '} {case_name(p)}  [{p.name}]"); found=True
-    if not found: print("  No cases yet.")
 def show_tools():
     tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search")]
     print("\nTRACEOS TOOLBOX\n───────────────")
