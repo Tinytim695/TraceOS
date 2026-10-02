@@ -127,6 +127,14 @@ PY
     fi
     echo "[TraceOS] TraceOS visual signature detected in $page screenshot."
 
+    if ! grep -q "CONTROL_CENTRE_READY" "$STATE/serial-$page.log" 2>/dev/null; then
+        echo "[TraceOS] Control Centre readiness marker was not observed in the QEMU guest." >&2
+        echo "[TraceOS] Serial tail:" >&2
+        tail -n 160 "$STATE/serial-$page.log" >&2 || true
+        exit 1
+    fi
+    echo "[TraceOS] Control Centre readiness marker detected."
+
     # The wallpaper proves branding; the Control Centre window proves the
     # intended TraceOS session actually launched. Search the X11 window tree
     # for its canonical title. xdotool is intentionally not required in the
