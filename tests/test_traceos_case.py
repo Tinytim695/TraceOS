@@ -419,6 +419,31 @@ class CaseStoreTests(unittest.TestCase):
         record = self.store.read(legacy)
         self.assertTrue(record.legacy)
 
+    def test_legacy_case_md_inode_swap_is_rejected(self):
+        legacy = self.store.cases_root / "legacy-case-md-race"
+        for name in ("evidence", "working", "exports", "reports"):
+            (legacy / name).mkdir(parents=True, exist_ok=True)
+        case_md = legacy / "CASE.md"
+        case_md.write_text("# Original Legacy\n", encoding="utf-8")
+        moved = self.home / "moved-CASE.md"
+        replacement_text = "# Replacement Legacy\n"
+        original_open = os.open
+        injected = {"done": False}
+
+        def raced_open(path, flags, mode=0o777, *, dir_fd=None):
+            if not injected["done"] and Path(path) == case_md and dir_fd is None:
+                injected["done"] = True
+                case_md.rename(moved)
+                case_md.write_text(replacement_text, encoding="utf-8")
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        with mock.patch("traceos_case.os.open", side_effect=raced_open):
+            with self.assertRaises(CorruptCase):
+                self.store.read(legacy)
+
+        self.assertEqual(moved.read_text(encoding="utf-8"), "# Original Legacy\n")
+        self.assertEqual(case_md.read_text(encoding="utf-8"), replacement_text)
+
     def test_legacy_optional_entries_must_be_safe_when_present(self):
         for kind in ("notes-symlink", "hashes-file", "ledger-symlink", "ledger-fifo"):
             with self.subTest(kind=kind):

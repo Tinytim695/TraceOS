@@ -123,6 +123,13 @@ def _read_regular_text(path: Path, max_bytes: int) -> str:
         raise CorruptCase(f"Unable to open required file: {path}") from exc
     try:
         info = os.fstat(fd)
+        if (
+            info.st_dev != path_info.st_dev
+            or info.st_ino != path_info.st_ino
+        ):
+            raise CorruptCase(
+                f"Required file changed during secure open: {path}"
+            )
         if not stat.S_ISREG(info.st_mode):
             raise CorruptCase(f"Required file is not a regular file: {path}")
         if info.st_size > max_bytes:
@@ -357,6 +364,7 @@ class CaseStore:
             ) from exc
 
         unsafe = []
+        hashes_is_safe_dir = False
         for name in LEGACY_REQUIRED_DIRS:
             target = case_path / name
             try:
@@ -387,6 +395,8 @@ class CaseStore:
                 unsafe.append(f"{name} (symlink)")
             elif not stat.S_ISDIR(info.st_mode):
                 unsafe.append(f"{name} (not a directory)")
+            elif name == "hashes":
+                hashes_is_safe_dir = True
 
         ledger = case_path / "hashes" / "evidence.tsv"
         try:
@@ -397,6 +407,9 @@ class CaseStore:
             raise CorruptCase(
                 f"Unable to inspect legacy evidence ledger: {ledger}"
             ) from exc
+
+        if not hashes_is_safe_dir:
+            ledger_info = None
 
         if ledger_info is not None:
             if stat.S_ISLNK(ledger_info.st_mode) or not stat.S_ISREG(ledger_info.st_mode):
