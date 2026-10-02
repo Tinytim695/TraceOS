@@ -24,15 +24,15 @@ extract_boot_config() {
 # Validate the actual bootloader payloads inside the ISO before spending five
 # minutes on the graphical boot. The BIOS El Torito path is the path used by
 # QEMU below, so it must carry the same live username as the GRUB path.
-extract_boot_config /isolinux/isolinux.cfg "$STATE/generated-isolinux.cfg"
-extract_boot_config /boot/grub/grub.cfg "$STATE/generated-grub.cfg" || true
+extract_boot_config /isolinux/isolinux.cfg "$OUT/traceos-generated-isolinux.cfg"
+extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg" || true
 
-if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$STATE/generated-isolinux.cfg"; then
+if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-isolinux.cfg"; then
     echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
     exit 1
 fi
 
-if [ -s "$STATE/generated-grub.cfg" ] && ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$STATE/generated-grub.cfg"; then
+if [ -s "$OUT/traceos-generated-grub.cfg" ] && ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-grub.cfg"; then
     echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
     exit 1
 fi
