@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -94,7 +95,8 @@ class TraceOSApp:
         self.root.after(1800, self._write_ready_marker)
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
         # User-facing smoke-test shortcut: open the same OSINT page as the sidebar button.
-        self.root.bind_all("<Control-Shift-o>", lambda _event: self.osint())
+        # Tk keysyms are case-sensitive here; Ctrl+Shift+O produces keysym ``O``.
+        self.root.bind_all("<Control-Shift-O>", self._osint_shortcut)
 
         self.active_process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
@@ -115,6 +117,72 @@ class TraceOSApp:
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
+
+    def _trace_active_window(self) -> str:
+        result = capture(["xprop", "-root", "_NET_ACTIVE_WINDOW"], timeout=2)
+        if not result or result.returncode != 0:
+            return "unavailable"
+        value = " ".join(result.stdout.strip().split())
+        return value or "unavailable"
+
+    def _trace_focus(self) -> str:
+        try:
+            widget = self.root.focus_get()
+            if widget is None:
+                return "none"
+            return f"{widget.winfo_class()}:{widget}"
+        except tk.TclError:
+            return "unavailable"
+
+    def _trace_diag(self, stage: str, **fields: object) -> None:
+        parts = [f"stage={stage}"]
+        for key, value in fields.items():
+            safe = " ".join(str(value).replace("\n", " ").replace("\r", " ").split())
+            parts.append(f"{key}={safe}")
+        line = f"[TraceOS] UI_DIAG {time.strftime('%Y-%m-%dT%H:%M:%S%z')} " + " ".join(parts)
+
+        log_path = Path.home() / ".cache" / "traceos" / "control-centre-ui.log"
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+        except OSError:
+            pass
+
+        # Best-effort CI evidence channel. Failure to write to the guest serial
+        # device must never break the normal GUI or user-facing interaction.
+        try:
+            fd = os.open("/dev/ttyS0", os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+            try:
+                os.write(fd, (line + "\n").encode("utf-8"))
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+
+        print(line, file=sys.stderr, flush=True)
+
+    def _osint_shortcut(self, event: tk.Event) -> str:
+        self._trace_diag(
+            "shortcut-received",
+            keysym=getattr(event, "keysym", "unknown"),
+            state=getattr(event, "state", "unknown"),
+            focus=self._trace_focus(),
+            active_window=self._trace_active_window(),
+        )
+        self._trace_diag("callback-entered", callback="osint")
+        try:
+            self.osint()
+        except Exception as exc:
+            self._trace_diag(
+                "callback-exception",
+                callback="osint",
+                exc_type=type(exc).__name__,
+                message=str(exc),
+            )
+            raise
+        self._trace_diag("callback-complete", callback="osint")
+        return "break"
 
     def _write_ready_marker(self) -> None:
         marker = Path("/tmp/traceos-control-centre.ready")
@@ -689,6 +757,8 @@ class TraceOSApp:
             self.run_job(args, f"{name} OSINT")
 
         self.action_button(bar, "START LOOKUP", start_osint, primary=True).pack(side="right")
+        self.root.update_idletasks()
+        self._trace_diag("osint-page-rendered", page="osint")
 
     def reports(self) -> None:
         self.heading(

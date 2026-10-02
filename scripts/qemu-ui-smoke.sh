@@ -43,8 +43,108 @@ cleanup() {
         kill "$QEMU_PID" 2>/dev/null || true
         wait "$QEMU_PID" 2>/dev/null || true
     fi
+    mkdir -p "$OUT"
+    for log_file in "$STATE"/*.log; do
+        if [[ -f "$log_file" ]]; then
+            cp -f "$log_file" "$OUT/$(basename "$log_file")"
+        fi
+    done
 }
 trap cleanup EXIT
+
+hmp_command() {
+    local monitor="$1"
+    local command="$2"
+    local log_path="$3"
+
+    python3 - "$monitor" "$command" "$log_path" <<'PY'
+import datetime
+import re
+import socket
+import sys
+import time
+
+monitor, command, log_path = sys.argv[1], sys.argv[2], sys.argv[3]
+prompt = b"(qemu) "
+
+def read_until_prompt(sock: socket.socket, deadline_seconds: float = 12.0) -> bytes:
+    deadline = time.monotonic() + deadline_seconds
+    data = bytearray()
+    while time.monotonic() < deadline:
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            continue
+        if not chunk:
+            break
+        data.extend(chunk)
+        if data.rstrip().endswith(prompt):
+            return bytes(data)
+    raise RuntimeError("QEMU HMP prompt was not observed before deadline")
+
+stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+    sock.settimeout(1)
+    sock.connect(monitor)
+    banner = read_until_prompt(sock)
+    sock.sendall((command + "\n").encode("utf-8"))
+    response = read_until_prompt(sock)
+
+banner_text = banner.decode("utf-8", "replace")
+response_text = response.decode("utf-8", "replace")
+error_pattern = re.compile(r"(?im)^\\s*(?:Error:|unknown command|invalid parameter|command .* failed|failed to .*|could not .*|HMP .*error)")
+error_match = error_pattern.search(response_text)
+
+with open(log_path, "w", encoding="utf-8") as handle:
+    handle.write(f"timestamp_utc={stamp}\n")
+    handle.write(f"command={command}\n")
+    handle.write("initial_monitor_until_prompt:\n")
+    handle.write(banner_text)
+    handle.write("\ncommand_response_until_prompt:\n")
+    handle.write(response_text)
+    handle.write("\nhmp_error_detected=" + ("yes" if error_match else "no") + "\n")
+
+print(f"[TraceOS] HMP command: {command}")
+print(f"[TraceOS] HMP initial bytes: {len(banner)} response bytes: {len(response)}")
+if error_match:
+    print(f"[TraceOS] HMP ERROR: {error_match.group(0).strip()}", file=sys.stderr)
+    raise SystemExit(2)
+print("[TraceOS] HMP command accepted through the next prompt.")
+PY
+}
+
+capture_screendump() {
+    local monitor="$1"
+    local ppm="$2"
+    local log_path="$3"
+    rm -f "$ppm"
+    local requested_ns
+    requested_ns="$(date +%s%N)"
+
+    hmp_command "$monitor" "screendump $ppm" "$log_path"
+
+    for _ in $(seq 1 20); do
+        if [[ -s "$ppm" ]] && python3 - "$ppm" "$requested_ns" <<'PY'
+import os
+import sys
+
+path, requested_ns = sys.argv[1], int(sys.argv[2])
+try:
+    fresh = os.stat(path).st_mtime_ns >= requested_ns
+except FileNotFoundError:
+    fresh = False
+raise SystemExit(0 if fresh else 1)
+PY
+        then
+            echo "[TraceOS] Fresh framebuffer confirmed: $ppm"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "[TraceOS] Screendump did not produce a fresh framebuffer: $ppm" >&2
+    return 1
+}
 
 capture_page() {
     local page="$1"
@@ -100,27 +200,7 @@ capture_page() {
     # declaring the real graphical desktop absent.
     sleep 300
 
-    python3 - "$monitor" "$ppm" <<'PY'
-import socket
-import sys
-import time
-
-monitor, ppm = sys.argv[1], sys.argv[2]
-
-for _ in range(15):
-    try:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(5)
-        s.connect(monitor)
-        s.sendall(b"screendump " + ppm.encode() + b"\n")
-        time.sleep(2)
-        s.close()
-        break
-    except OSError:
-        time.sleep(1)
-else:
-    raise SystemExit("Unable to connect to QEMU monitor")
-PY
+    capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
 
     test -s "$ppm"
     convert "$ppm" -resize 1280x720 -strip "$png"
@@ -189,61 +269,101 @@ PY
 capture_page dashboard true
 
 # Diagnostic-only OSINT interaction. The shortcut is a normal user-facing
-# Control Centre binding; this first run records the resulting real-ISO
-# screenshot without making page recognition a CI gate yet.
+# Control Centre binding. This run records the full interaction chain without
+# making page recognition a CI gate yet.
 osint_ppm="$OUT/traceos-osint.ppm"
 osint_png="$OUT/traceos-osint.png"
-python3 - "$STATE/monitor-dashboard.sock" "$STATE/monitor-osint.log" <<'PY'
-import socket
-import sys
-import time
+osint_immediate_ppm="$OUT/traceos-osint-immediate.ppm"
+osint_immediate_png="$OUT/traceos-osint-immediate.png"
+monitor="$STATE/monitor-dashboard.sock"
+serial_log="$STATE/serial-dashboard.log"
+osint_matrix="$OUT/traceos-osint-matrix.txt"
 
-monitor, log_path = sys.argv[1], sys.argv[2]
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(5)
-s.connect(monitor)
-s.sendall(b"sendkey ctrl-shift-o\n")
-time.sleep(1)
-try:
-    response = s.recv(4096).decode("utf-8", "replace")
-except OSError as exc:
-    response = f"monitor recv failed: {exc}\n"
-s.close()
-open(log_path, "w", encoding="utf-8").write(response)
-print(response, end="")
-PY
+hmp_command "$monitor" "sendkey ctrl-shift-o" "$STATE/monitor-osint-sendkey.log"
+hmp_sendkey_accepted="yes"
 
-sleep 3
-python3 - "$STATE/monitor-dashboard.sock" "$osint_ppm" <<'PY'
-import socket
-import sys
-import time
+# Capture an immediate framebuffer so a later unchanged frame cannot be
+# confused with a slow screendump or a transient transition.
+capture_screendump "$monitor" "$osint_immediate_ppm" "$STATE/monitor-osint-immediate-screendump.log"
+convert "$osint_immediate_ppm" -resize 1280x720 -strip "$osint_immediate_png"
+identify "$osint_immediate_png"
+test -s "$osint_immediate_png"
 
-monitor, ppm = sys.argv[1], sys.argv[2]
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(5)
-s.connect(monitor)
-s.sendall(b"screendump " + ppm.encode() + b"\n")
-time.sleep(2)
-s.close()
-PY
+shortcut_received="no"
+callback_entered="no"
+callback_completed="no"
+callback_exception="no"
+page_rendered="no"
 
-test -s "$osint_ppm"
+# Poll guest-side serial diagnostics with a bounded deadline. No arbitrary
+# long sleep is used as the interaction proof.
+for _ in $(seq 1 20); do
+    if grep -Fq "UI_DIAG" "$serial_log" 2>/dev/null; then
+        if grep -Fq "stage=shortcut-received" "$serial_log"; then shortcut_received="yes"; fi
+        if grep -Fq "stage=callback-entered" "$serial_log"; then callback_entered="yes"; fi
+        if grep -Fq "stage=callback-complete" "$serial_log"; then callback_completed="yes"; fi
+        if grep -Fq "stage=callback-exception" "$serial_log"; then callback_exception="yes"; fi
+        if grep -Fq "stage=osint-page-rendered" "$serial_log"; then page_rendered="yes"; fi
+        if [[ "$page_rendered" == "yes" || "$callback_exception" == "yes" ]]; then
+            break
+        fi
+    fi
+    sleep 1
+done
+
+# Take the final framebuffer after observable guest evidence, or after the
+# bounded diagnostic deadline if no guest evidence arrived.
+capture_screendump "$monitor" "$osint_ppm" "$STATE/monitor-osint-screendump.log"
 convert "$osint_ppm" -resize 1280x720 -strip "$osint_png"
 identify "$osint_png"
 test -s "$osint_png"
+
+dashboard_png="$OUT/traceos-dashboard.png"
+dashboard_hash="$(sha256sum "$dashboard_png" | awk '{print $1}')"
+osint_immediate_hash="$(sha256sum "$osint_immediate_png" | awk '{print $1}')"
+osint_hash="$(sha256sum "$osint_png" | awk '{print $1}')"
+
+pixel_diff_immediate="$(compare -metric AE "$dashboard_png" "$osint_immediate_png" null: 2>&1 || true)"
+pixel_diff_final="$(compare -metric AE "$dashboard_png" "$osint_png" null: 2>&1 || true)"
+pixel_diff_transition="$(compare -metric AE "$osint_immediate_png" "$osint_png" null: 2>&1 || true)"
+
+{
+    echo "HMP_SENDKEY_ACCEPTED=$hmp_sendkey_accepted"
+    echo "TK_EVENT_RECEIVED=$shortcut_received"
+    echo "CALLBACK_ENTERED=$callback_entered"
+    echo "CALLBACK_COMPLETED=$callback_completed"
+    echo "CALLBACK_EXCEPTION=$callback_exception"
+    echo "OSINT_PAGE_RENDERED=$page_rendered"
+    echo "DASHBOARD_SHA256=$dashboard_hash"
+    echo "OSINT_IMMEDIATE_SHA256=$osint_immediate_hash"
+    echo "OSINT_FINAL_SHA256=$osint_hash"
+    echo "PIXEL_DIFF_DASHBOARD_VS_IMMEDIATE_AE=$pixel_diff_immediate"
+    echo "PIXEL_DIFF_DASHBOARD_VS_FINAL_AE=$pixel_diff_final"
+    echo "PIXEL_DIFF_IMMEDIATE_VS_FINAL_AE=$pixel_diff_transition"
+    echo "FOCUS_AND_ACTIVE_WINDOW_FROM_SHORTCUT_EVENT="
+    grep -F "stage=shortcut-received" "$serial_log" 2>/dev/null | tail -n 1 || true
+} >"$osint_matrix"
+
+echo "[TraceOS] OSINT diagnostic matrix:"
+cat "$osint_matrix"
+
+# Keep the interaction page diagnostic-only in this batch. A later batch may
+# promote page-specific recognition to a hard gate once this chain is proved.
 spread="$(convert "$osint_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
-echo "[TraceOS] OSINT diagnostic screenshot framebuffer standard deviation: $spread"
+echo "[TraceOS] OSINT final framebuffer standard deviation: $spread"
 if ! awk "BEGIN { exit !($spread > 0.02) }"; then
     echo "[TraceOS] OSINT diagnostic screenshot is blank/static." >&2
-    tail -n 220 "$STATE/serial-dashboard.log" >&2 || true
+    tail -n 220 "$serial_log" >&2 || true
     exit 1
 fi
+
 echo "[TraceOS] OSINT diagnostic screenshot captured (page recognition is not yet a CI gate)."
+
+rm -f "$OUT"/*.ppm
 
 kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true
 unset QEMU_PID
 
-echo "[TraceOS] QEMU screenshots ready:"
-find "$OUT" -maxdepth 1 -type f -name '*.png' -print -exec ls -lh {} +
+echo "[TraceOS] QEMU screenshots and diagnostics ready:"
+find "$OUT" -maxdepth 1 -type f \( -name '*.png' -o -name '*.cfg' -o -name '*.log' -o -name '*.txt' \) -print -exec ls -lh {} +

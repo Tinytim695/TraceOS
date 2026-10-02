@@ -172,4 +172,6 @@ jobs:
           path: |
             traceos-ui-screenshots/*.png
             traceos-ui-screenshots/*.cfg
+            traceos-ui-screenshots/*.log
+            traceos-ui-screenshots/*.txt
           if-no-files-found: warn
