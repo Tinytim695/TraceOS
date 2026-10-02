@@ -9,6 +9,35 @@ test -s "$ISO"
 rm -rf "$OUT" "$STATE"
 mkdir -p "$OUT" "$STATE"
 
+extract_boot_config() {
+    local iso_path="$1"
+    local out_path="$2"
+    if xorriso -osirrox on -indev "$ISO" -extract "$iso_path" "$out_path" >/dev/null 2>&1; then
+        echo "[TraceOS] Extracted $iso_path -> $out_path"
+        grep -En '^[[:space:]]*(APPEND|append|linux)[[:space:]]' "$out_path" || true
+    else
+        echo "[TraceOS] Could not extract $iso_path from the ISO." >&2
+        return 1
+    fi
+}
+
+# Validate the actual bootloader payloads inside the ISO before spending five
+# minutes on the graphical boot. The BIOS El Torito path is the path used by
+# QEMU below, so it must carry the same live username as the GRUB path.
+extract_boot_config /isolinux/isolinux.cfg "$STATE/generated-isolinux.cfg"
+extract_boot_config /boot/grub/grub.cfg "$STATE/generated-grub.cfg" || true
+
+if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$STATE/generated-isolinux.cfg"; then
+    echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
+    exit 1
+fi
+
+if [ -s "$STATE/generated-grub.cfg" ] && ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$STATE/generated-grub.cfg"; then
+    echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
+    exit 1
+fi
+
+
 cleanup() {
     if [[ -n "${QEMU_PID:-}" ]]; then
         kill "$QEMU_PID" 2>/dev/null || true
@@ -127,25 +156,23 @@ PY
     fi
     echo "[TraceOS] TraceOS visual signature detected in $page screenshot."
 
-    if ! grep -q "CONTROL_CENTRE_READY" "$STATE/serial-$page.log" 2>/dev/null; then
-        echo "[TraceOS] Control Centre readiness marker was not observed in the QEMU guest." >&2
-        echo "[TraceOS] Serial tail:" >&2
-        tail -n 160 "$STATE/serial-$page.log" >&2 || true
-        exit 1
-    fi
-    echo "[TraceOS] Control Centre readiness marker detected."
+    assert_serial() {
+        local marker="$1"
+        local description="$2"
+        if ! grep -q "$marker" "$STATE/serial-$page.log" 2>/dev/null; then
+            echo "[TraceOS] Assertion failed: $description" >&2
+            echo "[TraceOS] Serial tail:" >&2
+            tail -n 220 "$STATE/serial-$page.log" >&2 || true
+            exit 1
+        fi
+        echo "[TraceOS] Assertion passed: $description"
+    }
 
-    # The wallpaper proves branding; the Control Centre window proves the
-    # intended TraceOS session actually launched. Search the X11 window tree
-    # for its canonical title. xdotool is intentionally not required in the
-    # image; the session writes a deterministic readiness marker for CI.
-    if ! grep -q "Control Centre process is running" "$STATE/serial-$page.log" 2>/dev/null; then
-        # The session wrapper logs to the user's cache, which is not on serial.
-        # Use the QEMU guest's visible UI as the source of truth for this check.
-        # The current baseline must at least have the TraceOS window geometry
-        # rather than relying on the wallpaper alone.
-        echo "[TraceOS] Control Centre launch cannot be verified from serial alone; retaining graphical baseline."
-    fi
+    assert_serial "LIVE_SESSION_USER=traceos" "the graphical session user is traceos"
+    assert_serial "LIVE_SESSION_HOME=/home/traceos" "the graphical session home is /home/traceos"
+    assert_serial "TRACEOS_SESSION_WRAPPER_RUNNING" "the TraceOS XFCE session wrapper is running"
+    assert_serial "CONTROL_CENTRE_PROCESS_RUNNING" "the Control Centre process is running"
+    assert_serial "CONTROL_CENTRE_READY" "the Control Centre readiness marker was observed"
 
     rm -f "$ppm"
     kill "$QEMU_PID" 2>/dev/null || true
