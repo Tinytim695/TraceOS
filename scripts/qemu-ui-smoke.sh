@@ -68,7 +68,7 @@ capture_page() {
     # XFCE and the TraceOS welcome/control centre.
     # TCG boot time can vary on shared CI runners. Allow a longer window before
     # declaring the real graphical desktop absent.
-    sleep 240
+    sleep 300
 
     python3 - "$monitor" "$ppm" <<'PY'
 import socket

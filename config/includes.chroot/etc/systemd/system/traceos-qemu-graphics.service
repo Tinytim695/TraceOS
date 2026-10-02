@@ -1,7 +1,8 @@
 [Unit]
 Description=TraceOS QEMU graphical session bootstrap
-After=basic.target dbus.service
-Wants=dbus.service
+After=display-manager.service
+Wants=display-manager.service
+ConditionVirtualization=vm
 
 [Service]
 Type=oneshot
@@ -9,4 +10,4 @@ ExecStart=/usr/local/sbin/traceos-qemu-graphics
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target

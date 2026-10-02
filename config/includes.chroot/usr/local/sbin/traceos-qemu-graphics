@@ -3,9 +3,9 @@ set -eu
 
 cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
 
-# The helper is intentionally VM-only so it cannot restart the display
-# manager on a physical TraceOS laptop/desktop. Keep the explicit page flag
-# as a deterministic fallback for older test harnesses.
+# The helper is intentionally VM-only so it cannot alter the display manager
+# on a physical TraceOS laptop/desktop. Keep the explicit page flag as a
+# deterministic fallback for older test harnesses.
 if ! systemd-detect-virt --quiet --vm 2>/dev/null; then
     case " $cmdline " in
         *" traceos-qemu-page="*) ;;
@@ -18,14 +18,28 @@ log=/run/traceos-qemu-graphics.log
     echo "[TraceOS] QEMU graphics bootstrap: $(date -Is)"
     echo "[TraceOS] virtualization: $(systemd-detect-virt 2>/dev/null || true)"
     echo "[TraceOS] cmdline: $cmdline"
-    systemctl enable lightdm.service || true
-    systemctl restart lightdm.service || systemctl start lightdm.service || true
-    sleep 8
+
+    # LightDM is already ordered by graphical.target. Never restart an
+    # existing display manager here because that can tear down an active
+    # session and leave a CI framebuffer looking blank.
+    if ! systemctl is-active --quiet lightdm.service; then
+        echo "[TraceOS] lightdm is not active; starting it."
+        systemctl start lightdm.service || true
+    else
+        echo "[TraceOS] lightdm is already active; leaving the session alone."
+    fi
+
+    # Allow X, the user session and XFCE autostart entries to settle before
+    # the QEMU screenshot gate inspects the framebuffer.
+    sleep 12
+
     systemctl --no-pager --full status lightdm.service || true
     echo "[TraceOS] display manager state:"
     systemctl --no-pager --no-legend list-units 'display-manager.service' || true
     echo "[TraceOS] seats:"
     loginctl list-seats || true
+    echo "[TraceOS] sessions:"
+    loginctl list-sessions || true
 } >"$log" 2>&1
 
 exit 0
