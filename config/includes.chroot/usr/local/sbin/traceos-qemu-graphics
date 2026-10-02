@@ -38,7 +38,6 @@ log=/run/traceos-qemu-graphics.log
     for _ in $(seq 1 90); do
         if [ -s /tmp/traceos-control-centre.ready ]; then
             echo "[TraceOS] CONTROL_CENTRE_READY"
-            printf '%s\n' "[TraceOS] CONTROL_CENTRE_READY" >/dev/ttyS0 2>/dev/null || true
             break
         fi
         sleep 1
@@ -51,6 +50,14 @@ log=/run/traceos-qemu-graphics.log
         fi
     done
 
+    echo "[TraceOS] Control Centre readiness marker:"
+    if [ -s /tmp/traceos-control-centre.ready ]; then
+        cat /tmp/traceos-control-centre.ready || true
+    else
+        echo "[TraceOS] READY marker file is absent."
+    fi
+
+    echo "[TraceOS] lightdm status:"
     systemctl --no-pager --full status lightdm.service || true
     echo "[TraceOS] display manager state:"
     systemctl --no-pager --no-legend list-units 'display-manager.service' || true
@@ -59,5 +66,9 @@ log=/run/traceos-qemu-graphics.log
     echo "[TraceOS] sessions:"
     loginctl list-sessions || true
 } >"$log" 2>&1
+
+# The host-side smoke test only has the guest serial device as its reliable
+# diagnostic channel. Replay the complete guest-side diagnostics there.
+cat "$log" >/dev/ttyS0 2>/dev/null || true
 
 exit 0
