@@ -270,10 +270,8 @@ class CaseStoreTests(unittest.TestCase):
             with self.assertRaises(CorruptCase):
                 self.store.open_required_dir(record.path, "evidence")
 
-        self.assertEqual(
-            (moved / "case.json").is_file(),
-            True,
-        )
+        self.assertTrue(moved.is_dir())
+        self.assertFalse((moved / "replacement-sentinel").exists())
         self.assertTrue(
             (record.path / "evidence" / "replacement-sentinel").is_file()
         )
@@ -320,7 +318,7 @@ class CaseStoreTests(unittest.TestCase):
                 os.chmod(replacement, 0o600)
             return original_fchmod(fd, mode)
 
-        with mock.patch("traceos.os.fchmod", side_effect=raced_fchmod):
+        with mock.patch.object(cli.os, "fchmod", side_effect=raced_fchmod):
             self.assertEqual(cli.add_evidence(str(source)), 0)
 
         self.assertEqual(moved.stat().st_mode & 0o777, 0o444)
@@ -360,7 +358,7 @@ class CaseStoreTests(unittest.TestCase):
 
         expected_hash = __import__("hashlib").sha256(replacement_bytes).hexdigest()
 
-        with mock.patch("traceos.os.open", side_effect=raced_open):
+        with mock.patch.object(cli.os, "open", side_effect=raced_open):
             self.assertEqual(cli.add_evidence(str(source)), 0)
 
         current = self.store.current()
