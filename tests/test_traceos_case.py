@@ -301,6 +301,7 @@ class CaseStoreTests(unittest.TestCase):
         cli = importlib.util.module_from_spec(spec)
         loader.exec_module(cli)
         cli.CASE_STORE = self.store
+        self.store.create("Permission Case")
 
         source = self.home / "permission-source.txt"
         source.write_text("permission test\n", encoding="utf-8")
