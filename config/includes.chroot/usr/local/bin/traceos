@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import datetime as dt, hashlib, mimetypes, os, shutil, subprocess, sys
 from pathlib import Path
-from traceos_case import CaseError, CaseStore
+from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
 HOME=Path.home()
 CASE_STORE=CaseStore()
@@ -147,34 +147,148 @@ def verify_evidence():
     print(f"Integrity check: {checked} checked, {failures} failed.")
     return 1 if failures else 0
 
+def _sha256_fd(fd, chunk_size=1024*1024):
+    digest = hashlib.sha256()
+    os.lseek(fd, 0, os.SEEK_SET)
+    while True:
+        chunk = os.read(fd, chunk_size)
+        if not chunk:
+            break
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
 def add_evidence(src):
     p=current_case()
-    if not p: print('Create a case first: traceos case new "Case Name"'); return 2
+    if not p:
+        print('Create a case first: traceos case new "Case Name"')
+        return 2
     src=Path(src).expanduser()
-    if not src.is_file(): print(f"Not a file: {src}",file=sys.stderr); return 2
+    if not src.is_file():
+        print(f"Not a file: {src}",file=sys.stderr)
+        return 2
+
     stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    dest=p/"evidence"/f"E{stamp}_{src.name}"
-    suffix=1
-    while dest.exists():
-        dest=p/"evidence"/f"E{stamp}_{suffix}_{src.name}"
-        suffix+=1
+    source_hash=sha256_file(src)
+    size=src.stat().st_size
+    mime=mimetypes.guess_type(src.name)[0] or "application/octet-stream"
+
+    evidence_fd=None
+    hashes_fd=None
+    dest_name=None
+    dest_fd=None
     try:
-        source_hash=sha256_file(src)
-        shutil.copy2(src,dest)
-        vault_hash=sha256_file(dest)
+        # Open both case directories using O_NOFOLLOW/O_DIRECTORY after
+        # current-case resolution. This is the actual filesystem write boundary.
+        evidence_fd=CASE_STORE.open_required_dir(p,"evidence")
+        hashes_fd=CASE_STORE.open_required_dir(p,"hashes")
+
+        suffix=0
+        while True:
+            candidate_name=f"E{stamp}_{src.name}" if suffix == 0 else f"E{stamp}_{suffix}_{src.name}"
+            try:
+                dest_fd=os.open(
+                    candidate_name,
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os,"O_CLOEXEC",0)
+                    | getattr(os,"O_NOFOLLOW",0),
+                    0o400,
+                    dir_fd=evidence_fd,
+                )
+                dest_name=candidate_name
+                break
+            except FileExistsError:
+                suffix+=1
+
+        src_fd=os.open(
+            src,
+            os.O_RDONLY
+            | getattr(os,"O_CLOEXEC",0)
+            | getattr(os,"O_NOFOLLOW",0),
+        )
+        try:
+            with os.fdopen(src_fd,"rb",closefd=True) as source_handle, os.fdopen(
+                dest_fd,"wb",closefd=True
+            ) as dest_handle:
+                dest_fd=None
+                shutil.copyfileobj(source_handle,dest_handle,1024*1024)
+                dest_handle.flush()
+                os.fsync(dest_handle.fileno())
+        except BaseException:
+            os.unlink(dest_name,dir_fd=evidence_fd)
+            dest_name=None
+            raise
+
+        # Re-open the just-created vault copy through the already-open case
+        # directory and verify the bytes before recording the ledger entry.
+        verify_fd=os.open(
+            dest_name,
+            os.O_RDONLY
+            | getattr(os,"O_CLOEXEC",0)
+            | getattr(os,"O_NOFOLLOW",0),
+            dir_fd=evidence_fd,
+        )
+        try:
+            vault_hash=_sha256_fd(verify_fd)
+        finally:
+            os.close(verify_fd)
+
         if source_hash != vault_hash:
-            dest.unlink(missing_ok=True)
-            print("[TraceOS] Evidence copy hash mismatch; source may have changed during acquisition.",file=sys.stderr)
+            os.unlink(dest_name,dir_fd=evidence_fd)
+            dest_name=None
+            print(
+                "[TraceOS] Evidence copy hash mismatch; source may have changed during acquisition.",
+                file=sys.stderr,
+            )
             return 1
-        os.chmod(dest,0o444)
-    except (OSError,ValueError) as exc:
-        dest.unlink(missing_ok=True)
+
+        os.chmod(
+            p/"evidence"/dest_name,
+            0o444,
+            follow_symlinks=False,
+        )
+
+        ledger_fd=os.open(
+            "evidence.tsv",
+            os.O_WRONLY
+            | os.O_APPEND
+            | getattr(os,"O_CLOEXEC",0)
+            | getattr(os,"O_NOFOLLOW",0),
+            dir_fd=hashes_fd,
+        )
+        try:
+            line=f"{now()}\t{src}\t{p/'evidence'/dest_name}\t{source_hash}\t{size}\t{mime}\n"
+            os.write(ledger_fd,line.encode("utf-8"))
+            os.fsync(ledger_fd)
+        finally:
+            os.close(ledger_fd)
+
+    except (OSError,ValueError,CaseError) as exc:
+        if dest_name is not None and evidence_fd is not None:
+            try:
+                os.unlink(dest_name,dir_fd=evidence_fd)
+            except OSError:
+                pass
         print(f"[TraceOS] Evidence acquisition failed: {exc}",file=sys.stderr)
         return 1
-    size=src.stat().st_size; mime=mimetypes.guess_type(src.name)[0] or "application/octet-stream"
-    with (p/"hashes"/"evidence.tsv").open("a",encoding="utf-8") as h:
-        h.write(f"{now()}\t{src}\t{dest}\t{source_hash}\t{size}\t{mime}\n")
-    print(f"Evidence added: {dest}\nSHA-256: {source_hash}\nSize: {size} bytes\nMIME: {mime}"); return 0
+    finally:
+        if dest_fd is not None:
+            os.close(dest_fd)
+        if evidence_fd is not None:
+            os.close(evidence_fd)
+        if hashes_fd is not None:
+            os.close(hashes_fd)
+
+    print(
+        f"Evidence added: {p/'evidence'/dest_name}\n"
+        f"SHA-256: {source_hash}\n"
+        f"Size: {size} bytes\n"
+        f"MIME: {mime}"
+    )
+    return 0
+
 def list_evidence():
     p=current_case()
     if not p: print("No current case."); return
@@ -307,6 +421,13 @@ def main(a):
                 return 2
             try:
                 new_case(title, description)
+            except CaseCreatedButNotSelected as exc:
+                print(
+                    f"Case created but not selected: {exc.record.path} "
+                    f"(ID {exc.record.case_id}).\nReason: {exc.cause}",
+                    file=sys.stderr,
+                )
+                return 1
             except CaseError as exc:
                 print(f"TraceOS: {exc}", file=sys.stderr)
                 return 2

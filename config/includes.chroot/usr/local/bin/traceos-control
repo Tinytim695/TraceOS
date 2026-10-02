@@ -14,7 +14,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from traceos_case import CaseError, CaseStore
+from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
@@ -192,6 +192,10 @@ class TraceOSApp:
         except OSError:
             pass
 
+    def refresh_case_context(self) -> None:
+        self.refresh_case_header()
+        self._trace_diag("case-context-refreshed")
+
     def refresh_case_header(self) -> None:
         if not hasattr(self, "header_case"):
             return
@@ -292,6 +296,7 @@ class TraceOSApp:
         self.header_case.pack(side="left", padx=28)
 
         self.small_button(header, "QUICK SHADE", self.quick_shade, side="right")
+        self.small_button(header, "REFRESH CASE", self.refresh_case_context, side="right")
         self.small_button(header, "SELECT CASE", self.select_case, side="right")
         self.small_button(header, "NEW CASE", self.new_case, side="right", primary=True)
         self.refresh_case_header()
@@ -693,6 +698,18 @@ class TraceOSApp:
                     title_entry.get(),
                     description.get("1.0", "end").strip(),
                 )
+            except CaseCreatedButNotSelected as exc:
+                dialog.destroy()
+                self.refresh_case_context()
+                messagebox.showwarning(
+                    "TraceOS",
+                    f"Case created but not selected.\n\n"
+                    f"Path: {exc.record.path}\n"
+                    f"Case ID: {exc.record.case_id}\n\n"
+                    f"Reason: {exc.cause}",
+                    parent=self.root,
+                )
+                return
             except CaseError as exc:
                 messagebox.showerror(
                     "TraceOS",
@@ -706,7 +723,6 @@ class TraceOSApp:
             self._trace_diag(
                 "case-created",
                 case_id=record.case_id or "legacy",
-                title=record.title,
             )
 
         self.action_button(
@@ -832,7 +848,6 @@ class TraceOSApp:
             self._trace_diag(
                 "case-selected",
                 case_id=record.case_id or "legacy",
-                title=record.title,
             )
 
         tree.bind("<Double-1>", lambda _event: activate())

@@ -6,10 +6,13 @@ do not have case.json remain readable without a silent migration.
 """
 from __future__ import annotations
 
+import ctypes
 import datetime as dt
+import errno
 import json
 import os
 import shutil
+import stat
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -23,6 +26,17 @@ REQUIRED_DIRS = ("evidence", "working", "exports", "reports", "hashes", "notes")
 
 class CaseError(RuntimeError):
     """Base error for case and selection state problems."""
+
+
+class CaseCreatedButNotSelected(CaseError):
+    """The case directory was published but the active-case state failed."""
+    def __init__(self, record: "CaseRecord", cause: BaseException) -> None:
+        self.record = record
+        self.cause = cause
+        super().__init__(
+            f"Case created but not selected: {record.path} "
+            f"(ID {record.case_id}). Reason: {cause}"
+        )
 
 
 class UnsafeCasePath(CaseError):
@@ -83,6 +97,71 @@ def _safe_mode(path: Path, mode: int) -> None:
         raise CaseError(
             f"Unable to apply private permissions to {path}: {exc}"
         ) from exc
+
+
+def _read_regular_text(path: Path, max_bytes: int) -> str:
+    try:
+        fd = os.open(
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+    except OSError as exc:
+        raise CorruptCase(f"Unable to open required file: {path}") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise CorruptCase(f"Required file is not a regular file: {path}")
+        if info.st_size > max_bytes:
+            raise CorruptCase(
+                f"Required file is too large: {path} ({info.st_size} bytes)"
+            )
+        with os.fdopen(fd, "r", encoding="utf-8") as handle:
+            fd = None
+            return handle.read()
+    except UnicodeError as exc:
+        raise CorruptCase(f"Required file is not valid UTF-8: {path}") from exc
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _rename_no_replace(source: Path, destination: Path) -> None:
+    """Atomically publish a path without ever replacing an existing object."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        renameat2 = libc.renameat2
+    except AttributeError as exc:
+        raise CaseError(
+            "Atomic no-clobber case publication is unavailable on this Linux system."
+        ) from exc
+
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        -100,
+        os.fsencode(source),
+        -100,
+        os.fsencode(destination),
+        1,
+    )
+    if result == 0:
+        return
+    error = ctypes.get_errno()
+    if error == errno.EEXIST:
+        raise FileExistsError(
+            errno.EEXIST,
+            os.strerror(error),
+            str(destination),
+        )
+    raise OSError(error, os.strerror(error), str(destination))
 
 
 def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> None:
@@ -189,7 +268,13 @@ class CaseStore:
         """Validate a case directory is a direct non-symlink child of ~/Cases."""
         root = self._ensure_cases_root()
         candidate = Path(path).expanduser()
-        if candidate.is_symlink():
+        try:
+            candidate_stat = os.lstat(candidate)
+        except OSError as exc:
+            raise CaseError(
+                f"Case path cannot be resolved: {candidate}"
+            ) from exc
+        if stat.S_ISLNK(candidate_stat.st_mode):
             raise UnsafeCasePath(
                 "Refusing a symlink as a case directory."
             )
@@ -199,26 +284,95 @@ class CaseStore:
             raise CaseError(
                 f"Case path cannot be resolved: {candidate}"
             ) from exc
-        if resolved.parent != root or not resolved.is_dir():
+        try:
+            resolved_stat = os.lstat(resolved)
+        except OSError as exc:
+            raise CaseError(
+                f"Case path cannot be resolved: {candidate}"
+            ) from exc
+        if (
+            resolved.parent != root
+            or not stat.S_ISDIR(resolved_stat.st_mode)
+        ):
             raise UnsafeCasePath(
                 "Case must be a direct directory inside ~/Cases."
             )
         return resolved
 
     @staticmethod
+    def _validate_required_dirs(case_path: Path) -> None:
+        unsafe = []
+        for name in REQUIRED_DIRS:
+            target = case_path / name
+            try:
+                info = os.lstat(target)
+            except FileNotFoundError:
+                unsafe.append(f"{name} (missing)")
+                continue
+            except OSError as exc:
+                raise CorruptCase(
+                    f"Unable to inspect required directory: {target}"
+                ) from exc
+            if stat.S_ISLNK(info.st_mode):
+                unsafe.append(f"{name} (symlink)")
+            elif not stat.S_ISDIR(info.st_mode):
+                unsafe.append(f"{name} (not a directory)")
+        if unsafe:
+            raise CorruptCase(
+                "Case contains unsafe or incomplete required directories: "
+                + ", ".join(unsafe)
+            )
+
+    @staticmethod
     def _legacy_title(case_path: Path) -> str:
         case_md = case_path / "CASE.md"
-        try:
-            for line in case_md.read_text(
-                encoding="utf-8"
-            ).splitlines():
-                if line.startswith("# "):
-                    title = line[2:].strip()
-                    if title:
-                        return title
-        except OSError:
-            pass
+        text = _read_regular_text(case_md, 1024 * 1024)
+        for line in text.splitlines():
+            if line.startswith("# "):
+                title = line[2:].strip()
+                if title:
+                    return title
         return case_path.name
+
+    @staticmethod
+    def _legacy_marker_state(case_path: Path) -> bool:
+        case_md = case_path / "CASE.md"
+        ledger = case_path / "hashes" / "evidence.tsv"
+        try:
+            _read_regular_text(case_md, 1024 * 1024)
+            info = os.lstat(ledger)
+            if not stat.S_ISREG(info.st_mode):
+                return False
+            return True
+        except (OSError, CorruptCase):
+            return False
+
+    def open_required_dir(self, path: Path, name: str) -> int:
+        """Open a required subdirectory with no-follow checks at the write boundary."""
+        if name not in REQUIRED_DIRS:
+            raise ValueError(f"Unsupported case directory: {name}")
+        record = self.read(path)
+        root = self._ensure_cases_root()
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        root_fd = os.open(root, flags)
+        case_fd = None
+        try:
+            case_fd = os.open(record.path.name, flags, dir_fd=root_fd)
+            return os.open(name, flags, dir_fd=case_fd)
+        except OSError as exc:
+            raise CorruptCase(
+                f"Unsafe required directory at write boundary: "
+                f"{record.path / name}"
+            ) from exc
+        finally:
+            if case_fd is not None:
+                os.close(case_fd)
+            os.close(root_fd)
 
     @staticmethod
     def _validate_manifest(data: object, case_path: Path) -> CaseRecord:
@@ -287,15 +441,7 @@ class CaseStore:
             raise CorruptCase(
                 "Case manifest created_utc must be UTC."
             )
-        missing_dirs = [
-            name for name in REQUIRED_DIRS
-            if not (case_path / name).is_dir()
-        ]
-        if missing_dirs:
-            raise CorruptCase(
-                "Case is incomplete; missing directories: "
-                + ", ".join(missing_dirs)
-            )
+        CaseStore._validate_required_dirs(case_path)
         return CaseRecord(
             path=case_path,
             case_id=canonical_id,
@@ -309,34 +455,47 @@ class CaseStore:
     def read(self, path: Path) -> CaseRecord:
         case_path = self.validate_path(path)
         manifest = case_path / MANIFEST_NAME
-        if manifest.is_symlink():
-            raise CorruptCase(
-                "Case manifest must not be a symlink."
-            )
-        if manifest.exists():
-            try:
-                data = json.loads(
-                    manifest.read_text(encoding="utf-8")
-                )
-            except (
-                OSError,
-                UnicodeError,
-                json.JSONDecodeError,
-            ) as exc:
+        try:
+            manifest_info = os.lstat(manifest)
+        except FileNotFoundError:
+            if not self._legacy_marker_state(case_path):
                 raise CorruptCase(
-                    f"Unable to read case manifest: {manifest}"
-                ) from exc
-            return self._validate_manifest(data, case_path)
+                    f"Case has no {MANIFEST_NAME} and does not match the "
+                    "recognized legacy case format."
+                )
+            self._validate_required_dirs(case_path)
+            return CaseRecord(
+                path=case_path,
+                case_id=None,
+                title=self._legacy_title(case_path),
+                description="",
+                created_utc=None,
+                schema_version=0,
+                legacy=True,
+            )
+        except OSError as exc:
+            raise CorruptCase(
+                f"Unable to inspect case manifest: {manifest}"
+            ) from exc
 
-        return CaseRecord(
-            path=case_path,
-            case_id=None,
-            title=self._legacy_title(case_path),
-            description="",
-            created_utc=None,
-            schema_version=0,
-            legacy=True,
-        )
+        if (
+            stat.S_ISLNK(manifest_info.st_mode)
+            or not stat.S_ISREG(manifest_info.st_mode)
+        ):
+            raise CorruptCase(
+                f"Case manifest must be a regular file: {manifest}"
+            )
+        try:
+            data = json.loads(
+                _read_regular_text(manifest, 64 * 1024)
+            )
+        except (UnicodeError, json.JSONDecodeError, CorruptCase) as exc:
+            if isinstance(exc, CorruptCase):
+                raise
+            raise CorruptCase(
+                f"Unable to read case manifest: {manifest}"
+            ) from exc
+        return self._validate_manifest(data, case_path)
 
     def list_cases(self) -> list[CaseEntry]:
         root = self._ensure_cases_root()
@@ -426,17 +585,6 @@ class CaseStore:
 
         root = self._ensure_cases_root()
         base = self._slugify(title)
-        suffix = 1
-        while True:
-            candidate_name = (
-                base if suffix == 1 else f"{base}-{suffix}"
-            )
-            candidate = root / candidate_name
-            if candidate.exists() or candidate.is_symlink():
-                suffix += 1
-                continue
-            break
-
         case_id = str(uuid.uuid4())
         created = utc_now()
         temp_case = Path(
@@ -483,15 +631,25 @@ class CaseStore:
                 0o600,
             )
 
-            try:
-                os.rename(temp_case, candidate)
-            except FileExistsError:
-                shutil.rmtree(temp_case, ignore_errors=True)
-                return self.create(title, description)
+            suffix = 1
+            while True:
+                candidate_name = (
+                    base if suffix == 1 else f"{base}-{suffix}"
+                )
+                candidate = root / candidate_name
+                try:
+                    _rename_no_replace(temp_case, candidate)
+                except FileExistsError:
+                    suffix += 1
+                    continue
+                break
 
             _safe_mode(candidate, 0o700)
             record = self.read(candidate)
-            self._write_current(record)
+            try:
+                self._write_current(record)
+            except BaseException as exc:
+                raise CaseCreatedButNotSelected(record, exc) from exc
             return record
         except BaseException:
             if temp_case.exists():
