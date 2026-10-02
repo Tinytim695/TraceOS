@@ -1,3 +1,4 @@
+import importlib.machinery
 import importlib.util
 import json
 import os
@@ -265,13 +266,9 @@ class CaseStoreTests(unittest.TestCase):
                 )
             return original_open(path, flags, mode, dir_fd=dir_fd)
 
-        try:
-            with mock.patch("traceos_case.os.open", side_effect=raced_open):
-                with self.assertRaises(CorruptCase):
-                    self.store.open_required_dir(record.path, "evidence")
-        finally:
-            if injected["case_fd"] is not None:
-                os.close(injected["case_fd"])
+        with mock.patch("traceos_case.os.open", side_effect=raced_open):
+            with self.assertRaises(CorruptCase):
+                self.store.open_required_dir(record.path, "evidence")
 
         self.assertEqual(
             (moved / "case.json").is_file(),
@@ -298,13 +295,13 @@ class CaseStoreTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
 
     def test_evidence_permission_change_is_fd_bound(self):
-        spec = importlib.util.spec_from_file_location(
+        loader = importlib.machinery.SourceFileLoader(
             "traceos_cli_permission_test",
-            CLI,
+            str(CLI),
         )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
         cli = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(cli)
+        loader.exec_module(cli)
         cli.CASE_STORE = self.store
 
         source = self.home / "permission-source.txt"
@@ -332,13 +329,13 @@ class CaseStoreTests(unittest.TestCase):
         self.assertEqual(replacement.stat().st_mode & 0o777, 0o600)
 
     def test_evidence_source_swap_before_open_uses_opened_inode(self):
-        spec = importlib.util.spec_from_file_location(
+        loader = importlib.machinery.SourceFileLoader(
             "traceos_cli_source_swap_test",
-            CLI,
+            str(CLI),
         )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
         cli = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(cli)
+        loader.exec_module(cli)
         cli.CASE_STORE = self.store
 
         self.store.create("Source Swap Case")
