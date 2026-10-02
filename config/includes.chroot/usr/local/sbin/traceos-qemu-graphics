@@ -64,10 +64,10 @@ log=/run/traceos-qemu-graphics.log
         getent passwd "$active_user" || true
     fi
 
-    if pgrep -af '/usr/local/bin/traceos-xfce-session' >/dev/null 2>&1; then
-        echo "[TraceOS] TRACEOS_SESSION_WRAPPER_RUNNING"
+    if [ -n "${active_user:-}" ]; then
+        echo "[TraceOS] TRACEOS_XFCE_SESSION_RUNNING"
     else
-        echo "[TraceOS] TRACEOS_SESSION_WRAPPER_NOT_RUNNING"
+        echo "[TraceOS] TRACEOS_XFCE_SESSION_NOT_RUNNING"
     fi
 
     if pgrep -af '/usr/local/bin/traceos-control' >/dev/null 2>&1; then
