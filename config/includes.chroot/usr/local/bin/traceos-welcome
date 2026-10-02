@@ -33,16 +33,16 @@ sleep 8
 for attempt in 1 2 3; do
     echo "[TraceOS] launch attempt $attempt"
     if [ "$page_args" = "--dashboard" ]; then
-        /usr/local/bin/traceos-control
+        /usr/local/bin/traceos-control-launch
         rc=$?
     elif [ "$page_args" = "--osint" ]; then
-        /usr/local/bin/traceos-control --osint
+        /usr/local/bin/traceos-control-launch --osint
         rc=$?
     elif [ "$page_args" = "--shade" ]; then
         /usr/local/bin/traceos-shade
         rc=$?
     else
-        /usr/local/bin/traceos-control --welcome
+        /usr/local/bin/traceos-control-launch --welcome
         rc=$?
     fi
 
