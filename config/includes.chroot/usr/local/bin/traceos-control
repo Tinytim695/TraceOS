@@ -86,7 +86,7 @@ class TraceOSApp:
         self.root.geometry(f"{width}x{height}")
         self.root.minsize(min(1080, width), min(720, height))
         self.root.configure(bg=BG)
-        self.root.option_add("*Font", "DejaVu Sans 10")
+        self.root.option_add("*Font", "{DejaVu Sans} 10")
         try:
             self.root.state("zoomed")
         except tk.TclError:
