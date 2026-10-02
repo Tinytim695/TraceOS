@@ -101,6 +101,16 @@ def _safe_mode(path: Path, mode: int) -> None:
 
 def _read_regular_text(path: Path, max_bytes: int) -> str:
     try:
+        path_info = os.lstat(path)
+    except OSError as exc:
+        raise CorruptCase(f"Unable to inspect required file: {path}") from exc
+    if stat.S_ISLNK(path_info.st_mode) or not stat.S_ISREG(path_info.st_mode):
+        raise CorruptCase(f"Required file is not a regular file: {path}")
+    if path_info.st_size > max_bytes:
+        raise CorruptCase(
+            f"Required file is too large: {path} ({path_info.st_size} bytes)"
+        )
+    try:
         fd = os.open(
             path,
             os.O_RDONLY
