@@ -170,7 +170,7 @@ PY
 
     assert_serial "LIVE_SESSION_USER=traceos" "the graphical session user is traceos"
     assert_serial "LIVE_SESSION_HOME=/home/traceos" "the graphical session home is /home/traceos"
-    assert_serial "TRACEOS_SESSION_WRAPPER_RUNNING" "the TraceOS XFCE session wrapper is running"
+    assert_serial "TRACEOS_XFCE_SESSION_RUNNING" "the TraceOS XFCE session is running"
     assert_serial "CONTROL_CENTRE_PROCESS_RUNNING" "the Control Centre process is running"
     assert_serial "CONTROL_CENTRE_READY" "the Control Centre readiness marker was observed"
 
