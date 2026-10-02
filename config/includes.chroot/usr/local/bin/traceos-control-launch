@@ -1,38 +1,43 @@
 #!/bin/sh
 set -u
 
-log_dir="${XDG_CACHE_HOME:-$HOME/.cache}/traceos"
-mkdir -p "$log_dir" 2>/dev/null || true
-log="$log_dir/control-centre-launch.log"
+log_dir="${XDG_CACHE_HOME:-\$HOME/.cache}/traceos"
+mkdir -p "\$log_dir" 2>/dev/null || true
+log="\$log_dir/control-centre-launch.log"
 
 {
-    echo "[TraceOS] Control Centre launcher started: $(date -Is)"
-    echo "[TraceOS] user=$(id -un) uid=$(id -u)"
+    echo "[TraceOS] Control Centre launcher started: \$(date -Is)"
+    echo "[TraceOS] user=\$(id -un) uid=\$(id -u)"
     echo "[TraceOS] DISPLAY=${DISPLAY:-unset}"
     echo "[TraceOS] XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-unset}"
-} >>"$log" 2>&1
+} >>"\$log" 2>&1
 
 if [ -z "${DISPLAY:-}" ]; then
-    echo "[TraceOS] No DISPLAY; launcher will not start the GUI." >>"$log"
+    echo "[TraceOS] No DISPLAY; launcher will not start the GUI." >>"\$log"
     exit 1
 fi
 
 ready=0
-for _ in $(seq 1 60); do
-    if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>>"$log"; then
+for _ in \$(seq 1 60); do
+    if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo >/dev/null 2>>"\$log"; then
         ready=1
         break
     fi
     sleep 1
 done
 
-if [ "$ready" -ne 1 ]; then
-    echo "[TraceOS] X display never became ready." >>"$log"
+if [ "\$ready" -ne 1 ]; then
+    echo "[TraceOS] X display never became ready." >>"\$log"
     exit 1
 fi
 
-echo "[TraceOS] X display ready; starting Control Centre." >>"$log"
+echo "[TraceOS] X display ready; starting Control Centre." >>"\$log"
+
+# Both XFCE autostart and the LightDM session wrapper can reach this launcher.
+# Keep the launch paths redundant, but guarantee that only one Control Centre
+# process can own the lock at a time.
+lock="${XDG_RUNTIME_DIR:-/tmp}/traceos-control-centre.lock"
 
 # Do not hide Python/Tk failures. Capture them so the QEMU diagnostic service
 # can surface the exact exception in the serial log.
-exec /usr/bin/python3 -u /usr/local/bin/traceos-control "$@" >>"$log" 2>&1
+exec /usr/bin/flock -n "\$lock" /usr/bin/python3 -u /usr/local/bin/traceos-control "\$@" >>"\$log" 2>&1
