@@ -60,7 +60,7 @@ class CaseStoreTests(unittest.TestCase):
             "../escape",
             "a/b",
             "a\\\\b",
-            "\\x01bad",
+            "\x01bad",
         ):
             with self.assertRaises(CaseError):
                 self.store.create(value)
@@ -167,7 +167,7 @@ class CaseStoreTests(unittest.TestCase):
         legacy = self.store.cases_root / "legacy-folder"
         legacy.mkdir(parents=True, mode=0o700)
         (legacy / "CASE.md").write_text(
-            "# Legacy Investigation\\n\\nOlder notes.\\n",
+            "# Legacy Investigation\n\nOlder notes.\n",
             encoding="utf-8",
         )
         record = self.store.read(legacy)
@@ -180,10 +180,18 @@ class CaseStoreTests(unittest.TestCase):
         self.assertEqual(selected, record)
         self.assertEqual(self.store.current(), record)
 
+    def test_broken_current_state_symlink(self):
+        outside = self.home / "outside-state"
+        outside.write_text("not-a-case\\n", encoding="utf-8")
+        self.store.state_path.parent.mkdir(parents=True)
+        os.symlink(outside, self.store.state_path)
+        with self.assertRaises(CorruptCaseState):
+            self.store.current()
+
     def test_corrupt_current_state(self):
         self.store.state_path.parent.mkdir(parents=True)
         self.store.state_path.write_text(
-            "not-a-case\\n",
+            "not-a-case\n",
             encoding="utf-8",
         )
         with self.assertRaises(CorruptCaseState):

@@ -371,9 +371,13 @@ class CaseStore:
 
     def current(self) -> Optional[CaseRecord]:
         state = self.state_path
+        if state.is_symlink():
+            raise CorruptCaseState(
+                "Current-case state must not be a symlink."
+            )
         if not state.exists():
             return None
-        if state.is_symlink() or not state.is_file():
+        if not state.is_file():
             raise CorruptCaseState(
                 "Current-case state is not a regular file."
             )
@@ -400,7 +404,7 @@ class CaseStore:
         self._ensure_state_parent()
         atomic_write_text(
             self.state_path,
-            f"{record.path}\\n",
+            f"{record.path}\n",
             0o600,
         )
 
@@ -413,7 +417,7 @@ class CaseStore:
         title = self.validate_title(title)
         description = str(description).strip()
         if any(
-            ord(char) < 32 and char not in "\\n\\t"
+            ord(char) < 32 and char not in "\n\t"
             for char in description
         ):
             raise InvalidCaseName(
@@ -461,21 +465,21 @@ class CaseStore:
                     manifest,
                     ensure_ascii=False,
                     indent=2,
-                ) + "\\n",
+                ) + "\n",
                 0o600,
             )
             atomic_write_text(
                 temp_case / "CASE.md",
                 (
-                    f"# {title}\\n\\n"
-                    "This is a human-readable case note.\\n\\n"
-                    f"Authoritative metadata: {MANIFEST_NAME}.\\n"
+                    f"# {title}\n\n"
+                    "This is a human-readable case note.\n\n"
+                    f"Authoritative metadata: {MANIFEST_NAME}.\n"
                 ),
                 0o600,
             )
             atomic_write_text(
                 temp_case / "hashes" / "evidence.tsv",
-                "timestamp_utc\\tsource\\tvault_copy\\tsha256\\tsize_bytes\\tmime\\n",
+                "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",
                 0o600,
             )
 
