@@ -157,6 +157,29 @@ jobs:
           echo "[TraceOS] Graphical screenshots:"
           ls -lh traceos-ui-screenshots/*.png
 
+      - name: Validate QEMU GUI parser fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/qemu-ui-smoke.sh
+          TRACEOS_QEMU_UI_PARSER_TEST=1 scripts/qemu-ui-smoke.sh live-image-amd64.hybrid.iso
+
+      - name: QEMU packaged ISO CLI synthetic workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/qemu-cli-e2e-smoke.sh
+          scripts/qemu-cli-e2e-smoke.sh live-image-amd64.hybrid.iso
+
+      - name: Upload QEMU CLI synthetic workflow evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: traceos-qemu-cli-e2e
+          path: |
+            traceos-cli-e2e/**
+          if-no-files-found: warn
+
       - name: Attest ISO provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:

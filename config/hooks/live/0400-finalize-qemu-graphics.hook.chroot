@@ -12,3 +12,5 @@ test -L /etc/systemd/system/display-manager.service
 test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-graphics.service
 test -f /usr/local/sbin/traceos-qemu-ui-diagnostics
 test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
+test -f /usr/local/sbin/traceos-qemu-cli-e2e
+test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-cli-e2e.service
