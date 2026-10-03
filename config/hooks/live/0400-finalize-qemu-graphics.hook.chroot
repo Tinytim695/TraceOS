@@ -10,3 +10,5 @@ systemctl set-default graphical.target
 test -L /etc/systemd/system/default.target
 test -L /etc/systemd/system/display-manager.service
 test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-graphics.service
+test -f /usr/local/sbin/traceos-qemu-ui-diagnostics
+test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
