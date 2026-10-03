@@ -168,6 +168,7 @@ jobs:
 
       - name: QEMU packaged ISO CLI synthetic workflow
         if: always()
+        timeout-minutes: 12
         shell: bash
         run: |
           set -euo pipefail
