@@ -433,6 +433,115 @@ class CaseStoreTests(unittest.TestCase):
         self.assertTrue(record.path.is_dir())
         self.assertTrue((record.path / "hashes").is_dir())
 
+    def test_verify_missing_ledger_is_unverifiable(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_missing_ledger_test")
+        self.store.create("Missing Ledger")
+        source = self.home / "missing-ledger-source.txt"
+        source.write_text("synthetic evidence\n", encoding="utf-8")
+
+        self.assertEqual(cli.add_evidence(str(source)), 0)
+        ledger = self.store.current().path / "hashes" / "evidence.tsv"
+        self.assertTrue(ledger.is_file())
+        ledger.unlink()
+
+        self.assertEqual(cli.verify_evidence(), 1)
+
+    def test_verify_unsafe_hashes_directory_is_unverifiable(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_unsafe_hashes_test")
+        self.store.create("Unsafe Hashes")
+        outside = self.home / "outside-hashes"
+        outside.mkdir()
+        hashes = self.store.current().path / "hashes"
+        shutil.rmtree(hashes)
+        os.symlink(outside, hashes)
+
+        self.assertEqual(cli.verify_evidence(), 1)
+
+    def test_evidence_rejects_ledger_delimiter_source_names(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_ledger_delimiter_name_test")
+        self.store.create("Delimiter Names")
+
+        for index, bad in enumerate(("tab\tname", "cr\rname", "lf\nname")):
+            with self.subTest(bad=repr(bad)):
+                source = self.home / f"synthetic-{index}-{bad}"
+                source.write_text("synthetic evidence\n", encoding="utf-8")
+                self.assertEqual(cli.add_evidence(str(source)), 2)
+
+        evidence = self.store.current().path / "evidence"
+        self.assertEqual(list(evidence.iterdir()), [])
+
+    def test_real_cli_end_to_end_evidence_report_timeline_workflow(self):
+        temp_home = self.home / "cli-e2e-home"
+        temp_home.mkdir()
+        env = os.environ.copy()
+        env["HOME"] = str(temp_home)
+        env["XDG_CONFIG_HOME"] = str(temp_home / ".config")
+
+        def run_cli(*args):
+            result = subprocess.run(
+                [sys.executable, str(CLI), *args],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stderr or result.stdout,
+            )
+            return result
+
+        run_cli("case", "new", "Synthetic E2E Case")
+        source = temp_home / "synthetic-source.txt"
+        payload = b"TraceOS deterministic synthetic evidence\n"
+        source.write_bytes(payload)
+        expected_hash = __import__("hashlib").sha256(payload).hexdigest()
+
+        added = run_cli("evidence", "add", str(source))
+        self.assertIn(expected_hash, added.stdout)
+
+        case_path = Path(
+            (temp_home / ".config" / "traceos" / "current_case").read_text(
+                encoding="utf-8"
+            ).strip()
+        )
+        ledger = case_path / "hashes" / "evidence.tsv"
+        rows = ledger.read_text(encoding="utf-8").splitlines()[1:]
+        self.assertEqual(len(rows), 1)
+        fields = rows[0].split("\t")
+        self.assertEqual(len(fields), 6)
+        self.assertEqual(fields[3], expected_hash)
+
+        vault_files = list((case_path / "evidence").iterdir())
+        self.assertEqual(len(vault_files), 1)
+        self.assertEqual(vault_files[0].read_bytes(), payload)
+
+        verified = run_cli("evidence", "verify")
+        self.assertIn("1 checked, 0 failed", verified.stdout)
+
+        os.chmod(vault_files[0], 0o600)
+        vault_files[0].write_bytes(b"TAMPERED\n")
+        tampered = subprocess.run(
+            [sys.executable, str(CLI), "evidence", "verify"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(tampered.returncode, 0)
+        self.assertIn("expected=", tampered.stdout)
+
+        report_result = run_cli("report")
+        report_lines = list((case_path / "reports").glob("TraceOS-report-*.md"))
+        self.assertEqual(len(report_lines), 1)
+        report_text = report_lines[0].read_text(encoding="utf-8")
+        self.assertIn(vault_files[0].name, report_text)
+        self.assertIn(expected_hash, report_text)
+
+        timeline_result = run_cli("timeline")
+        self.assertIn(vault_files[0].name, timeline_result.stdout)
+
     def test_evidence_permission_change_is_fd_bound(self):
         loader = importlib.machinery.SourceFileLoader(
             "traceos_cli_permission_test",
