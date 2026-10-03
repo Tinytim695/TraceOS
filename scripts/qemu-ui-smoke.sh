@@ -431,7 +431,8 @@ if [[ -n "$case_id" ]]; then
     header_marker="$(marker_line "NEW_CASE_HEADER_REFRESHED")"
     header_case_id="$(extract_field "$header_marker" case_id)"
     header_prefix="$(extract_field "$header_marker" id_prefix)"
-    if [[ "$header_case_id" == "$case_id" && "$header_prefix" == "$case_id"* ]]; then
+    expected_prefix="${case_id:0:${#header_prefix}}"
+    if [[ "$header_case_id" == "$case_id" && -n "$header_prefix" && "$header_prefix" == "$expected_prefix" ]]; then
         header_widget_match="yes"
     else
         header_widget_match="no"
