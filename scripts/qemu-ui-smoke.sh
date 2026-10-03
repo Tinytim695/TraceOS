@@ -265,6 +265,16 @@ capture_page() {
 }
 
 
+extract_field() {
+    local line="$1"
+    local field="$2"
+    local value
+    local cr
+    value="$(printf '%s\n' "$line" | tr ' ' '\n' | sed -n "s/^${field}=//p" | tail -n 1)"
+    cr="$(printf '\r')"
+    printf '%s\n' "${value%$cr}"
+}
+
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
     matching="case_id=${test_case_id} id_prefix=01234567"
@@ -326,15 +336,6 @@ wait_for_serial() {
     return 1
 }
 
-extract_field() {
-    local line="$1"
-    local field="$2"
-    local value
-    local cr
-    value="$(printf '%s\n' "$line" | tr ' ' '\n' | sed -n "s/^${field}=//p" | tail -n 1)"
-    cr="$(printf '\r')"
-    printf '%s\n' "${value%$cr}"
-}
 
 identity_line=""
 if wait_for_serial "stage=CONTROL_CENTRE_SESSION_READY" 45; then
