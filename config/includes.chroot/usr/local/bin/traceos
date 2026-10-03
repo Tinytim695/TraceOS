@@ -117,7 +117,36 @@ def verify_evidence():
     m=p/"hashes"/"evidence.tsv"
     if not m.exists():
         print("No evidence ledger found."); return 0
-    rows=m.read_text(encoding="utf-8").splitlines()[1:]
+
+    evidence_fd = None
+    hashes_fd = None
+    try:
+        evidence_fd, hashes_fd = CASE_STORE.open_required_dirs(
+            p, ("evidence", "hashes")
+        )
+        ledger_fd = os.open(
+            "evidence.tsv",
+            os.O_RDONLY
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=hashes_fd,
+        )
+        try:
+            ledger_info = os.fstat(ledger_fd)
+            if not stat.S_ISREG(ledger_info.st_mode):
+                print("Evidence ledger is not a regular file.", file=sys.stderr)
+                return 1
+            with os.fdopen(ledger_fd, "r", encoding="utf-8") as handle:
+                ledger_fd = None
+                rows = handle.read().splitlines()[1:]
+        finally:
+            if ledger_fd is not None:
+                os.close(ledger_fd)
+    except (OSError, CaseError, UnicodeError) as exc:
+        print(f"Unable to read evidence ledger: {exc}", file=sys.stderr)
+        return 1
+
     checked=0; failures=0
     for r in rows:
         q=r.split("\t")
@@ -127,17 +156,46 @@ def verify_evidence():
             continue
         vault=Path(q[2]).expanduser()
         expected=q[3]
-        if not vault.is_file() or not is_safe_case_path(vault):
+        try:
+            relative = vault.relative_to(p / "evidence")
+        except ValueError:
+            relative = None
+        if (
+            relative is None
+            or len(relative.parts) != 1
+            or relative.name in {"", ".", ".."}
+        ):
             print(f"  [FAIL] missing or out-of-case vault copy: {vault}")
             failures+=1
             continue
-        actual=sha256_file(vault)
-        checked+=1
-        if actual==expected:
-            print(f"  [OK]   {vault.name}  {actual}")
-        else:
-            print(f"  [FAIL] {vault.name}  expected={expected} actual={actual}")
-            failures+=1
+
+        vault_fd = None
+        try:
+            vault_fd = os.open(
+                relative.name,
+                os.O_RDONLY
+                | getattr(os, "O_NONBLOCK", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=evidence_fd,
+            )
+            info = os.fstat(vault_fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("vault entry is not a regular file")
+            actual = _sha256_fd(vault_fd)
+            checked += 1
+            if actual == expected:
+                print(f"  [OK]   {vault.name}  {actual}")
+            else:
+                print(f"  [FAIL] {vault.name}  expected={expected} actual={actual}")
+                failures += 1
+        except OSError as exc:
+            print(f"  [FAIL] missing or unsafe vault copy: {vault}: {exc}")
+            failures += 1
+        finally:
+            if vault_fd is not None:
+                os.close(vault_fd)
+
     print(f"Integrity check: {checked} checked, {failures} failed.")
     return 1 if failures else 0
 
@@ -150,6 +208,15 @@ def _sha256_fd(fd, chunk_size=1024*1024):
             break
         digest.update(chunk)
     return digest.hexdigest()
+
+
+def _write_all(fd, data):
+    offset = 0
+    while offset < len(data):
+        written = os.write(fd, data[offset:])
+        if written <= 0:
+            raise OSError("ledger write made no progress")
+        offset += written
 
 
 def add_evidence(src):
@@ -168,15 +235,17 @@ def add_evidence(src):
     dest_fd=None
     src_fd=None
     try:
-        # Open both case directories using O_NOFOLLOW/O_DIRECTORY after
-        # current-case resolution. This is the actual filesystem write boundary.
-        evidence_fd=CASE_STORE.open_required_dir(p,"evidence")
-        hashes_fd=CASE_STORE.open_required_dir(p,"hashes")
+        # Open both child directories from one validated case-directory FD so
+        # a same-user case-directory swap cannot split evidence and hashes.
+        evidence_fd, hashes_fd = CASE_STORE.open_required_dirs(
+            p, ("evidence", "hashes")
+        )
 
         try:
             src_fd=os.open(
                 src,
                 os.O_RDONLY
+                | getattr(os,"O_NONBLOCK",0)
                 | getattr(os,"O_CLOEXEC",0)
                 | getattr(os,"O_NOFOLLOW",0),
             )
@@ -237,13 +306,18 @@ def add_evidence(src):
             "evidence.tsv",
             os.O_WRONLY
             | os.O_APPEND
+            | getattr(os,"O_NONBLOCK",0)
             | getattr(os,"O_CLOEXEC",0)
             | getattr(os,"O_NOFOLLOW",0),
             dir_fd=hashes_fd,
         )
         try:
+            ledger_info = os.fstat(ledger_fd)
+            if not stat.S_ISREG(ledger_info.st_mode):
+                raise CaseError("Evidence ledger is not a regular file.")
             line=f"{now()}\t{src}\t{p/'evidence'/dest_name}\t{source_hash}\t{size}\t{mime}\n"
-            os.write(ledger_fd,line.encode("utf-8"))
+            encoded_line=line.encode("utf-8")
+            _write_all(ledger_fd, encoded_line)
             os.fsync(ledger_fd)
         finally:
             os.close(ledger_fd)
