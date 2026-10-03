@@ -423,19 +423,23 @@ class CaseStore:
                 + ", ".join(unsafe)
             )
 
-    def open_required_dir(self, path: Path, name: str) -> int:
-        """Open a required subdirectory with no-follow checks at the write boundary."""
-        if name not in REQUIRED_DIRS:
-            raise ValueError(f"Unsupported case directory: {name}")
+    def open_required_dirs(self, path: Path, names: tuple[str, ...]) -> tuple[int, ...]:
+        """Open required subdirectories relative to one validated case FD."""
+        if not names:
+            raise ValueError("At least one case directory is required")
+        if any(name not in REQUIRED_DIRS for name in names):
+            raise ValueError("Unsupported case directory")
+        if len(set(names)) != len(names):
+            raise ValueError("Duplicate case directory")
         record = self.read(path)
         root = self._ensure_cases_root()
         try:
             expected_info = os.lstat(record.path)
-            expected_subdir_info = os.lstat(record.path / name)
         except OSError as exc:
             raise CorruptCase(
-                f"Unable to inspect case directory boundary: {record.path / name}"
+                f"Unable to inspect case directory boundary: {record.path}"
             ) from exc
+
         flags = (
             os.O_RDONLY
             | getattr(os, "O_DIRECTORY", 0)
@@ -444,6 +448,7 @@ class CaseStore:
         )
         root_fd = os.open(root, flags)
         case_fd = None
+        opened: list[int] = []
         try:
             case_fd = os.open(record.path.name, flags, dir_fd=root_fd)
             actual_info = os.fstat(case_fd)
@@ -451,32 +456,58 @@ class CaseStore:
                 actual_info.st_dev != expected_info.st_dev
                 or actual_info.st_ino != expected_info.st_ino
             ):
-                raise CorruptCase(
-                    "Case directory changed during secure open."
-                )
-            subdir_fd = os.open(name, flags, dir_fd=case_fd)
-            try:
-                actual_subdir_info = os.fstat(subdir_fd)
-                if (
-                    actual_subdir_info.st_dev != expected_subdir_info.st_dev
-                    or actual_subdir_info.st_ino != expected_subdir_info.st_ino
-                ):
-                    raise CorruptCase(
-                        f"Required directory changed during secure open: {record.path / name}"
+                raise CorruptCase("Case directory changed during secure open.")
+
+            for name in names:
+                try:
+                    expected_subdir_info = os.lstat(
+                        name,
+                        dir_fd=case_fd,
                     )
-                return subdir_fd
-            except BaseException:
-                os.close(subdir_fd)
-                raise
+                except OSError as exc:
+                    raise CorruptCase(
+                        f"Unable to inspect required directory: {record.path / name}"
+                    ) from exc
+
+                subdir_fd = os.open(name, flags, dir_fd=case_fd)
+                try:
+                    actual_subdir_info = os.fstat(subdir_fd)
+                    if (
+                        actual_subdir_info.st_dev != expected_subdir_info.st_dev
+                        or actual_subdir_info.st_ino != expected_subdir_info.st_ino
+                    ):
+                        raise CorruptCase(
+                            f"Required directory changed during secure open: {record.path / name}"
+                        )
+                    opened.append(subdir_fd)
+                except BaseException:
+                    os.close(subdir_fd)
+                    raise
+            return tuple(opened)
         except OSError as exc:
+            for fd in opened:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             raise CorruptCase(
-                f"Unsafe required directory at write boundary: "
-                f"{record.path / name}"
+                f"Unsafe required directory at write boundary: {record.path}"
             ) from exc
+        except BaseException:
+            for fd in opened:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            raise
         finally:
             if case_fd is not None:
                 os.close(case_fd)
             os.close(root_fd)
+
+    def open_required_dir(self, path: Path, name: str) -> int:
+        """Open one required subdirectory with no-follow checks at the write boundary."""
+        return self.open_required_dirs(path, (name,))[0]
 
     @staticmethod
     def _validate_manifest(data: object, case_path: Path) -> CaseRecord:
