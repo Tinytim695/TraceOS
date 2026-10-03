@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 import base64,hashlib,json,os,stat,subprocess,tarfile,time
 from pathlib import Path
-ART=Path("/home/traceos/traceos-ci-e2e"); ART.mkdir(parents=True,exist_ok=True); os.chmod(ART,0o700)
-SER="/dev/ttyS0"; MARK=Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ci-e2e/raw")
+SER="/dev/ttyS0"; MARK=Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ci-e2e/raw"); ART=Path("/home/traceos/traceos-ci-e2e")
 def serial(s):
     print(s,flush=True)
     try:
         with open(SER,"w") as f:f.write(s+"\n")
     except OSError:pass
 if subprocess.run(["systemd-detect-virt","--quiet","--vm"]).returncode: raise SystemExit(0)
+serial("TRACEOS_CI_E2E_PREFLIGHT=1")
+serial("TRACEOS_CI_E2E_FW_CFG_DIR=" + ("present" if Path("/sys/firmware/qemu_fw_cfg").exists() else "missing"))
 for _ in range(30):
     if MARK.is_file():break
     time.sleep(1)
-else:raise SystemExit(0)
-if MARK.read_text(errors="replace").strip()!="1":raise SystemExit(0)
+else:
+    serial("TRACEOS_CI_E2E_FW_CFG_MARKER=missing")
+    raise SystemExit(0)
+if MARK.read_text(errors="replace").strip()!="1":
+    serial("TRACEOS_CI_E2E_FW_CFG_MARKER=invalid")
+    raise SystemExit(0)
+serial("TRACEOS_CI_E2E_FW_CFG_MARKER=valid")
+ART.mkdir(parents=True,exist_ok=True); os.chmod(ART,0o700)
 serial("TRACEOS_CI_E2E_STARTED=1")
 results={}; probes=[]
 def cmd(label,*args):
@@ -60,11 +67,12 @@ tamper_verify=results.get("evidence-verify-tamper",0)!=0 and "expected=" in (ART
 cmd("report","report"); probe("report"); cmd("timeline","timeline"); probe("timeline")
 reports=list((case_path/"reports").glob("TraceOS-report-*.md")) if (case_path/"reports").is_dir() else []
 report_ok=len(reports)==1 and vault_path.name in reports[0].read_text() and ledger_hash in reports[0].read_text()
+if report_ok: (ART/"report.md").write_text(reports[0].read_text())
 timeline_ok=results.get("timeline")==0 and vault_path.name in (ART/"timeline.stdout").read_text()
 same_case=all(x==cid for x in probes)
 status="PASS" if all([ledger_ok,vault_pre_ok,verify_pass_ok,tamper_ok,tamper_verify,report_ok,timeline_ok,same_case]) else "FAIL"
 (ART/"matrix.txt").write_text("\n".join([f"STATUS={status}",f"CASE_ID={cid}",f"LEDGER_OK={'yes' if ledger_ok else 'no'}",f"VAULT_PRE_OK={'yes' if vault_pre_ok else 'no'}",f"VERIFY_PASS_OK={'yes' if verify_pass_ok else 'no'}",f"TAMPER_SAME_FILE_OK={'yes' if tamper_ok else 'no'}",f"VERIFY_TAMPER_HASH_MISMATCH_OK={'yes' if tamper_verify else 'no'}",f"REPORT_OK={'yes' if report_ok else 'no'}",f"TIMELINE_OK={'yes' if timeline_ok else 'no'}",f"SAME_CASE_ID_THROUGHOUT={'yes' if same_case else 'no'}",f"SOURCE_SHA256={source_hash}",f"VAULT_PRE_SHA256={vault_pre_hash or 'unknown'}",f"VAULT_POST_SHA256={vault_post_hash or 'unknown'}",f"LEDGER_RECORDED_SHA256={ledger_hash or 'unknown'}"])+"\n")
-allow={'matrix.txt','case.json','case-new-state.txt','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit'}
+allow={'matrix.txt','case.json','case-new-state.txt','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit'}
 bundle=ART/"bundle.tar"
 with tarfile.open(bundle,"w") as tf:
     for name in sorted(allow):
