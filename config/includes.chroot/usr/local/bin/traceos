@@ -114,10 +114,6 @@ def verify_evidence():
     p=current_case()
     if not p:
         print("No current case."); return 2
-    m=p/"hashes"/"evidence.tsv"
-    if not m.exists():
-        print("No evidence ledger found."); return 0
-
     evidence_fd = None
     hashes_fd = None
     try:
@@ -225,6 +221,12 @@ def add_evidence(src):
         print('Create a case first: traceos case new "Case Name"')
         return 2
     src=Path(src).expanduser()
+    if any(ch in str(src) for ch in ("\t", "\r", "\n")):
+        print(
+            "[TraceOS] Unsupported source path: tab, CR and LF characters are not allowed.",
+            file=sys.stderr,
+        )
+        return 2
 
     stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     mime=mimetypes.guess_type(src.name)[0] or "application/octet-stream"
