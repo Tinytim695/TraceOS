@@ -149,6 +149,7 @@ jobs:
           fi
 
       - name: QEMU graphical UI screenshot smoke tests
+        timeout-minutes: 15
         shell: bash
         run: |
           set -euo pipefail
@@ -158,6 +159,7 @@ jobs:
           ls -lh traceos-ui-screenshots/*.png
 
       - name: Validate QEMU GUI parser fixtures
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -165,6 +167,7 @@ jobs:
           TRACEOS_QEMU_UI_PARSER_TEST=1 scripts/qemu-ui-smoke.sh live-image-amd64.hybrid.iso
 
       - name: QEMU packaged ISO CLI synthetic workflow
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -186,6 +189,7 @@ jobs:
           subject-path: live-image-amd64.hybrid.iso
 
       - name: Upload ISO artifact
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: traceos-0.1.0-amd64
