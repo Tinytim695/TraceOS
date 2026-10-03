@@ -273,6 +273,12 @@ capture_page dashboard true
 monitor="$STATE/monitor-dashboard.sock"
 serial_log="$STATE/serial-dashboard.log"
 new_case_matrix="$OUT/traceos-new-case-matrix.txt"
+new_case_dialog_ppm="$OUT/traceos-new-case-dialog.ppm"
+new_case_dialog_png="$OUT/traceos-new-case-dialog.png"
+new_case_filled_ppm="$OUT/traceos-new-case-filled.ppm"
+new_case_filled_png="$OUT/traceos-new-case-filled.png"
+new_case_final_ppm="$OUT/traceos-new-case-final.ppm"
+new_case_final_png="$OUT/traceos-new-case-final.png"
 
 wait_for_serial() {
     local needle="$1"
@@ -354,8 +360,6 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 
-new_case_dialog_ppm="$OUT/traceos-new-case-dialog.ppm"
-new_case_dialog_png="$OUT/traceos-new-case-dialog.png"
 if [[ "$dialog_opened" == "yes" ]]; then
     capture_screendump "$monitor" "$new_case_dialog_ppm" "$STATE/monitor-new-case-dialog-screendump.log"
     convert "$new_case_dialog_ppm" -resize 1280x720 -strip "$new_case_dialog_png"
@@ -367,8 +371,6 @@ if [[ "$dialog_opened" == "yes" ]]; then
         hmp_command "$monitor" "sendkey $key" "$STATE/monitor-new-case-key-$title_index.log"
     done
 
-    new_case_filled_ppm="$OUT/traceos-new-case-filled.ppm"
-    new_case_filled_png="$OUT/traceos-new-case-filled.png"
     capture_screendump "$monitor" "$new_case_filled_ppm" "$STATE/monitor-new-case-filled-screendump.log"
     convert "$new_case_filled_ppm" -resize 1280x720 -strip "$new_case_filled_png"
     identify "$new_case_filled_png"
@@ -411,8 +413,6 @@ for _ in $(seq 1 45); do
     sleep 1
 done
 
-new_case_final_ppm="$OUT/traceos-new-case-final.ppm"
-new_case_final_png="$OUT/traceos-new-case-final.png"
 capture_screendump "$monitor" "$new_case_final_ppm" "$STATE/monitor-new-case-final-screendump.log"
 convert "$new_case_final_ppm" -resize 1280x720 -strip "$new_case_final_png"
 identify "$new_case_final_png"
