@@ -296,7 +296,7 @@ wait_for_serial() {
 extract_field() {
     local line="$1"
     local field="$2"
-    printf '%s\n' "$line" | tr ' ' '\n' | sed -n "s/^\${field}=//p" | tail -n 1
+    printf '%s\n' "$line" | tr ' ' '\n' | sed -n "s/^${field}=//p" | tail -n 1
 }
 
 identity_line=""
@@ -314,7 +314,7 @@ if [[ -n "$identity_line" ]]; then
 fi
 
 collector_ready="no"
-if grep -Fq "QEMU_UI_DIAG_READY" "$serial_log" 2>/dev/null; then
+if wait_for_serial "QEMU_UI_DIAG_READY" 45; then
     collector_ready="yes"
 fi
 
@@ -421,11 +421,11 @@ test -s "$new_case_final_png"
 dashboard_png="$OUT/traceos-dashboard.png"
 dashboard_hash="$(sha256sum "$dashboard_png" | awk '{print $1}')"
 dialog_hash="$(sha256sum "$new_case_dialog_png" 2>/dev/null | awk '{print $1}' || true)"
-filled_hash="$(sha256sum "\${OUT}/traceos-new-case-filled.png" 2>/dev/null | awk '{print $1}' || true)"
+filled_hash="$(sha256sum "${OUT}/traceos-new-case-filled.png" 2>/dev/null | awk '{print $1}' || true)"
 final_hash="$(sha256sum "$new_case_final_png" | awk '{print $1}')"
 pixel_diff_dashboard_final="$(compare -metric AE "$dashboard_png" "$new_case_final_png" null: 2>&1 || true)"
-pixel_diff_dialog_filled="$(compare -metric AE "$new_case_dialog_png" "\${OUT}/traceos-new-case-filled.png" null: 2>&1 || true)"
-pixel_diff_filled_final="$(compare -metric AE "\${OUT}/traceos-new-case-filled.png" "$new_case_final_png" null: 2>&1 || true)"
+pixel_diff_dialog_filled="$(compare -metric AE "$new_case_dialog_png" "${OUT}/traceos-new-case-filled.png" null: 2>&1 || true)"
+pixel_diff_filled_final="$(compare -metric AE "${OUT}/traceos-new-case-filled.png" "$new_case_final_png" null: 2>&1 || true)"
 
 if [[ -n "$case_id" ]]; then
     header_marker="$(marker_line "NEW_CASE_HEADER_REFRESHED")"
@@ -456,15 +456,15 @@ fi
     echo "STATUS=$status"
     echo "HMP_NEW_CASE_ACCEPTED=$hmp_new_case"
     echo "COLLECTOR_READY=$collector_ready"
-    echo "GUI_NONCE=\${gui_nonce:-unknown}"
-    echo "GUI_PID=\${gui_pid:-unknown}"
-    echo "GUI_UID=\${gui_uid:-unknown}"
+    echo "GUI_NONCE=${gui_nonce:-unknown}"
+    echo "GUI_PID=${gui_pid:-unknown}"
+    echo "GUI_UID=${gui_uid:-unknown}"
     echo "ATTEMPT=$attempt"
     echo "NEW_CASE_INPUT_RECEIVED=$input_received"
     echo "NEW_CASE_DIALOG_OPENED=$dialog_opened"
     echo "NEW_CASE_CREATE_CALLBACK_ENTERED=$callback_entered"
     echo "NEW_CASE_CREATED=$case_created"
-    echo "CASE_ID=\${case_id:-unknown}"
+    echo "CASE_ID=${case_id:-unknown}"
     echo "NEW_CASE_STATE_VERIFIED=$state_verified"
     echo "NEW_CASE_STATE_PROBE=$probe_result"
     echo "NEW_CASE_HEADER_REFRESHED=$header_refreshed"
