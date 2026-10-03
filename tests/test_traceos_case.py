@@ -455,7 +455,8 @@ class CaseStoreTests(unittest.TestCase):
         shutil.rmtree(hashes)
         os.symlink(outside, hashes)
 
-        self.assertEqual(cli.verify_evidence(), 1)
+        with self.assertRaises(CorruptCaseState):
+            cli.verify_evidence()
 
     def test_evidence_rejects_ledger_delimiter_source_names(self):
         cli = self._load_cli_for_evidence_test("traceos_cli_ledger_delimiter_name_test")
