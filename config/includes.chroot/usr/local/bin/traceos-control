@@ -11,6 +11,7 @@ import sys
 import time
 import threading
 import tkinter as tk
+import uuid
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -94,9 +95,15 @@ class TraceOSApp:
             pass
         self.root.after(1800, self._write_ready_marker)
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+
+        self._trace_nonce = uuid.uuid4().hex
+        self._trace_attempt = 0
+        self._new_case_attempt_pending = False
+
         # User-facing smoke-test shortcut: open the same OSINT page as the sidebar button.
         # Tk keysyms are case-sensitive here; Ctrl+Shift+O produces keysym ``O``.
         self.root.bind_all("<Control-Shift-O>", self._osint_shortcut)
+        self.root.bind_all("<Control-Shift-N>", self._new_case_shortcut)
 
         self.active_process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
@@ -117,6 +124,7 @@ class TraceOSApp:
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
+        self._trace_diag("CONTROL_CENTRE_SESSION_READY")
 
     def _trace_active_window(self) -> str:
         result = capture(["xprop", "-root", "_NET_ACTIVE_WINDOW"], timeout=2)
@@ -135,7 +143,13 @@ class TraceOSApp:
             return "unavailable"
 
     def _trace_diag(self, stage: str, **fields: object) -> None:
-        parts = [f"stage={stage}"]
+        parts = [
+            f"stage={stage}",
+            f"nonce={self._trace_nonce}",
+            f"pid={os.getpid()}",
+            f"uid={os.getuid()}",
+            f"attempt={self._trace_attempt}",
+        ]
         for key, value in fields.items():
             safe = " ".join(str(value).replace("\n", " ").replace("\r", " ").split())
             parts.append(f"{key}={safe}")
@@ -161,6 +175,23 @@ class TraceOSApp:
             pass
 
         print(line, file=sys.stderr, flush=True)
+
+    def _new_case_shortcut(self, event: tk.Event) -> str:
+        self._trace_attempt += 1
+        self._new_case_attempt_pending = True
+        try:
+            widget = self.root.focus_get()
+            focus_class = widget.winfo_class() if widget is not None else "none"
+        except tk.TclError:
+            focus_class = "unavailable"
+        self._trace_diag(
+            "NEW_CASE_INPUT_RECEIVED",
+            keysym=getattr(event, "keysym", "unknown"),
+            state=getattr(event, "state", "unknown"),
+            focus_class=focus_class,
+        )
+        self.new_case()
+        return "break"
 
     def _osint_shortcut(self, event: tk.Event) -> str:
         self._trace_diag(
@@ -615,6 +646,9 @@ class TraceOSApp:
             )
 
     def new_case(self) -> None:
+        if not self._new_case_attempt_pending:
+            self._trace_attempt += 1
+        self._new_case_attempt_pending = False
         dialog = tk.Toplevel(self.root)
         dialog.title("New TraceOS Case")
         dialog.configure(bg=BG)
@@ -693,12 +727,36 @@ class TraceOSApp:
         buttons.pack(fill="x", padx=20, pady=(0, 18))
 
         def create() -> None:
+            title_value = title_entry.get()
+            description_value = description.get("1.0", "end").strip()
+            self._trace_diag(
+                "NEW_CASE_CREATE_CALLBACK_ENTERED",
+                title_len=len(title_value),
+            )
             try:
                 record = CASE_STORE.create(
-                    title_entry.get(),
-                    description.get("1.0", "end").strip(),
+                    title_value,
+                    description_value,
+                )
+                self._trace_diag(
+                    "NEW_CASE_CREATED",
+                    case_id=record.case_id or "legacy",
+                )
+                verified = CaseStore().current()
+                if verified is None or verified.case_id != record.case_id:
+                    raise CaseError(
+                        "Independent in-process current-case state did not match the created case."
+                    )
+                self._trace_diag(
+                    "NEW_CASE_STATE_VERIFIED",
+                    case_id=record.case_id or "legacy",
                 )
             except CaseCreatedButNotSelected as exc:
+                self._trace_diag(
+                    "NEW_CASE_FAILED",
+                    exception_class=type(exc).__name__,
+                    outcome="created-but-not-selected",
+                )
                 dialog.destroy()
                 self.refresh_case_context()
                 messagebox.showwarning(
@@ -711,19 +769,56 @@ class TraceOSApp:
                 )
                 return
             except CaseError as exc:
+                self._trace_diag(
+                    "NEW_CASE_FAILED",
+                    exception_class=type(exc).__name__,
+                )
                 messagebox.showerror(
                     "TraceOS",
                     str(exc),
                     parent=dialog,
                 )
                 return
+            except Exception as exc:
+                self._trace_diag(
+                    "NEW_CASE_FAILED",
+                    exception_class=type(exc).__name__,
+                )
+                messagebox.showerror(
+                    "TraceOS",
+                    "Unable to create the case.",
+                    parent=dialog,
+                )
+                return
+
             dialog.destroy()
             self.refresh_case_header()
+            header_text = str(self.header_case.cget("text"))
+            prefix = (record.case_id or "legacy")[:8]
+            if not record.case_id or prefix not in header_text:
+                self._trace_diag(
+                    "NEW_CASE_FAILED",
+                    exception_class="HeaderMismatch",
+                )
+                messagebox.showerror(
+                    "TraceOS",
+                    "The new case was created but the case header did not update correctly.",
+                    parent=self.root,
+                )
+                return
             self.dashboard()
+            self.root.update_idletasks()
             self._trace_diag(
-                "case-created",
-                case_id=record.case_id or "legacy",
+                "NEW_CASE_HEADER_REFRESHED",
+                case_id=record.case_id,
+                id_prefix=prefix,
             )
+
+        def submit_from_title(_event: tk.Event) -> str:
+            create()
+            return "break"
+
+        title_entry.bind("<Return>", submit_from_title)
 
         self.action_button(
             buttons,
@@ -737,6 +832,11 @@ class TraceOSApp:
             primary=True,
         ).pack(side="right")
         title_entry.focus_set()
+        self.root.update_idletasks()
+        self._trace_diag(
+            "NEW_CASE_DIALOG_OPENED",
+            title_focus="yes" if self.root.focus_get() is title_entry else "no",
+        )
 
     def select_case(self) -> None:
         dialog = tk.Toplevel(self.root)
