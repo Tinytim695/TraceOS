@@ -268,101 +268,235 @@ capture_page() {
 # diagnostic interaction so the Dashboard remains the baseline gate.
 capture_page dashboard true
 
-# Diagnostic-only OSINT interaction. The shortcut is a normal user-facing
-# Control Centre binding. This run records the full interaction chain without
-# making page recognition a CI gate yet.
-osint_ppm="$OUT/traceos-osint.ppm"
-osint_png="$OUT/traceos-osint.png"
-osint_immediate_ppm="$OUT/traceos-osint-immediate.ppm"
-osint_immediate_png="$OUT/traceos-osint-immediate.png"
+# Diagnostic-only New Case GUI interaction. This uses the normal visible Control Centre
+# shortcut/button path and never calls CaseStore.create() outside the GUI process.
 monitor="$STATE/monitor-dashboard.sock"
 serial_log="$STATE/serial-dashboard.log"
-osint_matrix="$OUT/traceos-osint-matrix.txt"
+new_case_matrix="$OUT/traceos-new-case-matrix.txt"
 
-hmp_command "$monitor" "sendkey ctrl-shift-o" "$STATE/monitor-osint-sendkey.log"
-hmp_sendkey_accepted="yes"
-
-# Capture an immediate framebuffer so a later unchanged frame cannot be
-# confused with a slow screendump or a transient transition.
-capture_screendump "$monitor" "$osint_immediate_ppm" "$STATE/monitor-osint-immediate-screendump.log"
-convert "$osint_immediate_ppm" -resize 1280x720 -strip "$osint_immediate_png"
-identify "$osint_immediate_png"
-test -s "$osint_immediate_png"
-
-shortcut_received="no"
-callback_entered="no"
-callback_completed="no"
-callback_exception="no"
-page_rendered="no"
-
-# Poll guest-side serial diagnostics with a bounded deadline. No arbitrary
-# long sleep is used as the interaction proof.
-for _ in $(seq 1 20); do
-    if grep -Fq "UI_DIAG" "$serial_log" 2>/dev/null; then
-        if grep -Fq "stage=shortcut-received" "$serial_log"; then shortcut_received="yes"; fi
-        if grep -Fq "stage=callback-entered" "$serial_log"; then callback_entered="yes"; fi
-        if grep -Fq "stage=callback-complete" "$serial_log"; then callback_completed="yes"; fi
-        if grep -Fq "stage=callback-exception" "$serial_log"; then callback_exception="yes"; fi
-        if grep -Fq "stage=osint-page-rendered" "$serial_log"; then page_rendered="yes"; fi
-        if [[ "$page_rendered" == "yes" || "$callback_exception" == "yes" ]]; then
-            break
+wait_for_serial() {
+    local needle="$1"
+    local timeout_seconds="$2"
+    local deadline=$((SECONDS + timeout_seconds))
+    while (( SECONDS < deadline )); do
+        if grep -Fq "$needle" "$serial_log" 2>/dev/null; then
+            return 0
         fi
+        sleep 1
+    done
+    return 1
+}
+
+extract_field() {
+    local line="$1"
+    local field="$2"
+    printf '%s\n' "$line" | tr ' ' '\n' | sed -n "s/^\${field}=//p" | tail -n 1
+}
+
+identity_line=""
+if wait_for_serial "stage=CONTROL_CENTRE_SESSION_READY" 45; then
+    identity_line="$(grep -F "stage=CONTROL_CENTRE_SESSION_READY" "$serial_log" | tail -n 1)"
+fi
+
+gui_nonce=""
+gui_pid=""
+gui_uid=""
+if [[ -n "$identity_line" ]]; then
+    gui_nonce="$(extract_field "$identity_line" nonce)"
+    gui_pid="$(extract_field "$identity_line" pid)"
+    gui_uid="$(extract_field "$identity_line" uid)"
+fi
+
+collector_ready="no"
+if grep -Fq "QEMU_UI_DIAG_READY" "$serial_log" 2>/dev/null; then
+    collector_ready="yes"
+fi
+
+hmp_new_case="yes"
+if ! hmp_command "$monitor" "sendkey ctrl-shift-n" "$STATE/monitor-new-case-sendkey.log"; then
+    hmp_new_case="no"
+fi
+
+attempt=""
+if [[ -n "$gui_nonce" && -n "$gui_pid" ]]; then
+    attempt="$(extract_field "$(grep -F "stage=NEW_CASE_INPUT_RECEIVED" "$serial_log" 2>/dev/null | tail -n 1 || true)" attempt)"
+fi
+[[ -n "$attempt" ]] || attempt="1"
+
+marker_line() {
+    local stage="$1"
+    grep -F "stage=$stage" "$serial_log" 2>/dev/null \
+        | grep -F "nonce=$gui_nonce" \
+        | grep -F "pid=$gui_pid" \
+        | grep -F "attempt=$attempt" \
+        | tail -n 1 || true
+}
+
+input_received="no"
+dialog_opened="no"
+callback_entered="no"
+case_created="no"
+state_verified="no"
+header_refreshed="no"
+failed="no"
+case_id=""
+probe_line=""
+probe_result="UNKNOWN"
+
+for _ in $(seq 1 30); do
+    [[ -n "$(marker_line "NEW_CASE_INPUT_RECEIVED")" ]] && input_received="yes"
+    [[ -n "$(marker_line "NEW_CASE_DIALOG_OPENED")" ]] && dialog_opened="yes"
+    if [[ -n "$(marker_line "NEW_CASE_FAILED")" ]]; then
+        failed="yes"
+        break
+    fi
+    [[ "$dialog_opened" == "yes" ]] && break
+    sleep 1
+done
+
+new_case_dialog_ppm="$OUT/traceos-new-case-dialog.ppm"
+new_case_dialog_png="$OUT/traceos-new-case-dialog.png"
+if [[ "$dialog_opened" == "yes" ]]; then
+    capture_screendump "$monitor" "$new_case_dialog_ppm" "$STATE/monitor-new-case-dialog-screendump.log"
+    convert "$new_case_dialog_ppm" -resize 1280x720 -strip "$new_case_dialog_png"
+    identify "$new_case_dialog_png"
+
+    title_index=0
+    for key in q e m u c a s e; do
+        title_index=$((title_index + 1))
+        hmp_command "$monitor" "sendkey $key" "$STATE/monitor-new-case-key-$title_index.log"
+    done
+
+    new_case_filled_ppm="$OUT/traceos-new-case-filled.ppm"
+    new_case_filled_png="$OUT/traceos-new-case-filled.png"
+    capture_screendump "$monitor" "$new_case_filled_ppm" "$STATE/monitor-new-case-filled-screendump.log"
+    convert "$new_case_filled_ppm" -resize 1280x720 -strip "$new_case_filled_png"
+    identify "$new_case_filled_png"
+
+    # Return while the real title Entry has focus. This invokes the same nested
+    # Create callback used by the visible CREATE CASE button.
+    hmp_command "$monitor" "sendkey ret" "$STATE/monitor-new-case-submit.log" || true
+else
+    : >"$STATE/monitor-new-case-key-skipped.log"
+    : >"$STATE/monitor-new-case-submit-skipped.log"
+fi
+
+for _ in $(seq 1 45); do
+    [[ -n "$(marker_line "NEW_CASE_CREATE_CALLBACK_ENTERED")" ]] && callback_entered="yes"
+    created_line="$(marker_line "NEW_CASE_CREATED")"
+    if [[ -n "$created_line" ]]; then
+        case_created="yes"
+        case_id="$(extract_field "$created_line" case_id)"
+    fi
+    [[ -n "$(marker_line "NEW_CASE_STATE_VERIFIED")" ]] && state_verified="yes"
+    [[ -n "$(marker_line "NEW_CASE_HEADER_REFRESHED")" ]] && header_refreshed="yes"
+    if [[ -n "$(marker_line "NEW_CASE_FAILED")" ]]; then
+        failed="yes"
+        break
+    fi
+    if [[ -n "$case_id" ]]; then
+        probe_line="$(grep -F "stage=NEW_CASE_STATE_PROBE" "$serial_log" 2>/dev/null \
+            | grep -F "nonce=$gui_nonce" \
+            | grep -F "pid=$gui_pid" \
+            | grep -F "attempt=$attempt" \
+            | grep -F "case_id=$case_id" \
+            | tail -n 1 || true)"
+        if [[ -n "$probe_line" ]]; then
+            probe_result="$(extract_field "$probe_line" result)"
+        fi
+    fi
+    if [[ "$callback_entered" == "yes" && "$case_created" == "yes" && "$state_verified" == "yes" && "$header_refreshed" == "yes" && "$probe_result" == "PASS" ]]; then
+        break
     fi
     sleep 1
 done
 
-# Take the final framebuffer after observable guest evidence, or after the
-# bounded diagnostic deadline if no guest evidence arrived.
-capture_screendump "$monitor" "$osint_ppm" "$STATE/monitor-osint-screendump.log"
-convert "$osint_ppm" -resize 1280x720 -strip "$osint_png"
-identify "$osint_png"
-test -s "$osint_png"
+new_case_final_ppm="$OUT/traceos-new-case-final.ppm"
+new_case_final_png="$OUT/traceos-new-case-final.png"
+capture_screendump "$monitor" "$new_case_final_ppm" "$STATE/monitor-new-case-final-screendump.log"
+convert "$new_case_final_ppm" -resize 1280x720 -strip "$new_case_final_png"
+identify "$new_case_final_png"
+test -s "$new_case_final_png"
 
 dashboard_png="$OUT/traceos-dashboard.png"
 dashboard_hash="$(sha256sum "$dashboard_png" | awk '{print $1}')"
-osint_immediate_hash="$(sha256sum "$osint_immediate_png" | awk '{print $1}')"
-osint_hash="$(sha256sum "$osint_png" | awk '{print $1}')"
+dialog_hash="$(sha256sum "$new_case_dialog_png" 2>/dev/null | awk '{print $1}' || true)"
+filled_hash="$(sha256sum "\${OUT}/traceos-new-case-filled.png" 2>/dev/null | awk '{print $1}' || true)"
+final_hash="$(sha256sum "$new_case_final_png" | awk '{print $1}')"
+pixel_diff_dashboard_final="$(compare -metric AE "$dashboard_png" "$new_case_final_png" null: 2>&1 || true)"
+pixel_diff_dialog_filled="$(compare -metric AE "$new_case_dialog_png" "\${OUT}/traceos-new-case-filled.png" null: 2>&1 || true)"
+pixel_diff_filled_final="$(compare -metric AE "\${OUT}/traceos-new-case-filled.png" "$new_case_final_png" null: 2>&1 || true)"
 
-pixel_diff_immediate="$(compare -metric AE "$dashboard_png" "$osint_immediate_png" null: 2>&1 || true)"
-pixel_diff_final="$(compare -metric AE "$dashboard_png" "$osint_png" null: 2>&1 || true)"
-pixel_diff_transition="$(compare -metric AE "$osint_immediate_png" "$osint_png" null: 2>&1 || true)"
+if [[ -n "$case_id" ]]; then
+    header_marker="$(marker_line "NEW_CASE_HEADER_REFRESHED")"
+    header_case_id="$(extract_field "$header_marker" case_id)"
+    header_prefix="$(extract_field "$header_marker" id_prefix)"
+    if [[ "$header_case_id" == "$case_id" && "$header_prefix" == "$case_id"* ]]; then
+        header_widget_match="yes"
+    else
+        header_widget_match="no"
+    fi
+else
+    header_widget_match="unknown"
+fi
+
+if [[ "$hmp_new_case" != "yes" ]]; then
+    status="FAIL"
+elif [[ "$failed" == "yes" ]]; then
+    status="FAIL"
+elif [[ "$collector_ready" != "yes" || -z "$gui_nonce" || -z "$gui_pid" ]]; then
+    status="UNKNOWN"
+elif [[ "$input_received" != "yes" || "$dialog_opened" != "yes" || "$callback_entered" != "yes" || "$case_created" != "yes" || "$state_verified" != "yes" || "$header_refreshed" != "yes" || "$probe_result" != "PASS" || "$header_widget_match" != "yes" ]]; then
+    status="UNKNOWN"
+else
+    status="PASS"
+fi
 
 {
-    echo "HMP_SENDKEY_ACCEPTED=$hmp_sendkey_accepted"
-    echo "TK_EVENT_RECEIVED=$shortcut_received"
-    echo "CALLBACK_ENTERED=$callback_entered"
-    echo "CALLBACK_COMPLETED=$callback_completed"
-    echo "CALLBACK_EXCEPTION=$callback_exception"
-    echo "OSINT_PAGE_RENDERED=$page_rendered"
+    echo "STATUS=$status"
+    echo "HMP_NEW_CASE_ACCEPTED=$hmp_new_case"
+    echo "COLLECTOR_READY=$collector_ready"
+    echo "GUI_NONCE=\${gui_nonce:-unknown}"
+    echo "GUI_PID=\${gui_pid:-unknown}"
+    echo "GUI_UID=\${gui_uid:-unknown}"
+    echo "ATTEMPT=$attempt"
+    echo "NEW_CASE_INPUT_RECEIVED=$input_received"
+    echo "NEW_CASE_DIALOG_OPENED=$dialog_opened"
+    echo "NEW_CASE_CREATE_CALLBACK_ENTERED=$callback_entered"
+    echo "NEW_CASE_CREATED=$case_created"
+    echo "CASE_ID=\${case_id:-unknown}"
+    echo "NEW_CASE_STATE_VERIFIED=$state_verified"
+    echo "NEW_CASE_STATE_PROBE=$probe_result"
+    echo "NEW_CASE_HEADER_REFRESHED=$header_refreshed"
+    echo "HEADER_WIDGET_ID_PREFIX_MATCH=$header_widget_match"
     echo "DASHBOARD_SHA256=$dashboard_hash"
-    echo "OSINT_IMMEDIATE_SHA256=$osint_immediate_hash"
-    echo "OSINT_FINAL_SHA256=$osint_hash"
-    echo "PIXEL_DIFF_DASHBOARD_VS_IMMEDIATE_AE=$pixel_diff_immediate"
-    echo "PIXEL_DIFF_DASHBOARD_VS_FINAL_AE=$pixel_diff_final"
-    echo "PIXEL_DIFF_IMMEDIATE_VS_FINAL_AE=$pixel_diff_transition"
-    if [[ "$pixel_diff_final" == "0" ]]; then
+    echo "NEW_CASE_DIALOG_SHA256=$dialog_hash"
+    echo "NEW_CASE_FILLED_SHA256=$filled_hash"
+    echo "NEW_CASE_FINAL_SHA256=$final_hash"
+    echo "PIXEL_DIFF_DASHBOARD_VS_FINAL_AE=$pixel_diff_dashboard_final"
+    echo "PIXEL_DIFF_DIALOG_VS_FILLED_AE=$pixel_diff_dialog_filled"
+    echo "PIXEL_DIFF_FILLED_VS_FINAL_AE=$pixel_diff_filled_final"
+    if [[ "$pixel_diff_dashboard_final" == "0" ]]; then
         echo "SCREENSHOT_CHANGED=no"
     else
         echo "SCREENSHOT_CHANGED=yes"
     fi
-    echo "FOCUS_AND_ACTIVE_WINDOW_FROM_SHORTCUT_EVENT="
-    grep -F "stage=shortcut-received" "$serial_log" 2>/dev/null | tail -n 1 || true
-} >"$osint_matrix"
+    echo
+    echo "NEW_CASE_MARKERS:"
+    grep -F "stage=NEW_CASE_" "$serial_log" 2>/dev/null \
+        | grep -F "nonce=$gui_nonce" \
+        | grep -F "pid=$gui_pid" \
+        | grep -F "attempt=$attempt" || true
+    echo
+    echo "STATE_PROBE:"
+    grep -F "stage=NEW_CASE_STATE_PROBE" "$serial_log" 2>/dev/null \
+        | grep -F "nonce=$gui_nonce" \
+        | grep -F "pid=$gui_pid" \
+        | grep -F "attempt=$attempt" || true
+} >"$new_case_matrix"
 
-echo "[TraceOS] OSINT diagnostic matrix:"
-cat "$osint_matrix"
-
-# Keep the interaction page diagnostic-only in this batch. A later batch may
-# promote page-specific recognition to a hard gate once this chain is proved.
-spread="$(convert "$osint_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
-echo "[TraceOS] OSINT final framebuffer standard deviation: $spread"
-if ! awk "BEGIN { exit !($spread > 0.02) }"; then
-    echo "[TraceOS] OSINT diagnostic screenshot is blank/static." >&2
-    tail -n 220 "$serial_log" >&2 || true
-    exit 1
-fi
-
-echo "[TraceOS] OSINT diagnostic screenshot captured (page recognition is not yet a CI gate)."
+echo "[TraceOS] New Case GUI diagnostic matrix:"
+cat "$new_case_matrix"
 
 rm -f "$OUT"/*.ppm
 
