@@ -292,6 +292,147 @@ class CaseStoreTests(unittest.TestCase):
 
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
 
+    def _load_cli_for_evidence_test(self, module_name):
+        loader = importlib.machinery.SourceFileLoader(module_name, str(CLI))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(cli)
+        cli.CASE_STORE = self.store
+        return cli
+
+    def test_evidence_source_fifo_is_rejected_without_blocking(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_source_fifo_test")
+        self.store.create("Source FIFO")
+        source = self.home / "source.fifo"
+        os.mkfifo(source)
+
+        self.assertEqual(cli.add_evidence(str(source)), 2)
+        self.assertEqual(
+            list((self.store.current().path / "evidence").iterdir()),
+            [],
+        )
+
+    def test_evidence_ledger_fifo_is_rejected_without_blocking(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_ledger_fifo_test")
+        self.store.create("Ledger FIFO")
+        source = self.home / "ledger-source.txt"
+        source.write_text("synthetic evidence\n", encoding="utf-8")
+        ledger = self.store.current().path / "hashes" / "evidence.tsv"
+        ledger.unlink()
+        os.mkfifo(ledger)
+
+        self.assertEqual(cli.add_evidence(str(source)), 1)
+        self.assertEqual(
+            list((self.store.current().path / "evidence").iterdir()),
+            [],
+        )
+
+    def test_ledger_short_write_failure_is_not_reported_as_success(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_ledger_short_write_test")
+        self.store.create("Ledger Short Write")
+        source = self.home / "short-write-source.txt"
+        source.write_text("synthetic evidence\n", encoding="utf-8")
+
+        original_write = cli.os.write
+        state = {"first": True}
+
+        def partial_then_fail(fd, data):
+            if state["first"]:
+                state["first"] = False
+                prefix = data[:8]
+                original_write(fd, prefix)
+                raise OSError("simulated ledger write failure")
+            return original_write(fd, data)
+
+        with mock.patch.object(cli.os, "write", side_effect=partial_then_fail):
+            self.assertEqual(cli.add_evidence(str(source)), 1)
+
+        ledger = self.store.current().path / "hashes" / "evidence.tsv"
+        self.assertGreater(len(ledger.read_bytes()), len(
+            b"timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n"
+        ))
+        self.assertEqual(
+            list((self.store.current().path / "evidence").iterdir()),
+            [],
+        )
+
+    def test_verify_evidence_accepts_real_vault_copy_and_detects_tampering(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_verify_test")
+        record = self.store.create("Verify Evidence")
+        source = self.home / "verify-source.txt"
+        source.write_text("verify me\n", encoding="utf-8")
+
+        self.assertEqual(cli.add_evidence(str(source)), 0)
+        self.assertEqual(cli.verify_evidence(), 0)
+
+        vault_files = list((record.path / "evidence").iterdir())
+        self.assertEqual(len(vault_files), 1)
+        os.chmod(vault_files[0], 0o600)
+        vault_files[0].write_text("tampered\n", encoding="utf-8")
+        self.assertEqual(cli.verify_evidence(), 1)
+
+    def test_open_required_dirs_stays_pinned_across_case_swap(self):
+        record = self.store.create("Pinned Child FDs")
+        moved = self.store.cases_root / "pinned-child-fds-moved"
+        injected = {"case_fd": None, "done": False}
+        original_open = os.open
+
+        original_evidence = os.stat(
+            record.path / "evidence",
+            follow_symlinks=False,
+        )
+        original_hashes = os.stat(
+            record.path / "hashes",
+            follow_symlinks=False,
+        )
+
+        def raced_open(path, flags, mode=0o777, *, dir_fd=None):
+            if (
+                dir_fd is not None
+                and str(path) == record.path.name
+                and injected["case_fd"] is None
+            ):
+                fd = original_open(path, flags, mode, dir_fd=dir_fd)
+                injected["case_fd"] = fd
+                return fd
+            if (
+                not injected["done"]
+                and injected["case_fd"] is not None
+                and dir_fd == injected["case_fd"]
+                and str(path) == "hashes"
+            ):
+                injected["done"] = True
+                record.path.rename(moved)
+                replacement = record.path
+                replacement.mkdir(mode=0o700)
+                for name in ("evidence", "working", "exports", "reports", "hashes", "notes"):
+                    (replacement / name).mkdir(mode=0o700)
+                return original_open(path, flags, mode, dir_fd=dir_fd)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        with mock.patch("traceos_case.os.open", side_effect=raced_open):
+            evidence_fd, hashes_fd = self.store.open_required_dirs(
+                record.path,
+                ("evidence", "hashes"),
+            )
+
+        try:
+            self.assertEqual(
+                (os.fstat(evidence_fd).st_dev, os.fstat(evidence_fd).st_ino),
+                (original_evidence.st_dev, original_evidence.st_ino),
+            )
+            self.assertEqual(
+                (os.fstat(hashes_fd).st_dev, os.fstat(hashes_fd).st_ino),
+                (original_hashes.st_dev, original_hashes.st_ino),
+            )
+        finally:
+            os.close(evidence_fd)
+            os.close(hashes_fd)
+
+        self.assertTrue(moved.is_dir())
+        self.assertTrue(record.path.is_dir())
+        self.assertTrue((record.path / "hashes").is_dir())
+
     def test_evidence_permission_change_is_fd_bound(self):
         loader = importlib.machinery.SourceFileLoader(
             "traceos_cli_permission_test",
