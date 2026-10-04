@@ -1132,7 +1132,6 @@ class TraceOSApp:
             lambda: self.open_terminal([TRACE, "osint"], "TraceOS Investigation Workbench")
         ).pack(side="left")
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
-        self.action_button(bar, "SAVE OUTPUT TO EVIDENCE", self.save_investigation_output).pack(side="left", padx=7)
 
         def start_osint() -> None:
             name = tool.get()
@@ -1158,32 +1157,11 @@ class TraceOSApp:
         self._trace_diag("osint-page-rendered", page="osint")
 
     def save_investigation_output(self) -> None:
-        current = case_path()
-        if not current:
-            messagebox.showwarning("Investigation Centre", "Create or select a case before saving output.", parent=self.root)
-            return
-        output = self.job_output.strip()
-        if not output:
-            messagebox.showinfo("Investigation Centre", "There is no investigation output to save yet.", parent=self.root)
-            return
-        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-        path = current / "working" / f"investigation-{stamp}-{uuid.uuid4().hex[:8]}.txt"
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(output + "\n", encoding="utf-8")
-        except OSError as exc:
-            messagebox.showerror("Investigation Centre", f"Unable to stage output:\n{exc}", parent=self.root)
-            return
-        result = capture([TRACE, "evidence", "add", str(path)], timeout=90)
-        if result and result.returncode == 0:
-            messagebox.showinfo("Investigation Centre", "Investigation output was copied into the Evidence Vault and hashed.", parent=self.root)
-            self.evidence()
-        else:
-            messagebox.showerror(
-                "Investigation Centre",
-                (result.stdout or result.stderr or "Unable to add investigation output to evidence.").strip(),
-                parent=self.root,
-            )
+        messagebox.showinfo(
+            "Investigation Centre",
+            "Saving output is not available in this USB-test candidate.",
+            parent=self.root,
+        )
 
     def reports(self) -> None:
         self.heading(
