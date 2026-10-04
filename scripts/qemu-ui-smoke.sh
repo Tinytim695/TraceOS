@@ -277,6 +277,8 @@ extract_field() {
     printf '%s\n' "${value%$cr}"
 }
 
+
+
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
     matching="case_id=${test_case_id} id_prefix=01234567"
