@@ -986,7 +986,7 @@ class CaseStoreTests(unittest.TestCase):
             ("WhatWeb Fingerprint", "https://example.test/a", ["whatweb", "https://example.test/a"]),
             ("Nikto Web Check", "https://example.test", ["nikto", "-h", "https://example.test"]),
             ("Gobuster Directory Scan", "https://example.test", ["gobuster", "dir", "-u", "https://example.test", "-w", "/tmp/synthetic-wordlist.txt"]),
-            ("OWASP ZAP Desktop", "", ["zap.sh"]),
+            ("OWASP ZAP Desktop", "", ["zap.sh", "-silent"]),
             ("SQLmap Interactive", "https://example.test/item?id=2", ["sqlmap", "-u", "https://example.test/item?id=2"]),
             ("Metasploit Console", "", ["msfconsole"]),
         )

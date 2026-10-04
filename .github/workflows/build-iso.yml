@@ -100,7 +100,7 @@ jobs:
           done
 
           echo "[TraceOS] Checking live web testing tools and local image analysis tools."
-          for tool in nmap whatweb nikto gobuster sqlmap msfconsole zap.sh exiftool identify tesseract ffmpeg convert; do
+          for tool in nmap whatweb nikto gobuster sqlmap msfconsole zap.sh java exiftool identify tesseract ffmpeg convert; do
             tool_path="$(sudo chroot /tmp/traceos-root /bin/sh -c 'command -v "$1"' sh "$tool")"
             test -n "$tool_path"
             echo "WORKSTATION_TOOL_${tool}=PASS (${tool_path})"
@@ -119,6 +119,7 @@ jobs:
           gobuster|version
           sqlmap|--version
           msfconsole|--version
+          java|-version
           exiftool|-ver
           identify|-version
           tesseract|--version
@@ -128,10 +129,15 @@ jobs:
           test "$installed_msf_version" = "6.5.3~20260818061200~1rapid7-1"
           echo "WORKSTATION_TOOL_metasploit_version=PASS ($installed_msf_version)"
 
-          zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap.sh -cmd -version 2>&1)"
-          printf '%s\n' "$zap_version"
-          printf '%s' "$zap_version" | grep -Fq '2.17.0'
-          echo "WORKSTATION_TOOL_zap_version=PASS (2.17.0)"
+          if zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap.sh -cmd -silent -version 2>&1)"; then
+            printf '%s\n' "$zap_version"
+            printf '%s' "$zap_version" | grep -Fq '2.17.0'
+            echo "WORKSTATION_TOOL_zap_version=PASS (2.17.0)"
+          else
+            zap_status=$?
+            printf 'ZAP version command failed (%s):\n%s\n' "$zap_status" "$zap_version" >&2
+            exit "$zap_status"
+          fi
 
       - name: QEMU live-kernel boot smoke test
         shell: bash

@@ -228,7 +228,7 @@ def build_web_test_command(name: str, target: str, wordlist: str = WEB_WORDLIST)
     if name == "Metasploit Console":
         return ["msfconsole"]
     if name == "OWASP ZAP Desktop":
-        return ["zap.sh"]
+        return ["zap.sh", "-silent"]
     value = normalize_web_target(name, target)
     command = WEB_TEST_TOOL_COMMANDS[name]
     if name == "Nmap Quick Scan":

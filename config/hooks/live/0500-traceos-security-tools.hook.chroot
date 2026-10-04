@@ -83,7 +83,7 @@ printf '%s\n' 'Package: metasploit-framework' 'Pin: version *' 'Pin-Priority: -1
 apt-get -o Acquire::Retries=5 update
 apt-get install -y --no-install-recommends "metasploit-framework=${METASPLOIT_VERSION}"
 msfconsole --version
-zap.sh -cmd -version
+zap.sh -cmd -silent -version
 rm -f /etc/apt/sources.list.d/metasploit-framework.list /usr/share/keyrings/metasploit-framework.gpg /etc/apt/preferences.d/traceos-metasploit
 rm -f /tmp/metasploit-key-info.txt /tmp/metasploit-framework.asc
 
