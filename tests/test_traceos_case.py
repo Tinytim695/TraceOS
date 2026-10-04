@@ -1,3 +1,4 @@
+import ast
 import importlib.machinery
 import importlib.util
 import json
@@ -884,6 +885,66 @@ class CaseStoreTests(unittest.TestCase):
         )
         self.assertNotEqual(attempted.returncode, 0)
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
+
+    def test_investigation_save_is_disabled_without_filesystem_or_evidence_side_effects(self):
+        control = (
+            Path(__file__).parent.parent
+            / "config/includes.chroot/usr/local/bin/traceos-control"
+        )
+        source = control.read_text(encoding="utf-8")
+        self.assertNotIn('"SAVE OUTPUT TO EVIDENCE"', source)
+        tree = ast.parse(source)
+        app_class = next(
+            node for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "TraceOSApp"
+        )
+        callback = next(
+            node for node in app_class.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "save_investigation_output"
+        )
+        isolated = ast.Module(body=[callback], type_ignores=[])
+        namespace = {"messagebox": mock.Mock()}
+        exec(compile(isolated, str(control), "exec"), namespace)
+
+        class App:
+            root = object()
+
+        record = self.store.create("Disabled Save", "synthetic regression case")
+        working = record.path / "working"
+        before = sorted(path.relative_to(record.path).as_posix() for path in record.path.rglob("*"))
+        namespace["save_investigation_output"](App())
+        namespace["messagebox"].showinfo.assert_called_once()
+        self.assertIn(
+            "not available in this USB-test candidate",
+            namespace["messagebox"].showinfo.call_args.args[1],
+        )
+        self.assertEqual(
+            sorted(path.relative_to(record.path).as_posix() for path in record.path.rglob("*")),
+            before,
+        )
+
+        outside = self.home / "outside-working"
+        outside.mkdir()
+        sentinel = outside / "sentinel.txt"
+        sentinel.write_text("outside content remains unchanged", encoding="utf-8")
+        shutil.rmtree(working)
+        os.symlink(outside, working)
+        before_outside = sorted(
+            (path.name, path.read_bytes()) for path in outside.iterdir()
+        )
+        namespace["messagebox"].reset_mock()
+        namespace["save_investigation_output"](App())
+        namespace["messagebox"].showinfo.assert_called_once()
+        self.assertEqual(
+            sorted((path.name, path.read_bytes()) for path in outside.iterdir()),
+            before_outside,
+        )
+        self.assertEqual(
+            [path.name for path in working.iterdir()],
+            ["sentinel.txt"],
+        )
+        namespace["messagebox"].showerror.assert_not_called()
 
     def test_ui_diag_does_not_include_real_case_title(self):
         control_text = (
