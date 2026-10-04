@@ -5,9 +5,11 @@ ISO="${1:-live-image-amd64.hybrid.iso}"
 OUT="${2:-traceos-ui-screenshots}"
 STATE="${3:-traceos-ui}"
 
-test -s "$ISO"
-rm -rf "$OUT" "$STATE"
-mkdir -p "$OUT" "$STATE"
+if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" != "1" ]]; then
+    test -s "$ISO"
+    rm -rf "$OUT" "$STATE"
+    mkdir -p "$OUT" "$STATE"
+fi
 
 extract_boot_config() {
     local iso_path="$1"
@@ -304,6 +306,7 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     echo "[TraceOS] QEMU GUI parser fixtures: PASS"
     exit 0
 fi
+
 
 # First prove the real desktop renders. Keep the same guest alive for one
 # diagnostic interaction so the Dashboard remains the baseline gate.
