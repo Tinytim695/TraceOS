@@ -119,12 +119,12 @@ jobs:
           gobuster|version
           sqlmap|--version
           msfconsole|--version
-          java|-version
           exiftool|-ver
           identify|-version
           tesseract|--version
           EOF
 
+          # Java's runtime is exercised by ZAP's final-image version check below.
           installed_msf_version="$(sudo chroot /tmp/traceos-root dpkg-query -W -f='${Version}' metasploit-framework)"
           test "$installed_msf_version" = "6.5.3~20260818061200~1rapid7-1"
           echo "WORKSTATION_TOOL_metasploit_version=PASS ($installed_msf_version)"
