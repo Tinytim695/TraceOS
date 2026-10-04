@@ -57,6 +57,7 @@ python3-pip
 iproute2
 iputils-ping
 dnsutils
+whois
 net-tools
 openssh-client
 nmap

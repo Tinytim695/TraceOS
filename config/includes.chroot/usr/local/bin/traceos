@@ -107,7 +107,7 @@ def status():
 ╰─────────────────────────────────────────╯
 """)
 def show_tools():
-    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search")]
+    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search"),("whois","WHOIS lookups"),("dig","DNS lookups")]
     print("\nTRACEOS TOOLBOX\n───────────────")
     for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
 def verify_evidence():
@@ -405,21 +405,27 @@ def network(a):
         return r.returncode
     print("Usage: traceos network {status|nmap TARGET}"); return 2
 def osint(a):
-    tools=["sherlock","maigret","h8mail","blackbird"]
+    tools=["sherlock","maigret","h8mail","blackbird","whois","dig"]
     if not a:
         print("\nTRACEOS OSINT WORKBENCH\n")
         for i,t in enumerate(tools,1):print(f" {i}) {t}")
+        print(" 0) Exit")
         print("Selection: ",end="",flush=True)
         c=sys.stdin.readline().strip()
         if c=="0":return 0
         try:a=[tools[int(c)-1]]
         except (ValueError,IndexError):return 2
-    if a[0] not in tools or not have(a[0]):print(f"Tool unavailable: {a[0]}");return 1
+    if a[0] not in tools:
+        print(f"Unknown Investigation Centre tool: {a[0]}",file=sys.stderr);return 2
+    if not have(a[0]):
+        print(f"Tool unavailable: {a[0]} is not installed.",file=sys.stderr);return 1
     if len(a)==1 and a[0] in {"sherlock","maigret"}:
         print("Username: ",end="",flush=True)
         u=sys.stdin.readline().strip()
         if not u:return 2
         a.append(u)
+    elif len(a)==1:
+        print(f"Usage: traceos osint {a[0]} TARGET [OPTIONS]",file=sys.stderr);return 2
     print("External lookups happen only because you launched this command.")
     r=run(a,300)
     if r:
@@ -436,7 +442,7 @@ def demo():
     if previous: print(f"Previous case remains untouched: {previous}")
     return 0
 def doctor():
-    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","blueman-manager","ari"]
+    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","whois","dig","blueman-manager","ari"]
     assets=["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]
     configs=["/etc/xdg/autostart/traceos-welcome.desktop","/etc/lightdm/lightdm.conf.d/50-traceos.conf","/usr/local/bin/traceos-control","/usr/local/bin/traceos-shade"]
     print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")

@@ -88,6 +88,17 @@ jobs:
           test -L /tmp/traceos-root/etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
           echo "[TraceOS] QEMU graphics bootstrap and GUI diagnostic collector are present and enabled in the final squashfs."
 
+          echo "[TraceOS] Checking Investigation Centre tools inside the final squashfs."
+          for tool in sherlock maigret h8mail blackbird whois dig; do
+            tool_path="$(sudo chroot /tmp/traceos-root /bin/sh -c 'command -v "$1"' sh "$tool")"
+            test -n "$tool_path"
+            echo "INVESTIGATION_TOOL_${tool}=PASS (${tool_path})"
+          done
+          for tool in sherlock maigret h8mail blackbird; do
+            sudo chroot /tmp/traceos-root /bin/sh -c 'exec "$1" --help >/dev/null' sh "$tool"
+            echo "INVESTIGATION_TOOL_${tool}_HELP=PASS"
+          done
+
       - name: QEMU live-kernel boot smoke test
         shell: bash
         run: |

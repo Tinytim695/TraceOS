@@ -77,6 +77,46 @@ def session_state() -> str:
     return "UNKNOWN"
 
 
+OSINT_TOOL_COMMANDS = {
+    "Sherlock": "sherlock",
+    "Maigret": "maigret",
+    "h8mail": "h8mail",
+    "Blackbird": "blackbird",
+    "WHOIS": "whois",
+    "DNS": "dig",
+}
+
+
+def build_osint_command(name: str, target: str, extra: str = "") -> list[str]:
+    if name not in OSINT_TOOL_COMMANDS:
+        raise ValueError(f"Unknown Investigation Centre tool: {name}")
+    value = target.strip()
+    if not value:
+        raise ValueError("Enter a target or arguments first.")
+    try:
+        extras = shlex.split(extra) if extra.strip() else []
+        target_args = shlex.split(value) if name == "Blackbird" else [value]
+    except ValueError as exc:
+        raise ValueError(f"Invalid arguments: {exc}") from exc
+    if name == "Blackbird":
+        if not target_args:
+            raise ValueError("Enter Blackbird arguments first.")
+        return ["blackbird", *target_args, *extras]
+    command = OSINT_TOOL_COMMANDS[name]
+    if name in {"Sherlock", "Maigret"}:
+        return [command, value, *extras]
+    if name == "h8mail":
+        return [command, "-t", value, *extras]
+    return [command, value, *extras]
+
+
+def require_osint_tool(command: str) -> None:
+    if shutil.which(command) is None:
+        raise FileNotFoundError(
+            f"{command} is not installed in this TraceOS image."
+        )
+
+
 class TraceOSApp:
     def __init__(self, root: tk.Tk, welcome: bool = False, start_page: str = "dashboard") -> None:
         self.root = root
@@ -1096,13 +1136,22 @@ class TraceOSApp:
         ).pack(anchor="w", padx=15, pady=(10, 1))
         tk.Label(
             warning,
-            text="Some tools may contact third-party services when launched. TraceOS never runs them automatically.",
+            text="Missing commands are marked unavailable. Searches only start after you press Start.",
             bg=CARD, fg=MUTED, font=("Sans", 9)
         ).pack(anchor="w", padx=15, pady=(0, 10))
 
         controls = self.card(self.content, padx=28, pady=7)
         tk.Label(controls, text="TOOL", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(10, 4))
-        tool = ttk.Combobox(controls, state="readonly", values=("Sherlock", "Maigret", "h8mail", "Blackbird", "WHOIS", "DNS"), style="Trace.TCombobox")
+        tool_labels = [
+            name if shutil.which(command) else f"{name} (not installed)"
+            for name, command in OSINT_TOOL_COMMANDS.items()
+        ]
+        tool = ttk.Combobox(
+            controls,
+            state="readonly",
+            values=tuple(tool_labels),
+            style="Trace.TCombobox",
+        )
         tool.current(0)
         tool.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 12))
         tk.Label(controls, text="TARGET / ARGUMENTS", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
@@ -1134,22 +1183,25 @@ class TraceOSApp:
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
 
         def start_osint() -> None:
-            name = tool.get()
-            value = target.get().strip()
-            if not value:
-                messagebox.showwarning("OSINT", "Enter a target or arguments first.", parent=self.root)
+            selected = tool.get()
+            name = selected.removesuffix(" (not installed)")
+            try:
+                args = build_osint_command(name, target.get(), extra.get())
+                require_osint_tool(args[0])
+            except ValueError as exc:
+                messagebox.showwarning(
+                    "OSINT",
+                    f"Invalid arguments: {exc}",
+                    parent=self.root,
+                )
                 return
-            extras = shlex.split(extra.get()) if extra.get().strip() else []
-            if name in {"Sherlock", "Maigret"}:
-                args = [name.lower(), value, *extras]
-            elif name == "h8mail":
-                args = ["h8mail", "-t", value, *extras]
-            elif name == "WHOIS":
-                args = ["whois", value, *extras]
-            elif name == "DNS":
-                args = ["dig", value, *extras]
-            else:
-                args = ["blackbird", *shlex.split(value), *extras]
+            except FileNotFoundError as exc:
+                messagebox.showerror(
+                    "OSINT",
+                    f"Tool unavailable: {exc}",
+                    parent=self.root,
+                )
+                return
             self.run_job(args, f"{name} investigation")
 
         self.action_button(bar, "START LOOKUP", start_osint, primary=True).pack(side="right")

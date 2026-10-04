@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -945,6 +946,66 @@ class CaseStoreTests(unittest.TestCase):
             ["sentinel.txt"],
         )
         namespace["messagebox"].showerror.assert_not_called()
+
+    def _load_control_helper(self, name, extra_globals=None):
+        control = (
+            Path(__file__).parent.parent
+            / "config/includes.chroot/usr/local/bin/traceos-control"
+        )
+        tree = ast.parse(control.read_text(encoding="utf-8"))
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == name
+        )
+        namespace = {"shlex": shlex, "shutil": mock.Mock()}
+        if extra_globals:
+            namespace.update(extra_globals)
+        isolated = ast.Module(body=[function], type_ignores=[])
+        exec(compile(isolated, str(control), "exec"), namespace)
+        return namespace[name], namespace
+
+    def test_osint_command_builder_validates_without_running_external_lookups(self):
+        builder, _ = self._load_control_helper("build_osint_command")
+        cases = (
+            ("Sherlock", "alice", "--print-found", ["sherlock", "alice", "--print-found"]),
+            ("Maigret", "alice", "", ["maigret", "alice"]),
+            ("h8mail", "alice@example.test", "", ["h8mail", "-t", "alice@example.test"]),
+            ("WHOIS", "example.test", "", ["whois", "example.test"]),
+            ("DNS", "example.test", "+short", ["dig", "example.test", "+short"]),
+            (
+                "Blackbird",
+                '--username "alice smith"',
+                "",
+                ["blackbird", "--username", "alice smith"],
+            ),
+        )
+        for name, target, extra, expected in cases:
+            with self.subTest(name=name):
+                self.assertEqual(builder(name, target, extra), expected)
+
+        for name, target, extra in (
+            ("Sherlock", "", ""),
+            ("Blackbird", "   ", ""),
+            ("Sherlock", "alice", "'unterminated"),
+            ("Unknown", "target", ""),
+        ):
+            with self.subTest(name=name, target=target, extra=extra):
+                with self.assertRaises(ValueError):
+                    builder(name, target, extra)
+
+    def test_osint_missing_tool_reports_an_explicit_error_without_launching(self):
+        which = mock.Mock(return_value=None)
+        checker, _ = self._load_control_helper(
+            "require_osint_tool",
+            {"shutil": mock.Mock(which=which)},
+        )
+        with self.assertRaisesRegex(FileNotFoundError, "whois is not installed"):
+            checker("whois")
+        which.assert_called_once_with("whois")
+
+        which.return_value = "/usr/bin/dig"
+        checker("dig")
+        self.assertEqual(which.call_count, 2)
 
     def test_ui_diag_does_not_include_real_case_title(self):
         control_text = (
