@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import datetime as dt, hashlib, mimetypes, os, shutil, stat, subprocess, sys
+import datetime as dt, hashlib, mimetypes, os, shutil, stat, subprocess, sys, uuid
 from pathlib import Path
 from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
@@ -107,7 +107,7 @@ def status():
 ╰─────────────────────────────────────────╯
 """)
 def show_tools():
-    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search"),("whois","WHOIS lookups"),("dig","DNS lookups")]
+    tools=[("nmap","authorized network/service inspection"),("whatweb","web technology fingerprinting"),("nikto","authorized web server checks"),("gobuster","authorized path discovery"),("sqlmap","interactive SQL testing"),("msfconsole","Metasploit Framework"),("zap.sh","OWASP ZAP desktop"),("exiftool","image metadata"),("identify","image dimensions/format"),("tesseract","OCR"),("convert","image format conversion"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search"),("whois","WHOIS lookups"),("dig","DNS lookups")]
     print("\nTRACEOS TOOLBOX\n───────────────")
     for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
 def verify_evidence():
@@ -370,6 +370,38 @@ def analyse(src):
         r=run(["exiftool","-s","-G1","-a",str(p)])
         if r and r.stdout.strip(): print("\nMetadata\n"+r.stdout.strip())
     return 0
+def analyse_image(src):
+    p=Path(src).expanduser()
+    if p.is_symlink() or not p.is_file():
+        print(f"Not a regular image file: {p}",file=sys.stderr)
+        return 2
+    mime_result=run(["file","--brief","--mime-type","--",str(p)],15) if have("file") else None
+    mime=mime_result.stdout.strip() if mime_result and mime_result.returncode==0 else "unknown"
+    if not mime.startswith("image/"):
+        print(f"Not an image file (detected {mime}): {p}",file=sys.stderr)
+        return 2
+    print(f"\nTRACEOS IMAGE OSINT / LOCAL ONLY\n───────────────────────────────\nPath: {p}\nMIME: {mime}\nSize: {p.stat().st_size} bytes\nSHA-256: {sha256_file(p)}")
+    if have("identify"):
+        result=run(["identify","-ping","-format","Format: %m\\nDimensions: %wx%h\\nColorspace: %[colorspace]\\n",str(p)],20)
+        if result and result.returncode==0 and result.stdout.strip():
+            print("\nImage\n"+result.stdout.strip())
+        elif result and result.stderr.strip():
+            print("Image details unavailable: "+result.stderr.strip())
+    if have("exiftool"):
+        result=run(["exiftool","-s","-G1","-a",str(p)],30)
+        if result and result.stdout.strip():
+            print("\nMetadata\n"+result.stdout.strip())
+        elif result and result.stderr.strip():
+            print("Metadata unavailable: "+result.stderr.strip())
+    if have("tesseract"):
+        result=run(["tesseract",str(p),"stdout","--psm","6"],90)
+        if result and result.returncode==0:
+            text=result.stdout.strip()
+            print("\nOCR text\n"+(text if text else "(No text detected.)"))
+        elif result and result.stderr.strip():
+            print("OCR unavailable: "+result.stderr.strip())
+    return 0
+
 def report():
     p=current_case()
     if not p: print("No current case."); return 2
@@ -442,7 +474,7 @@ def demo():
     if previous: print(f"Previous case remains untouched: {previous}")
     return 0
 def doctor():
-    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","whois","dig","blueman-manager","ari"]
+    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","whatweb","nikto","gobuster","sqlmap","msfconsole","zap.sh","exiftool","identify","tesseract","sherlock","maigret","h8mail","blackbird","whois","dig","ffmpeg","convert","blueman-manager","ari"]
     assets=["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]
     configs=["/etc/xdg/autostart/traceos-welcome.desktop","/etc/lightdm/lightdm.conf.d/50-traceos.conf","/usr/local/bin/traceos-control","/usr/local/bin/traceos-shade"]
     print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")
@@ -543,10 +575,11 @@ def main(a):
         print('Usage: traceos case {new NAME [--description DESCRIPTION]|list|current|read [CASE_DIR]|use CASE_DIR}')
         return 2
     if c=="evidence":
-        if rest and rest[0]=="add" and len(rest)>1:return add_evidence(rest[1])
+        if rest and rest[0]=="add" and len(rest)==2:return add_evidence(rest[1])
         if rest and rest[0]=="verify":return verify_evidence()
         list_evidence();return 0
     if c=="analyse":return analyse(rest[0]) if rest else 2
+    if c=="image":return analyse_image(rest[0]) if rest else 2
     if c=="tools":show_tools();return 0
     if c=="network":return network(rest)
     if c=="osint":return osint(rest)
@@ -557,7 +590,7 @@ def main(a):
     if c=="ai":return ai()
     if c=="update":return update(rest)
     if c=="about":
-        print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\nOSINT workbench, network tools, reports, timeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
+        print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\npeople OSINT, authorized web testing, local image analysis, reports,\ntimeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
         return 0
-    print("Usage: traceos {status|welcome|session|case|evidence|analyse|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
+    print("Usage: traceos {status|welcome|session|case|evidence|analyse|image|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
 if __name__=="__main__":raise SystemExit(main(sys.argv[1:]))

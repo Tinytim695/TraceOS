@@ -15,7 +15,7 @@ TraceOS is a Debian-based Linux desktop project focused on digital investigation
 
 **0.1.0 foundation**
 
-The first milestone establishes a bootable Debian 13 "trixie" XFCE desktop image with a TraceOS launcher, core system utilities, networking tools, forensic/image packages, and reproducible GitHub Actions builds.
+The first milestone establishes a bootable Debian 13 "trixie" XFCE desktop image with a TraceOS launcher, core system utilities, OSINT, web-testing and image-analysis workflows, and GitHub Actions validation for the installed tools.
 
 ## Build locally
 
@@ -35,7 +35,7 @@ live-image-amd64.hybrid.iso
 
 ## Pre-USB validation
 
-Every main-branch ISO build runs a clean image build, ISO layout validation, a Linux live-kernel boot smoke test, and a graphical QEMU smoke test that captures the Dashboard, OSINT Centre, and Quick Shade from the real built ISO. The CI job also publishes a small QEMU screenshot artifact separately from the large ISO artifact so the desktop can be inspected without downloading the full image.
+Every candidate build runs the host-side case regressions, security checks, installed-tool checks against the final image, ISO layout and SHA-256 validation, and QEMU BIOS boot. The graphical QEMU smoke test captures the real Dashboard, Web Testing and Image OSINT pages, then verifies synthetic New Case creation. It does not start scanners or make external OSINT lookups. CI publishes the screenshots separately from the ISO.
 
 Before flashing a downloaded ISO, verify its SHA-256 against the accompanying `traceos-0.1.0-amd64.iso.sha256` file. Flashing the image to a USB device is destructive to the selected device, so identify the target device carefully and verify the checksum before writing it.
 
@@ -74,7 +74,17 @@ TraceOS includes Debian's `package-update-indicator`, intended for Xfce desktops
 
 ## OSINT workbench
 
-The initial OSINT set is now Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, and Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, with its authoritative runtime dependency lock kept in `config/third-party/blackbird-requirements.txt`. Holehe and socialscan were removed from the image because their maintenance level did not justify making them part of the core set. Blackbird is installed from source at a pinned upstream commit. TraceOS overrides four known stale runtime dependencies with security-reviewed versions and runs `pip check` during the image build; its optional AI path is not enabled by TraceOS.
+The Investigation Centre and `traceos osint` expose six people/domain OSINT commands: Sherlock 0.16.2 and Maigret 0.6.6 for usernames, h8mail 2.5.6 for email-oriented lookups, Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, plus WHOIS and DNS. The image build checks all six command paths and local help for the four Python tools. External lookups start only after the user presses Start.
+
+## Web Testing
+
+The Web Testing page provides Nmap, WhatWeb, Nikto, Gobuster, SQLmap, OWASP ZAP, and Metasploit. The active command-line checks require an authorization checkbox and a per-run confirmation. OWASP ZAP 2.17.0 is installed from its Linux archive after a SHA-256 check and opens in its own window; it receives no target and starts no scan automatically. Set and confirm scope inside ZAP before starting a scan. The Debian tools WhatWeb, Nikto, Gobuster, and SQLmap come from Debian 13 repositories; Gobuster uses the packaged dirb common wordlist.
+
+Metasploit Framework is pinned to Rapid7 package version `6.5.3~20260818061200~1rapid7-1`. TraceOS opens its console in a terminal without selecting a target, module, or exploit. SQLmap opens interactively; the user reviews its prompts. Metasploit itself does not enforce a target scope, so only use its console within an authorized assessment. The Rapid7 repository is used during the image build and removed from the live image after installation.
+
+## Image OSINT
+
+Image OSINT runs locally: it computes SHA-256, identifies MIME type and image dimensions, extracts metadata with ExifTool, and attempts local OCR with Tesseract. The GUI does not upload selected images. Google Lens, Bing Visual Search, and TinEye are optional browser handoffs; TraceOS displays an external-service warning and the user must choose and submit the image on that site.
 
 ## Security engineering
 
@@ -90,8 +100,7 @@ Before a public 1.0 release, TraceOS must also pass VM/hardware boot tests, depe
 - ShellSieve integration
 - TraceLock integration
 - DNAProcess integration
-- Image forensics integration
-- OSINT workspace
-- Core OSINT tools bundled in the live image
+- Expanded image-forensics workflows
+- Additional people and domain OSINT providers
 - Local Ari/llama.cpp integration
 - Installer and signed releases

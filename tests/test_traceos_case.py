@@ -1,6 +1,7 @@
 import ast
 import importlib.machinery
 import importlib.util
+import ipaddress
 import json
 import os
 import shutil
@@ -12,6 +13,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlsplit
 
 sys.path.insert(
     0,
@@ -905,7 +907,12 @@ class CaseStoreTests(unittest.TestCase):
             and node.name == "save_investigation_output"
         )
         isolated = ast.Module(body=[callback], type_ignores=[])
-        namespace = {"messagebox": mock.Mock()}
+        namespace = {
+            "messagebox": mock.Mock(),
+            "capture": mock.Mock(),
+            "save_output_for_case": mock.Mock(),
+            "subprocess": mock.Mock(),
+        }
         exec(compile(isolated, str(control), "exec"), namespace)
 
         class App:
@@ -916,6 +923,20 @@ class CaseStoreTests(unittest.TestCase):
         before = sorted(path.relative_to(record.path).as_posix() for path in record.path.rglob("*"))
         namespace["save_investigation_output"](App())
         namespace["messagebox"].showinfo.assert_called_once()
+        namespace["capture"].assert_not_called()
+        namespace["save_output_for_case"].assert_not_called()
+        namespace["subprocess"].run.assert_not_called()
+        namespace["subprocess"].Popen.assert_not_called()
+        self.assertFalse(
+            any(
+                isinstance(node, ast.Call)
+                and (
+                    getattr(node.func, "id", None) in {"capture", "save_output_for_case"}
+                    or getattr(node.func, "attr", None) in {"run", "Popen"}
+                )
+                for node in ast.walk(callback)
+            )
+        )
         self.assertIn(
             "not available in this USB-test candidate",
             namespace["messagebox"].showinfo.call_args.args[1],
@@ -937,6 +958,10 @@ class CaseStoreTests(unittest.TestCase):
         namespace["messagebox"].reset_mock()
         namespace["save_investigation_output"](App())
         namespace["messagebox"].showinfo.assert_called_once()
+        namespace["capture"].assert_not_called()
+        namespace["save_output_for_case"].assert_not_called()
+        namespace["subprocess"].run.assert_not_called()
+        namespace["subprocess"].Popen.assert_not_called()
         self.assertEqual(
             sorted((path.name, path.read_bytes()) for path in outside.iterdir()),
             before_outside,
@@ -946,6 +971,100 @@ class CaseStoreTests(unittest.TestCase):
             ["sentinel.txt"],
         )
         namespace["messagebox"].showerror.assert_not_called()
+
+    def test_web_command_builders_are_scoped_and_never_run_scans(self):
+        normalizer, _ = self._load_control_helper("normalize_web_target")
+        builder, _ = self._load_control_helper(
+            "build_web_test_command",
+            {
+                "WEB_WORDLIST": "/tmp/synthetic-wordlist.txt",
+                "normalize_web_target": normalizer,
+            },
+        )
+        expected = (
+            ("Nmap Quick Scan", "example.test", ["nmap", "-sT", "-F", "-T3", "--", "example.test"]),
+            ("WhatWeb Fingerprint", "https://example.test/a", ["whatweb", "https://example.test/a"]),
+            ("Nikto Web Check", "https://example.test", ["nikto", "-h", "https://example.test"]),
+            ("Gobuster Directory Scan", "https://example.test", ["gobuster", "dir", "-u", "https://example.test", "-w", "/tmp/synthetic-wordlist.txt"]),
+            ("OWASP ZAP Desktop", "", ["zap.sh"]),
+            ("SQLmap Interactive", "https://example.test/item?id=2", ["sqlmap", "-u", "https://example.test/item?id=2"]),
+            ("Metasploit Console", "", ["msfconsole"]),
+        )
+        for name, target, wanted in expected:
+            with self.subTest(name=name):
+                self.assertEqual(builder(name, target, "/tmp/synthetic-wordlist.txt"), wanted)
+
+        require, namespace = self._load_control_helper(
+            "require_web_test_tool",
+            {
+                "WEB_TEST_TOOL_COMMANDS": {"Metasploit Console": "msfconsole"},
+                "shutil": mock.Mock(),
+            },
+        )
+        namespace["shutil"].which.return_value = None
+        with self.assertRaisesRegex(FileNotFoundError, "msfconsole is not installed"):
+            require("Metasploit Console")
+        namespace["shutil"].which.assert_called_once_with("msfconsole")
+
+        control = (
+            Path(__file__).parent.parent
+            / "config/includes.chroot/usr/local/bin/traceos-control"
+        )
+        source = control.read_text(encoding="utf-8")
+        self.assertIn("if not authorized.get():", source)
+        self.assertIn("if name in WEB_ACTIVE_TESTS and not messagebox.askyesno(", source)
+        self.assertIn("webbrowser.open(address, new=2)", source)
+
+        for name, target in (
+            ("WhatWeb Fingerprint", "ftp://example.test"),
+            ("Nikto Web Check", "https:///missing-host"),
+            ("Gobuster Directory Scan", "https://user:secret@example.test"),
+            ("Nmap Quick Scan", "--script=default"),
+            ("Nmap Quick Scan", "example.test/path"),
+            ("Nmap Quick Scan", "example.test:invalid"),
+            ("Unknown", "https://example.test"),
+        ):
+            with self.subTest(name=name, target=target):
+                with self.assertRaises(ValueError):
+                    builder(name, target)
+
+    def test_image_cli_analyses_synthetic_image_only_locally(self):
+        temp_home = self.home / "image-cli-home"
+        temp_home.mkdir()
+        env = os.environ.copy()
+        env["HOME"] = str(temp_home)
+        env["XDG_CONFIG_HOME"] = str(temp_home / ".config")
+        image = temp_home / "synthetic.png"
+        image.write_bytes(
+            bytes.fromhex(
+                "89504e470d0a1a0a0000000d494844520000000100000001"
+                "08060000001f15c4890000000b49444154789c6360000200"
+                "00050001a5f645400000000049454e44ae426082"
+            )
+        )
+        result = subprocess.run(
+            [sys.executable, str(CLI), "image", str(image)],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("TRACEOS IMAGE OSINT / LOCAL ONLY", result.stdout)
+        self.assertIn("MIME: image/png", result.stdout)
+        self.assertIn("SHA-256:", result.stdout)
+
+        not_image = temp_home / "synthetic.txt"
+        not_image.write_text("synthetic text only\n", encoding="utf-8")
+        rejected = subprocess.run(
+            [sys.executable, str(CLI), "image", str(not_image)],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("Not an image file", rejected.stderr)
 
     def _load_control_helper(self, name, extra_globals=None):
         control = (
@@ -957,15 +1076,30 @@ class CaseStoreTests(unittest.TestCase):
             node for node in tree.body
             if isinstance(node, ast.FunctionDef) and node.name == name
         )
-        namespace = {"shlex": shlex, "shutil": mock.Mock()}
+        namespace = {
+            "shlex": shlex,
+            "shutil": mock.Mock(),
+            "ipaddress": ipaddress,
+            "urlsplit": urlsplit,
+            "Path": Path,
+            "tempfile": tempfile,
+            "os": os,
+        }
         if extra_globals:
             namespace.update(extra_globals)
+        constant_names = {
+            "OSINT_TOOL_COMMANDS",
+            "WEB_TEST_TOOL_COMMANDS",
+            "WEB_WORDLIST",
+            "WEB_ACTIVE_TESTS",
+            "REVERSE_IMAGE_SITES",
+        }
         global_constants = [
             node for node in tree.body
             if isinstance(node, ast.Assign)
             and any(
                 isinstance(target, ast.Name)
-                and target.id == "OSINT_TOOL_COMMANDS"
+                and target.id in constant_names
                 for target in node.targets
             )
         ]

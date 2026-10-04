@@ -312,10 +312,57 @@ fi
 # diagnostic interaction so the Dashboard remains the baseline gate.
 capture_page dashboard true
 
-# Diagnostic-only New Case GUI interaction. This uses the normal visible Control Centre
-# shortcut/button path and never calls CaseStore.create() outside the GUI process.
+# Capture both investigation workspaces through their real Control Centre shortcuts.
+# These page-only interactions do not start tools or external lookups.
 monitor="$STATE/monitor-dashboard.sock"
 serial_log="$STATE/serial-dashboard.log"
+workspace_matrix="$OUT/traceos-workspace-ui-matrix.txt"
+: >"$workspace_matrix"
+
+capture_workspace_page() {
+    local page="$1"
+    local key="$2"
+    local marker="$3"
+    local label="$4"
+    local ppm="$OUT/traceos-$page.ppm"
+    local png="$OUT/traceos-$page.png"
+
+    hmp_command "$monitor" "sendkey ctrl-shift-$key" "$STATE/monitor-$page-sendkey.log"
+
+    local rendered="no"
+    for _ in $(seq 1 20); do
+        if grep -Fq "stage=$marker" "$serial_log" 2>/dev/null; then
+            rendered="yes"
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$rendered" != "yes" ]]; then
+        echo "[TraceOS] $page page did not report a successful GUI render." >&2
+        tail -n 160 "$serial_log" >&2 || true
+        return 1
+    fi
+
+    capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
+    convert "$ppm" -resize 1280x720 -strip "$png"
+    identify "$png"
+    test -s "$png"
+    local spread
+    spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+    if ! awk "BEGIN { exit !($spread > 0.02) }"; then
+        echo "[TraceOS] $page page screenshot is blank or static." >&2
+        return 1
+    fi
+    printf "%s_UI=PASS\n%s_SHA256=%s\n" "$label" "$label" "$(sha256sum "$png" | awk '{print $1}')" >>"$workspace_matrix"
+    echo "[TraceOS] $page workspace rendered and captured."
+}
+
+capture_workspace_page web-testing w WEB_TESTING_PAGE_RENDERED WEB_TESTING
+capture_workspace_page image-osint i IMAGE_OSINT_PAGE_RENDERED IMAGE_OSINT
+cat "$workspace_matrix"
+
+# Diagnostic-only New Case GUI interaction. This uses the normal visible Control Centre
+# shortcut/button path and never calls CaseStore.create() outside the GUI process.
 new_case_matrix="$OUT/traceos-new-case-matrix.txt"
 new_case_dialog_ppm="$OUT/traceos-new-case-dialog.ppm"
 new_case_dialog_png="$OUT/traceos-new-case-dialog.png"

@@ -6,14 +6,14 @@ This guide is for the first TraceOS live-ISO test. Use a spare USB stick because
 
 The trusted `main` build must finish with these checks passing:
 
-- ISO file validation
-- El Torito boot-layout validation
-- QEMU BIOS boot smoke test
-- ISO SHA-256 generation
-- GitHub build-provenance attestation
-- ISO artifact upload
+- Host-side CaseStore regression tests and the separate Security Checks workflow
+- Final-image checks for every advertised people-OSINT, web-testing, and image-analysis command
+- ISO boot-layout report and generated SHA-256 file
+- QEMU BIOS boot, graphical Web Testing/Image OSINT screenshots, and synthetic New Case flow
+- QEMU packaged-image CLI workflow and build-provenance attestation
+- ISO and screenshot artifact uploads
 
-Do not use a failed or cancelled workflow artifact.
+Do not use a failed, cancelled, or still-running workflow artifact. The new Web Testing and Image OSINT pages are verified in QEMU; this is still not a physical USB test. BIOS boot is exercised in QEMU. UEFI is recorded in the ISO layout report, but UEFI and Secure Boot runtime behavior remain separate checks.
 
 ## 2. Verify the download
 
@@ -67,7 +67,7 @@ Expected session result:
 TraceOS session: amnesic (no persistent storage)
 ```
 
-Then check the Control Centre, Terminal, Files, Network, OSINT Workbench, and the evidence-handling helpers.
+Then check the Control Centre, Terminal, Files, Network, Investigation Centre, Web Testing, Image OSINT, and the evidence-handling helpers. Use only synthetic data and targets you own or are explicitly authorized to test.
 
 ## Important forensic note
 

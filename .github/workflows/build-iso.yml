@@ -99,6 +99,40 @@ jobs:
             echo "INVESTIGATION_TOOL_${tool}_HELP=PASS"
           done
 
+          echo "[TraceOS] Checking live web testing tools and local image analysis tools."
+          for tool in nmap whatweb nikto gobuster sqlmap msfconsole zap.sh exiftool identify tesseract ffmpeg convert; do
+            tool_path="$(sudo chroot /tmp/traceos-root /bin/sh -c 'command -v "$1"' sh "$tool")"
+            test -n "$tool_path"
+            echo "WORKSTATION_TOOL_${tool}=PASS (${tool_path})"
+          done
+          test -s /tmp/traceos-root/usr/share/dirb/wordlists/common.txt
+          echo "WORKSTATION_TOOL_GOBUSTER_WORDLIST=PASS"
+
+          while IFS='|' read -r tool arg; do
+            test -n "$tool"
+            sudo chroot /tmp/traceos-root /bin/sh -c 'timeout 90 "$@" >/dev/null 2>&1' sh "$tool" "$arg"
+            echo "WORKSTATION_TOOL_${tool}_SMOKE=PASS"
+          done <<'EOF'
+          nmap|--version
+          whatweb|--version
+          nikto|-Version
+          gobuster|version
+          sqlmap|--version
+          msfconsole|--version
+          exiftool|-ver
+          identify|-version
+          tesseract|--version
+          EOF
+
+          installed_msf_version="$(sudo chroot /tmp/traceos-root dpkg-query -W -f='${Version}' metasploit-framework)"
+          test "$installed_msf_version" = "6.5.3~20260818061200~1rapid7-1"
+          echo "WORKSTATION_TOOL_metasploit_version=PASS ($installed_msf_version)"
+
+          zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap.sh -cmd -version 2>&1)"
+          printf '%s\n' "$zap_version"
+          printf '%s' "$zap_version" | grep -Fq '2.17.0'
+          echo "WORKSTATION_TOOL_zap_version=PASS (2.17.0)"
+
       - name: QEMU live-kernel boot smoke test
         shell: bash
         run: |
