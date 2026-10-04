@@ -348,7 +348,7 @@ class TraceOSApp:
             ("◉  Dashboard", self.dashboard),
             ("▣  Evidence Vault", self.evidence),
             ("⌁  Network", self.network),
-            ("◎  OSINT Centre", self.osint),
+            ("◎  Investigation Centre", self.osint),
             ("▤  Reports", self.reports),
             ("▥  Timeline", self.timeline),
         ]:
@@ -1086,23 +1086,23 @@ class TraceOSApp:
 
     def osint(self) -> None:
         self.heading(
-            "OSINT", "OSINT Centre",
-            "User-invoked external lookups. Nothing here runs until you press Start."
+            "INVESTIGATION", "Investigation Centre",
+            "Local-first investigation tools. Nothing runs until you press Start."
         )
         warning = self.card(self.content, padx=28, pady=7)
         tk.Label(
-            warning, text="EXTERNAL LOOKUPS ARE USER-INVOKED",
+            warning, text="EXTERNAL ACTIONS ARE USER-INVOKED",
             bg=CARD, fg=WARN, font=("Sans", 9, "bold")
         ).pack(anchor="w", padx=15, pady=(10, 1))
         tk.Label(
             warning,
-            text="These tools may contact third-party services when launched. TraceOS does not run them automatically.",
+            text="Some tools may contact third-party services when launched. TraceOS never runs them automatically.",
             bg=CARD, fg=MUTED, font=("Sans", 9)
         ).pack(anchor="w", padx=15, pady=(0, 10))
 
         controls = self.card(self.content, padx=28, pady=7)
         tk.Label(controls, text="TOOL", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(10, 4))
-        tool = ttk.Combobox(controls, state="readonly", values=("Sherlock", "Maigret", "h8mail", "Blackbird"), style="Trace.TCombobox")
+        tool = ttk.Combobox(controls, state="readonly", values=("Sherlock", "Maigret", "h8mail", "Blackbird", "WHOIS", "DNS"), style="Trace.TCombobox")
         tool.current(0)
         tool.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 12))
         tk.Label(controls, text="TARGET / ARGUMENTS", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
@@ -1117,7 +1117,7 @@ class TraceOSApp:
 
         hint = tk.Label(
             self.content,
-            text="Sherlock/Maigret: enter a username • h8mail: enter an email • Blackbird: enter its command arguments",
+            text="Username: Sherlock/Maigret • Email: h8mail • WHOIS/DNS: domain or IP • Blackbird: its command arguments",
             bg=BG, fg=MUTED, font=("Sans", 8)
         )
         hint.pack(anchor="w", padx=30, pady=(0, 4))
@@ -1129,9 +1129,10 @@ class TraceOSApp:
         bar.pack(fill="x", padx=28, pady=(0, 14))
         self.action_button(
             bar, "OPEN CLI WORKBENCH",
-            lambda: self.open_terminal([TRACE, "osint"], "TraceOS OSINT Workbench")
+            lambda: self.open_terminal([TRACE, "osint"], "TraceOS Investigation Workbench")
         ).pack(side="left")
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
+        self.action_button(bar, "SAVE OUTPUT TO EVIDENCE", self.save_investigation_output).pack(side="left", padx=7)
 
         def start_osint() -> None:
             name = tool.get()
@@ -1144,13 +1145,45 @@ class TraceOSApp:
                 args = [name.lower(), value, *extras]
             elif name == "h8mail":
                 args = ["h8mail", "-t", value, *extras]
+            elif name == "WHOIS":
+                args = ["whois", value, *extras]
+            elif name == "DNS":
+                args = ["dig", value, *extras]
             else:
                 args = ["blackbird", *shlex.split(value), *extras]
-            self.run_job(args, f"{name} OSINT")
+            self.run_job(args, f"{name} investigation")
 
         self.action_button(bar, "START LOOKUP", start_osint, primary=True).pack(side="right")
         self.root.update_idletasks()
         self._trace_diag("osint-page-rendered", page="osint")
+
+    def save_investigation_output(self) -> None:
+        current = case_path()
+        if not current:
+            messagebox.showwarning("Investigation Centre", "Create or select a case before saving output.", parent=self.root)
+            return
+        output = self.job_output.strip()
+        if not output:
+            messagebox.showinfo("Investigation Centre", "There is no investigation output to save yet.", parent=self.root)
+            return
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        path = current / "working" / f"investigation-{stamp}-{uuid.uuid4().hex[:8]}.txt"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(output + "\n", encoding="utf-8")
+        except OSError as exc:
+            messagebox.showerror("Investigation Centre", f"Unable to stage output:\n{exc}", parent=self.root)
+            return
+        result = capture([TRACE, "evidence", "add", str(path)], timeout=90)
+        if result and result.returncode == 0:
+            messagebox.showinfo("Investigation Centre", "Investigation output was copied into the Evidence Vault and hashed.", parent=self.root)
+            self.evidence()
+        else:
+            messagebox.showerror(
+                "Investigation Centre",
+                (result.stdout or result.stderr or "Unable to add investigation output to evidence.").strip(),
+                parent=self.root,
+            )
 
     def reports(self) -> None:
         self.heading(
