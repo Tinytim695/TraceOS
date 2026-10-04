@@ -88,7 +88,7 @@ try:
         raise SystemExit(1)
 
     allowed = {
-        "matrix.txt", "case.json", "case-new-state.txt", "current-case-probe.txt",
+        "matrix.txt", "case.json", "case-path.txt", "case-new-state.txt", "case-new.stdout", "case-new.stderr", "case-new.exit", "current-case-probe.txt",
         "evidence-add-state.txt", "evidence-verify-pass-state.txt",
         "evidence-verify-tamper-state.txt", "report-state.txt", "timeline-state.txt",
         "source.sha256", "ledger-check.txt", "vault-pre.txt", "vault-post.txt",
@@ -101,7 +101,9 @@ try:
 
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tf:
         names = tf.getnames()
-        if set(names) - allowed or any("/" in n or n.startswith(".") for n in names):
+        if (len(names) != len(set(names)) or set(names) - allowed or
+                any("/" in n or n.startswith(".") for n in names) or
+                any(not member.isfile() or member.issym() or member.islnk() for member in tf.getmembers())):
             write_result("FAIL", "disallowed_bundle_member")
             raise SystemExit(1)
         tf.extractall(out)
@@ -131,6 +133,15 @@ try:
     except Exception as exc:
         case_id = ""
         audit("CASE_JSON", False, f"error={exc!r}")
+
+    case_path = Path("")
+    try:
+        case_path = Path((out / "case-path.txt").read_text().strip()).resolve()
+        cases_root = Path("/home/traceos/Cases").resolve()
+        audit("CASE_PATH_UNDER_CASES",
+              case_path.parent == cases_root and case_path != cases_root)
+    except Exception as exc:
+        audit("CASE_PATH", False, f"error={exc!r}")
 
     state_files = [
         "case-new-state.txt",
@@ -191,8 +202,9 @@ try:
             ledger_hash = rows[1][3]
             ledger_vault = rows[1][2]
         audit("LEDGER_HASH_MATCHES_SOURCE", bool(source_hash and ledger_hash == source_hash))
+        ledger_path = Path(ledger_vault).resolve()
         audit("LEDGER_VAULT_PATH",
-              bool(case_id and re.fullmatch(rf"/home/traceos/Cases/{re.escape(case_id)}/evidence/[^/]+", ledger_vault)))
+              bool(case_path and ledger_path.parent == case_path / "evidence" and ledger_path.name))
     except Exception as exc:
         audit("LEDGER_PARSE", False, f"error={exc!r}")
 
@@ -219,7 +231,7 @@ try:
           bool(ledger_vault) and ledger_vault.rsplit("/", 1)[-1] in timeline_stdout)
 
     required_success_members = {
-        "matrix.txt", "case.json", *state_files, "source.sha256",
+        "matrix.txt", "case.json", "case-path.txt", *state_files, "source.sha256", "case-new.stdout", "case-new.stderr", "case-new.exit",
         "ledger-check.txt", "vault-pre.txt", "vault-post.txt",
         "evidence.tsv", "report.md",
         "evidence-add.stdout", "evidence-add.stderr", "evidence-add.exit",
