@@ -87,6 +87,7 @@ try:
     if len(vaults)==1:vault_path=vaults[0]
 except Exception:rows=[];fields=[]
 (ART/"ledger-check.txt").write_text(f"rows={len(rows)}\nfields={len(fields)}\nrecorded_sha256={ledger_hash or 'unknown'}\nvault_path={str(vault_path) if vault_path else 'unknown'}\nhash_matches_source={'yes' if ledger_hash==source_hash else 'no'}\nvault_path_in_case={'yes' if ledger_ok else 'no'}\n")
+if ledger.is_file(): (ART/"evidence.tsv").write_bytes(ledger.read_bytes())
 vault_pre_hash=""; vault_pre_ok=False
 if len(vaults)==1:
     vault_pre_hash=hashlib.sha256(vault_path.read_bytes()).hexdigest(); vault_pre_ok=vault_pre_hash==source_hash==ledger_hash
