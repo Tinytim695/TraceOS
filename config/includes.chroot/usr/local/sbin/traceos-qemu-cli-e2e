@@ -24,8 +24,29 @@ ART.mkdir(parents=True,exist_ok=True); os.chmod(ART,0o700)
 serial("TRACEOS_CI_E2E_STARTED=1")
 results={}; probes=[]
 def cmd(label,*args):
-    p=subprocess.run(["runuser","-u","traceos","--","env","HOME=/home/traceos","XDG_CONFIG_HOME=/home/traceos/.config","/usr/local/bin/traceos",*args],text=True,capture_output=True)
-    (ART/(label+".stdout")).write_text(p.stdout); (ART/(label+".stderr")).write_text(p.stderr); (ART/(label+".exit")).write_text(str(p.returncode)+"\n"); results[label]=p.returncode; return p
+    serial("TRACEOS_CI_E2E_CMD_BEGIN label=" + label)
+    try:
+        p=subprocess.run(
+            ["runuser","-u","traceos","--","env","HOME=/home/traceos","XDG_CONFIG_HOME=/home/traceos/.config","/usr/local/bin/traceos",*args],
+            text=True,capture_output=True,timeout=90
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout=exc.stdout or ""
+        stderr=exc.stderr or ""
+        if isinstance(stdout,bytes): stdout=stdout.decode("utf-8","replace")
+        if isinstance(stderr,bytes): stderr=stderr.decode("utf-8","replace")
+        (ART/(label+".stdout")).write_text(stdout)
+        (ART/(label+".stderr")).write_text(stderr + "\n[TraceOS] command timed out after 90s\n")
+        (ART/(label+".exit")).write_text("124\n")
+        results[label]=124
+        serial("TRACEOS_CI_E2E_CMD_END label=" + label + " rc=124 timeout=90s")
+        return None
+    (ART/(label+".stdout")).write_text(p.stdout)
+    (ART/(label+".stderr")).write_text(p.stderr)
+    (ART/(label+".exit")).write_text(str(p.returncode)+"\n")
+    results[label]=p.returncode
+    serial("TRACEOS_CI_E2E_CMD_END label=" + label + " rc=" + str(p.returncode))
+    return p
 def probe(label):
     state=Path("/home/traceos/.config/traceos/current_case"); root=Path("/home/traceos/Cases").resolve(); cid=mid=""; regular=inside=False
     try:
@@ -33,7 +54,10 @@ def probe(label):
         selected=Path(state.read_text().strip()).resolve(strict=True); selected.relative_to(root); inside=True
         cid=str(json.loads((selected/"case.json").read_text())["case_id"]); mid=cid
     except Exception:pass
-    (ART/(label+"-state.txt")).write_text(f"state_regular={'yes' if regular else 'no'}\nselected_under_cases={'yes' if inside else 'no'}\ncase_id={cid or 'unknown'}\nmanifest_id={mid or 'unknown'}\n"); probes.append(cid); return cid
+    (ART/(label+"-state.txt")).write_text(f"state_regular={'yes' if regular else 'no'}\nselected_under_cases={'yes' if inside else 'no'}\ncase_id={cid or 'unknown'}\nmanifest_id={mid or 'unknown'}\n")
+    probes.append(cid)
+    serial("TRACEOS_CI_E2E_PROBE label=" + label + " case_id=" + (cid or "unknown"))
+    return cid
 cmd("case-new","case","new","TraceOS CI Synthetic Case"); cid=probe("case-new")
 state=Path("/home/traceos/.config/traceos/current_case"); case_path=Path(state.read_text().strip()) if state.exists() else Path()
 if not cid or not case_path.is_dir():
