@@ -16,6 +16,8 @@ Usage:
   traceos-osint maigret USERNAME [USERNAME...]
   traceos-osint h8mail OPTIONS
   traceos-osint blackbird [BLACKBIRD OPTIONS]
+  traceos-osint whois DOMAIN
+  traceos-osint dig NAME [DNS OPTIONS]
 
 Interactive mode:
   Launches a simple menu for the bundled OSINT applications.
@@ -55,7 +57,9 @@ show_inventory() {
   echo "  2) Maigret      username investigation"
   echo "  3) h8mail       email OSINT"
   echo "  4) Blackbird    username/email search"
-  echo "  5) List tools"
+  echo "  5) WHOIS        domain/IP registration lookup"
+  echo "  6) DNS          DNS record lookup"
+  echo "  7) List tools"
   echo "  0) Exit"
   echo
 
@@ -66,7 +70,9 @@ show_inventory() {
     2) printf "Username(s): "; read -r -a args; run_tool maigret "${args[@]}" ;;
     3) echo "Enter h8mail arguments (see h8mail --help):"; read -r -a args; run_tool h8mail "${args[@]}" ;;
     4) echo "Enter Blackbird arguments (see blackbird --help):"; read -r -a args; run_tool blackbird "${args[@]}" ;;
-    5) show_inventory ;;
+    5) printf "Domain or IP: "; read -r target; [ -n "$target" ] || exit 2; run_tool whois "$target" ;;
+    6) printf "DNS name: "; read -r target; [ -n "$target" ] || exit 2; run_tool dig "$target" ;;
+    7) show_inventory ;;
     0) exit 0 ;;
     *) echo "Unknown selection."; exit 2 ;;
   esac
@@ -76,7 +82,7 @@ case "${1:-}" in
   "")
     show_inventory
     ;;
-  sherlock|maigret|h8mail|blackbird)
+  sherlock|maigret|h8mail|blackbird|whois|dig)
     tool="$1"
     shift
     [ "$#" -gt 0 ] || { usage; exit 2; }

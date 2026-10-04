@@ -1,8 +1,11 @@
+import ast
 import importlib.machinery
 import importlib.util
+import ipaddress
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -10,6 +13,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlsplit
 
 sys.path.insert(
     0,
@@ -884,6 +888,270 @@ class CaseStoreTests(unittest.TestCase):
         )
         self.assertNotEqual(attempted.returncode, 0)
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
+
+    def test_investigation_save_is_disabled_without_filesystem_or_evidence_side_effects(self):
+        control = (
+            Path(__file__).parent.parent
+            / "config/includes.chroot/usr/local/bin/traceos-control"
+        )
+        source = control.read_text(encoding="utf-8")
+        self.assertNotIn('"SAVE OUTPUT TO EVIDENCE"', source)
+        tree = ast.parse(source)
+        app_class = next(
+            node for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "TraceOSApp"
+        )
+        callback = next(
+            node for node in app_class.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "save_investigation_output"
+        )
+        isolated = ast.Module(body=[callback], type_ignores=[])
+        namespace = {
+            "messagebox": mock.Mock(),
+            "capture": mock.Mock(),
+            "save_output_for_case": mock.Mock(),
+            "subprocess": mock.Mock(),
+        }
+        exec(compile(isolated, str(control), "exec"), namespace)
+
+        class App:
+            root = object()
+
+        record = self.store.create("Disabled Save", "synthetic regression case")
+        working = record.path / "working"
+        before = sorted(path.relative_to(record.path).as_posix() for path in record.path.rglob("*"))
+        namespace["save_investigation_output"](App())
+        namespace["messagebox"].showinfo.assert_called_once()
+        namespace["capture"].assert_not_called()
+        namespace["save_output_for_case"].assert_not_called()
+        namespace["subprocess"].run.assert_not_called()
+        namespace["subprocess"].Popen.assert_not_called()
+        self.assertFalse(
+            any(
+                isinstance(node, ast.Call)
+                and (
+                    getattr(node.func, "id", None) in {"capture", "save_output_for_case"}
+                    or getattr(node.func, "attr", None) in {"run", "Popen"}
+                )
+                for node in ast.walk(callback)
+            )
+        )
+        self.assertIn(
+            "not available in this USB-test candidate",
+            namespace["messagebox"].showinfo.call_args.args[1],
+        )
+        self.assertEqual(
+            sorted(path.relative_to(record.path).as_posix() for path in record.path.rglob("*")),
+            before,
+        )
+
+        outside = self.home / "outside-working"
+        outside.mkdir()
+        sentinel = outside / "sentinel.txt"
+        sentinel.write_text("outside content remains unchanged", encoding="utf-8")
+        shutil.rmtree(working)
+        os.symlink(outside, working)
+        before_outside = sorted(
+            (path.name, path.read_bytes()) for path in outside.iterdir()
+        )
+        namespace["messagebox"].reset_mock()
+        namespace["save_investigation_output"](App())
+        namespace["messagebox"].showinfo.assert_called_once()
+        namespace["capture"].assert_not_called()
+        namespace["save_output_for_case"].assert_not_called()
+        namespace["subprocess"].run.assert_not_called()
+        namespace["subprocess"].Popen.assert_not_called()
+        self.assertEqual(
+            sorted((path.name, path.read_bytes()) for path in outside.iterdir()),
+            before_outside,
+        )
+        self.assertEqual(
+            [path.name for path in working.iterdir()],
+            ["sentinel.txt"],
+        )
+        namespace["messagebox"].showerror.assert_not_called()
+
+    def test_web_command_builders_are_scoped_and_never_run_scans(self):
+        normalizer, _ = self._load_control_helper("normalize_web_target")
+        builder, _ = self._load_control_helper(
+            "build_web_test_command",
+            {
+                "WEB_WORDLIST": "/tmp/synthetic-wordlist.txt",
+                "normalize_web_target": normalizer,
+            },
+        )
+        expected = (
+            ("Nmap Quick Scan", "example.test", ["nmap", "-sT", "-F", "-T3", "--", "example.test"]),
+            ("WhatWeb Fingerprint", "https://example.test/a", ["whatweb", "https://example.test/a"]),
+            ("Nikto Web Check", "https://example.test", ["nikto", "-h", "https://example.test"]),
+            ("Gobuster Directory Scan", "https://example.test", ["gobuster", "dir", "-u", "https://example.test", "-w", "/tmp/synthetic-wordlist.txt"]),
+            ("OWASP ZAP Desktop", "", ["zap.sh", "-silent"]),
+            ("SQLmap Interactive", "https://example.test/item?id=2", ["sqlmap", "-u", "https://example.test/item?id=2"]),
+            ("Metasploit Console", "", ["msfconsole"]),
+        )
+        for name, target, wanted in expected:
+            with self.subTest(name=name):
+                self.assertEqual(builder(name, target, "/tmp/synthetic-wordlist.txt"), wanted)
+
+        require, namespace = self._load_control_helper(
+            "require_web_test_tool",
+            {
+                "WEB_TEST_TOOL_COMMANDS": {"Metasploit Console": "msfconsole"},
+                "shutil": mock.Mock(),
+            },
+        )
+        namespace["shutil"].which.return_value = None
+        with self.assertRaisesRegex(FileNotFoundError, "msfconsole is not installed"):
+            require("Metasploit Console")
+        namespace["shutil"].which.assert_called_once_with("msfconsole")
+
+        control = (
+            Path(__file__).parent.parent
+            / "config/includes.chroot/usr/local/bin/traceos-control"
+        )
+        source = control.read_text(encoding="utf-8")
+        self.assertIn("if not authorized.get():", source)
+        self.assertIn("if name in WEB_ACTIVE_TESTS and not messagebox.askyesno(", source)
+        self.assertIn("webbrowser.open(address, new=2)", source)
+
+        for name, target in (
+            ("WhatWeb Fingerprint", "ftp://example.test"),
+            ("Nikto Web Check", "https:///missing-host"),
+            ("Gobuster Directory Scan", "https://user:secret@example.test"),
+            ("Nmap Quick Scan", "--script=default"),
+            ("Nmap Quick Scan", "example.test/path"),
+            ("Nmap Quick Scan", "example.test:invalid"),
+            ("Unknown", "https://example.test"),
+        ):
+            with self.subTest(name=name, target=target):
+                with self.assertRaises(ValueError):
+                    builder(name, target)
+
+    def test_image_cli_analyses_synthetic_image_only_locally(self):
+        temp_home = self.home / "image-cli-home"
+        temp_home.mkdir()
+        env = os.environ.copy()
+        env["HOME"] = str(temp_home)
+        env["XDG_CONFIG_HOME"] = str(temp_home / ".config")
+        image = temp_home / "synthetic.png"
+        image.write_bytes(
+            bytes.fromhex(
+                "89504e470d0a1a0a0000000d494844520000000100000001"
+                "08060000001f15c4890000000b49444154789c6360000200"
+                "00050001a5f645400000000049454e44ae426082"
+            )
+        )
+        result = subprocess.run(
+            [sys.executable, str(CLI), "image", str(image)],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("TRACEOS IMAGE OSINT / LOCAL ONLY", result.stdout)
+        self.assertIn("MIME: image/png", result.stdout)
+        self.assertIn("SHA-256:", result.stdout)
+
+        not_image = temp_home / "synthetic.txt"
+        not_image.write_text("synthetic text only\n", encoding="utf-8")
+        rejected = subprocess.run(
+            [sys.executable, str(CLI), "image", str(not_image)],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("Not an image file", rejected.stderr)
+
+    def _load_control_helper(self, name, extra_globals=None):
+        control = (
+            Path(__file__).parent.parent
+            / "config/includes.chroot/usr/local/bin/traceos-control"
+        )
+        tree = ast.parse(control.read_text(encoding="utf-8"))
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == name
+        )
+        namespace = {
+            "shlex": shlex,
+            "shutil": mock.Mock(),
+            "ipaddress": ipaddress,
+            "urlsplit": urlsplit,
+            "Path": Path,
+            "tempfile": tempfile,
+            "os": os,
+        }
+        if extra_globals:
+            namespace.update(extra_globals)
+        constant_names = {
+            "OSINT_TOOL_COMMANDS",
+            "WEB_TEST_TOOL_COMMANDS",
+            "WEB_WORDLIST",
+            "WEB_ACTIVE_TESTS",
+            "REVERSE_IMAGE_SITES",
+        }
+        global_constants = [
+            node for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name)
+                and target.id in constant_names
+                for target in node.targets
+            )
+        ]
+        isolated = ast.Module(
+            body=[*global_constants, function],
+            type_ignores=[],
+        )
+        exec(compile(isolated, str(control), "exec"), namespace)
+        return namespace[name], namespace
+
+    def test_osint_command_builder_validates_without_running_external_lookups(self):
+        builder, _ = self._load_control_helper("build_osint_command")
+        cases = (
+            ("Sherlock", "alice", "--print-found", ["sherlock", "alice", "--print-found"]),
+            ("Maigret", "alice", "", ["maigret", "alice"]),
+            ("h8mail", "alice@example.test", "", ["h8mail", "-t", "alice@example.test"]),
+            ("WHOIS", "example.test", "", ["whois", "example.test"]),
+            ("DNS", "example.test", "+short", ["dig", "example.test", "+short"]),
+            (
+                "Blackbird",
+                '--username "alice smith"',
+                "",
+                ["blackbird", "--username", "alice smith"],
+            ),
+        )
+        for name, target, extra, expected in cases:
+            with self.subTest(name=name):
+                self.assertEqual(builder(name, target, extra), expected)
+
+        for name, target, extra in (
+            ("Sherlock", "", ""),
+            ("Blackbird", "   ", ""),
+            ("Sherlock", "alice", "'unterminated"),
+            ("Unknown", "target", ""),
+        ):
+            with self.subTest(name=name, target=target, extra=extra):
+                with self.assertRaises(ValueError):
+                    builder(name, target, extra)
+
+    def test_osint_missing_tool_reports_an_explicit_error_without_launching(self):
+        which = mock.Mock(return_value=None)
+        checker, _ = self._load_control_helper(
+            "require_osint_tool",
+            {"shutil": mock.Mock(which=which)},
+        )
+        with self.assertRaisesRegex(FileNotFoundError, "whois is not installed"):
+            checker("whois")
+        which.assert_called_once_with("whois")
+
+        which.return_value = "/usr/bin/dig"
+        checker("dig")
+        self.assertEqual(which.call_count, 2)
 
     def test_ui_diag_does_not_include_real_case_title(self):
         control_text = (

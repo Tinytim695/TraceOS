@@ -88,6 +88,57 @@ jobs:
           test -L /tmp/traceos-root/etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
           echo "[TraceOS] QEMU graphics bootstrap and GUI diagnostic collector are present and enabled in the final squashfs."
 
+          echo "[TraceOS] Checking Investigation Centre tools inside the final squashfs."
+          for tool in sherlock maigret h8mail blackbird whois dig; do
+            tool_path="$(sudo chroot /tmp/traceos-root /bin/sh -c 'command -v "$1"' sh "$tool")"
+            test -n "$tool_path"
+            echo "INVESTIGATION_TOOL_${tool}=PASS (${tool_path})"
+          done
+          for tool in sherlock maigret h8mail blackbird; do
+            sudo chroot /tmp/traceos-root /bin/sh -c 'exec "$1" --help >/dev/null' sh "$tool"
+            echo "INVESTIGATION_TOOL_${tool}_HELP=PASS"
+          done
+
+          echo "[TraceOS] Checking live web testing tools and local image analysis tools."
+          for tool in nmap whatweb nikto gobuster sqlmap msfconsole zap.sh java exiftool identify tesseract ffmpeg convert; do
+            tool_path="$(sudo chroot /tmp/traceos-root /bin/sh -c 'command -v "$1"' sh "$tool")"
+            test -n "$tool_path"
+            echo "WORKSTATION_TOOL_${tool}=PASS (${tool_path})"
+          done
+          test -s /tmp/traceos-root/usr/share/dirb/wordlists/common.txt
+          echo "WORKSTATION_TOOL_GOBUSTER_WORDLIST=PASS"
+
+          while IFS='|' read -r tool arg; do
+            test -n "$tool"
+            sudo chroot /tmp/traceos-root /bin/sh -c 'timeout 90 "$@" >/dev/null 2>&1' sh "$tool" "$arg"
+            echo "WORKSTATION_TOOL_${tool}_SMOKE=PASS"
+          done <<'EOF'
+          nmap|--version
+          whatweb|--version
+          nikto|-Version
+          gobuster|version
+          sqlmap|--version
+          msfconsole|--version
+          exiftool|-ver
+          identify|-version
+          tesseract|--version
+          EOF
+
+          # Java's runtime is exercised by ZAP's final-image version check below.
+          installed_msf_version="$(sudo chroot /tmp/traceos-root dpkg-query -W -f='${Version}' metasploit-framework)"
+          test "$installed_msf_version" = "6.5.3~20260818061200~1rapid7-1"
+          echo "WORKSTATION_TOOL_metasploit_version=PASS ($installed_msf_version)"
+
+          if zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap.sh -cmd -silent -version 2>&1)"; then
+            printf '%s\n' "$zap_version"
+            printf '%s' "$zap_version" | grep -Fq '2.17.0'
+            echo "WORKSTATION_TOOL_zap_version=PASS (2.17.0)"
+          else
+            zap_status=$?
+            printf 'ZAP version command failed (%s):\n%s\n' "$zap_status" "$zap_version" >&2
+            exit "$zap_status"
+          fi
+
       - name: QEMU live-kernel boot smoke test
         shell: bash
         run: |

@@ -57,9 +57,17 @@ python3-pip
 iproute2
 iputils-ping
 dnsutils
+whois
 net-tools
 openssh-client
 nmap
+whatweb
+nikto
+gobuster
+dirb
+sqlmap
+gnupg
+default-jre
 pciutils
 usbutils
 
