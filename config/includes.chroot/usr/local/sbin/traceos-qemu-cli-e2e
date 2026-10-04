@@ -38,7 +38,7 @@ cmd("case-new","case","new","TraceOS CI Synthetic Case"); cid=probe("case-new")
 state=Path("/home/traceos/.config/traceos/current_case"); case_path=Path(state.read_text().strip()) if state.exists() else Path()
 if not cid or not case_path.is_dir():
     (ART/"matrix.txt").write_text("STATUS=FAIL\nREASON=case_creation_failed\n"); serial("TRACEOS_CI_E2E_MATRIX STATUS=FAIL"); raise SystemExit(1)
-(ART/"case.json").write_bytes((case_path/"case.json").read_bytes()); (ART/"current-case-probe.txt").write_bytes((ART/"case-new-state.txt").read_bytes())
+(ART/"case.json").write_bytes((case_path/"case.json").read_bytes()); (ART/"case-path.txt").write_text(str(case_path)+"\n"); (ART/"current-case-probe.txt").write_bytes((ART/"case-new-state.txt").read_bytes())
 source=ART/"source.bin"; source.write_bytes(b"TraceOS deterministic synthetic evidence payload v1.\n"); source_hash=hashlib.sha256(source.read_bytes()).hexdigest()
 (ART/"source.sha256").write_text(f"sha256={source_hash}\nsize={source.stat().st_size}\n")
 cmd("evidence-add","evidence","add",str(source)); probe("evidence-add")
@@ -72,7 +72,7 @@ timeline_ok=results.get("timeline")==0 and vault_path.name in (ART/"timeline.std
 same_case=all(x==cid for x in probes)
 status="PASS" if all([ledger_ok,vault_pre_ok,verify_pass_ok,tamper_ok,tamper_verify,report_ok,timeline_ok,same_case]) else "FAIL"
 (ART/"matrix.txt").write_text("\n".join([f"STATUS={status}",f"CASE_ID={cid}",f"LEDGER_OK={'yes' if ledger_ok else 'no'}",f"VAULT_PRE_OK={'yes' if vault_pre_ok else 'no'}",f"VERIFY_PASS_OK={'yes' if verify_pass_ok else 'no'}",f"TAMPER_SAME_FILE_OK={'yes' if tamper_ok else 'no'}",f"VERIFY_TAMPER_HASH_MISMATCH_OK={'yes' if tamper_verify else 'no'}",f"REPORT_OK={'yes' if report_ok else 'no'}",f"TIMELINE_OK={'yes' if timeline_ok else 'no'}",f"SAME_CASE_ID_THROUGHOUT={'yes' if same_case else 'no'}",f"SOURCE_SHA256={source_hash}",f"VAULT_PRE_SHA256={vault_pre_hash or 'unknown'}",f"VAULT_POST_SHA256={vault_post_hash or 'unknown'}",f"LEDGER_RECORDED_SHA256={ledger_hash or 'unknown'}"])+"\n")
-allow={'matrix.txt','case.json','case-new-state.txt','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit'}
+allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.stdout','case-new.stderr','case-new.exit','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit'}
 bundle=ART/"bundle.tar"
 with tarfile.open(bundle,"w") as tf:
     for name in sorted(allow):
