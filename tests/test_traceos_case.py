@@ -960,7 +960,19 @@ class CaseStoreTests(unittest.TestCase):
         namespace = {"shlex": shlex, "shutil": mock.Mock()}
         if extra_globals:
             namespace.update(extra_globals)
-        isolated = ast.Module(body=[function], type_ignores=[])
+        global_constants = [
+            node for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name)
+                and target.id == "OSINT_TOOL_COMMANDS"
+                for target in node.targets
+            )
+        ]
+        isolated = ast.Module(
+            body=[*global_constants, function],
+            type_ignores=[],
+        )
         exec(compile(isolated, str(control), "exec"), namespace)
         return namespace[name], namespace
 
