@@ -1139,7 +1139,7 @@ class TraceOSApp:
         self.action_button(bar, "RUN NMAP", start_scan, primary=True).pack(side="right")
 
     def image_osint(self) -> None:
-        image_attempt = 0
+        image_attempt = self._trace_attempt
         self.heading(
             "INVESTIGATION / IMAGE", "Image OSINT",
             "Local-first image inspection. The selected source is analysed without uploading it."
@@ -1186,9 +1186,11 @@ class TraceOSApp:
                 messagebox.showwarning("Image OSINT", "Select an existing regular image file.", parent=self.root)
                 return
             nonlocal image_attempt
-            image_attempt += 1
+            self._trace_attempt += 1
+            image_attempt = self._trace_attempt
             source_var.set(str(path))
-            self._trace_diag("IMAGE_SOURCE_SELECTED", attempt=image_attempt, source_kind="path-entry")
+            self._trace_diag("IMAGE_SOURCE_SELECTED", image_attempt=image_attempt, source_kind="path-entry")
+            start_button.focus_set()
 
         def choose_image() -> None:
             selected = filedialog.askopenfilename(
@@ -1201,11 +1203,13 @@ class TraceOSApp:
             )
             if selected:
                 nonlocal image_attempt
-                image_attempt += 1
+                self._trace_attempt += 1
+                image_attempt = self._trace_attempt
                 source_var.set(selected)
                 source_entry.delete(0, "end")
                 source_entry.insert(0, selected)
-                self._trace_diag("IMAGE_SOURCE_SELECTED", attempt=image_attempt, source_kind="file-selected")
+                self._trace_diag("IMAGE_SOURCE_SELECTED", image_attempt=image_attempt, source_kind="file-selected")
+                start_button.focus_set()
 
         def handoff() -> None:
             selected = source_var.get()
@@ -1238,7 +1242,7 @@ class TraceOSApp:
             if not path.is_file():
                 messagebox.showwarning("Image OSINT", "The selected file is no longer available.", parent=self.root)
                 return
-            self._trace_diag("IMAGE_ANALYSIS_START_CLICKED", attempt=image_attempt, source_kind="regular-file")
+            self._trace_diag("IMAGE_ANALYSIS_START_CLICKED", image_attempt=image_attempt, source_kind="regular-file")
             self.run_job([TRACE, "image", str(path)], "Local image analysis", kind="image", attempt=image_attempt)
 
         self.action_button(bar, "CHOOSE IMAGE", choose_image).pack(side="left")
@@ -1246,7 +1250,8 @@ class TraceOSApp:
         source_entry.bind("<Return>", lambda _event: use_image_path())
         self.action_button(bar, "REVERSE-IMAGE SITE", handoff).pack(side="left", padx=7)
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
-        self.action_button(bar, "START LOCAL ANALYSIS", start_image, primary=True).pack(side="right")
+        start_button = self.action_button(bar, "START LOCAL ANALYSIS", start_image, primary=True)
+        start_button.pack(side="right")
 
         self.root.update_idletasks()
         source_entry.focus_set()
