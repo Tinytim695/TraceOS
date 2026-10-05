@@ -21,6 +21,14 @@ ALLOWED_STAGES = {
     "NEW_CASE_STATE_VERIFIED",
     "NEW_CASE_HEADER_REFRESHED",
     "NEW_CASE_FAILED",
+    "IMAGE_PAGE_SHORTCUT_RECEIVED",
+    "image-osint-page-rendered",
+    "IMAGE_SOURCE_SELECTED",
+    "IMAGE_ANALYSIS_START_CLICKED",
+    "IMAGE_CLI_STARTED",
+    "IMAGE_CLI_COMPLETED",
+    "IMAGE_RESULT_RENDERED",
+    "IMAGE_CLI_STOPPED",
 }
 
 UUID_RE = re.compile(r"\bcase_id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b")

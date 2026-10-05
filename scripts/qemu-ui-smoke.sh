@@ -478,6 +478,7 @@ image_selected="no"
 image_start="no"
 image_selected_attempt="unknown"
 image_start_attempt="unknown"
+image_result_attempt="unknown"
 image_cli_started="no"
 image_cli_completed="no"
 image_result_rendered="no"
@@ -485,10 +486,17 @@ image_failed="no"
 
 image_marker_line() {
     local stage="$1"
-    grep -F "stage=$stage" "$serial_log" 2>/dev/null \
+    local attempt="${2:-}"
+    local result
+    result="$(grep -F "stage=$stage" "$serial_log" 2>/dev/null \
         | grep -F "nonce=$gui_nonce" \
         | grep -F "pid=$gui_pid" \
-        | tail -n 1 || true
+        | tail -n 1 || true)"
+    if [[ -n "$attempt" && -n "$result" ]]; then
+        echo "$result" | grep -F "image_attempt=$attempt" | tail -n 1 || true
+    else
+        echo "$result"
+    fi
 }
 
 wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 45 && image_ready="yes" || true
@@ -563,21 +571,25 @@ if [[ "$image_ready" == "yes" ]]; then
         fi
 
         for _ in $(seq 1 60); do
-            [[ -n "$(image_marker_line "IMAGE_CLI_STARTED")" ]] && image_cli_started="yes"
-            [[ -n "$(image_marker_line "IMAGE_CLI_COMPLETED")" ]] && image_cli_completed="yes"
-            [[ -n "$(image_marker_line "IMAGE_RESULT_RENDERED")" ]] && image_result_rendered="yes"
-            [[ -n "$(image_marker_line "IMAGE_CLI_STOPPED")" ]] && image_failed="yes"
+            if [[ "$image_selected_attempt" != "unknown" ]]; then
+                [[ -n "$(image_marker_line "IMAGE_CLI_STARTED" "$image_selected_attempt")" ]] && image_cli_started="yes"
+                [[ -n "$(image_marker_line "IMAGE_CLI_COMPLETED" "$image_selected_attempt")" ]] && image_cli_completed="yes"
+                [[ -n "$(image_marker_line "IMAGE_RESULT_RENDERED" "$image_selected_attempt")" ]] && image_result_rendered="yes"
+                [[ -n "$(image_marker_line "IMAGE_CLI_STOPPED" "$image_selected_attempt")" ]] && image_failed="yes"
+            fi
             [[ "$image_result_rendered" == "yes" || "$image_failed" == "yes" ]] && break
             sleep 1
         done
 
         if [[ "$image_result_rendered" == "yes" ]]; then
-            result_line="$(image_marker_line "IMAGE_RESULT_RENDERED")"
+            result_line="$(image_marker_line "IMAGE_RESULT_RENDERED" "$image_selected_attempt")"
+            result_attempt="$(echo "$result_line" | sed -n 's/.*image_attempt=\([^ ]*\).*/\1/p')"
+            image_result_attempt="${result_attempt:-unknown}"
             result_status="$(echo "$result_line" | sed -n 's/.*status=\([^ ]*\).*/\1/p')"
             result_sha="$(echo "$result_line" | sed -n 's/.*sha256=\([^ ]*\).*/\1/p')"
             result_unchanged="$(echo "$result_line" | sed -n 's/.*source_unchanged=\([^ ]*\).*/\1/p')"
             result_mime="$(echo "$result_line" | sed -n 's/.*mime=\([^ ]*\).*/\1/p')"
-            if [[ "$result_status" != "ok" || "$result_sha" != "$image_expected_sha" || "$result_unchanged" != "True" || "$result_mime" != "image/png" ]]; then
+            if [[ "$result_attempt" != "$image_selected_attempt" || "$result_status" != "ok" || "$result_sha" != "$image_expected_sha" || "$result_unchanged" != "True" || "$result_mime" != "image/png" ]]; then
                 image_result_rendered="no"
                 image_failed="yes"
             else
@@ -597,7 +609,12 @@ fi
     echo "START_CALLBACK=$image_start"
     echo "SOURCE_ATTEMPT=$image_selected_attempt"
     echo "START_ATTEMPT=$image_start_attempt"
-    echo "ATTEMPT_MATCH=$([[ "$image_selected_attempt" == "$image_start_attempt" ]] && echo yes || echo no)"
+    attempt_match="no"
+    if [[ "$image_selected_attempt" != "unknown" && "$image_start_attempt" != "unknown" && "$image_selected_attempt" == "$image_start_attempt" ]]; then
+        attempt_match="yes"
+    fi
+    echo "ATTEMPT_MATCH=$attempt_match"
+    echo "RESULT_ATTEMPT=$image_result_attempt"
     echo "CLI_STARTED=$image_cli_started"
     echo "CLI_COMPLETED=$image_cli_completed"
     echo "RESULT_RENDERED=$image_result_rendered"
