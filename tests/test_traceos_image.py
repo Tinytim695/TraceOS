@@ -69,7 +69,7 @@ class TraceOSImageTests(unittest.TestCase):
                 result = self.mod.analyse_image(fifo)
                 completed = True
 
-            thread = __import__("threading").Thread(target=invoke)
+            thread = __import__("threading").Thread(target=invoke, daemon=True)
             thread.start()
             thread.join(timeout=2)
             self.assertTrue(completed)
