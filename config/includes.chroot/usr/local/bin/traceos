@@ -419,7 +419,13 @@ def _run_fd_tool(command, args, fd, timeout, path_first=False):
 def analyse_image(src):
     path = Path(src).expanduser()
     if any(ch in str(path) for ch in ("\t", "\r", "\n")):
-        print("[TraceOS] Unsupported image path: tab, CR and LF characters are not allowed.", file=sys.stderr)
+        result = {
+            "schema_version": 1,
+            "status": "invalid_path",
+            "source_path": str(path),
+            "error": "tab, CR and LF characters are not allowed",
+        }
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 2
 
     fd = None
@@ -433,13 +439,23 @@ def analyse_image(src):
         )
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
-            print("[TraceOS] Image input is not a regular file.", file=sys.stderr)
+            result = {
+                "schema_version": 1,
+                "status": "not_a_regular_file",
+                "source_path": str(path),
+                "size": info.st_size,
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
             return 2
         if info.st_size > MAX_IMAGE_SIZE:
-            print(
-                f"[TraceOS] Image exceeds the local analysis limit of {MAX_IMAGE_SIZE} bytes.",
-                file=sys.stderr,
-            )
+            result = {
+                "schema_version": 1,
+                "status": "image_too_large",
+                "source_path": str(path),
+                "size": info.st_size,
+                "limit": MAX_IMAGE_SIZE,
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
             return 2
 
         source_hash_before = _sha256_fd(fd)
@@ -499,7 +515,14 @@ def analyse_image(src):
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["source_unchanged"] else 1
     except OSError as exc:
-        print(f"[TraceOS] Unable to open image safely: {exc}", file=sys.stderr)
+        result = {
+            "schema_version": 1,
+            "status": "open_failed",
+            "source_path": str(path),
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 2
     finally:
         if fd is not None:
