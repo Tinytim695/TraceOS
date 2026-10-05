@@ -5,6 +5,8 @@ import io
 import json
 import os
 import pathlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,6 +32,48 @@ class TraceOSImageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = load_module()
+
+    def test_real_file_command_identifies_png_through_open_fd(self):
+        file_cmd = shutil.which("file")
+        self.assertIsNotNone(file_cmd)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "fixture.png"
+            path.write_bytes(__import__("base64").b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ))
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                result = subprocess.run(
+                    [file_cmd, "-L", "-b", "--mime-type", "--", f"/proc/self/fd/{fd}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                    shell=False,
+                    pass_fds=(fd,),
+                )
+            finally:
+                os.close(fd)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.strip(), "image/png")
+
+    def test_fifo_rejected_without_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo = pathlib.Path(tmp) / "image.fifo"
+            os.mkfifo(fifo)
+            completed = False
+            result = None
+
+            def invoke():
+                nonlocal result, completed
+                result = self.mod.analyse_image(fifo)
+                completed = True
+
+            thread = __import__("threading").Thread(target=invoke)
+            thread.start()
+            thread.join(timeout=2)
+            self.assertTrue(completed)
+            self.assertEqual(result, 2)
 
     def test_run_fd_tool_uses_no_shell_and_inherits_open_fd(self):
         with tempfile.TemporaryDirectory() as tmp:
