@@ -427,6 +427,7 @@ def analyse_image(src):
         fd = os.open(
             path,
             os.O_RDONLY
+            | getattr(os, "O_NONBLOCK", 0)
             | getattr(os, "O_CLOEXEC", 0)
             | getattr(os, "O_NOFOLLOW", 0),
         )
@@ -442,7 +443,7 @@ def analyse_image(src):
             return 2
 
         source_hash_before = _sha256_fd(fd)
-        file_result = _run_fd_tool("file", ["-b", "--mime-type", "--"], fd, 5)
+        file_result = _run_fd_tool("file", ["-L", "-b", "--mime-type", "--"], fd, 5)
         mime = file_result["stdout"].strip().splitlines()[-1] if file_result["stdout"].strip() else ""
 
         result = {
