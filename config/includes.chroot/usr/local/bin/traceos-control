@@ -1174,11 +1174,11 @@ class TraceOSApp:
         source_entry = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 9))
         source_entry.grid(row=3, column=0, columnspan=2, sticky="ew", padx=15, pady=(0, 12))
 
-        output_panel = self.card(self.content, padx=28, pady=7, expand=True)
-        self.set_output(output_panel, height=18)
-
         bar = tk.Frame(self.content, bg=BG)
         bar.pack(fill="x", padx=28, pady=(0, 14))
+
+        output_panel = self.card(self.content, padx=28, pady=7, expand=True)
+        self.set_output(output_panel, height=18)
 
         def use_image_path() -> None:
             selected = source_entry.get().strip()
