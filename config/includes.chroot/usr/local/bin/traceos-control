@@ -2,6 +2,7 @@
 """TraceOS Control Centre: a polished local-first investigation cockpit."""
 from __future__ import annotations
 
+import json
 import os
 import queue
 import shlex
@@ -105,9 +106,12 @@ class TraceOSApp:
         # Tk keysyms are case-sensitive here; Ctrl+Shift+O produces keysym ``O``.
         self.root.bind_all("<Control-Shift-O>", self._osint_shortcut)
         self.root.bind_all("<Control-Shift-N>", self._new_case_shortcut)
+        self.root.bind_all("<Control-Shift-I>", self._image_shortcut)
 
         self.active_process: subprocess.Popen[str] | None = None
         self.active_job_label: str | None = None
+        self.active_job_kind: str | None = None
+        self.active_job_attempt: int | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.job_output = ""
         self.output_widget: tk.Text | None = None
@@ -195,6 +199,11 @@ class TraceOSApp:
         self.new_case()
         return "break"
 
+    def _image_shortcut(self, event: tk.Event) -> str:
+        self._trace_attempt += 1
+        self._trace_diag("IMAGE_PAGE_SHORTCUT_RECEIVED", attempt=self._trace_attempt)
+        self.image_osint()
+        return "break"
     def _osint_shortcut(self, event: tk.Event) -> str:
         self._trace_diag(
             "shortcut-received",
@@ -484,11 +493,13 @@ class TraceOSApp:
         except OSError as exc:
             messagebox.showerror("TraceOS Quick Shade", str(exc), parent=self.root)
 
-    def run_job(self, args: list[str], label: str = "TraceOS") -> None:
+    def run_job(self, args: list[str], label: str = "TraceOS", *, kind: str | None = None, attempt: int | None = None) -> None:
         if self.active_process and self.active_process.poll() is None:
             messagebox.showinfo("TraceOS", "A task is already running. Stop it before starting another.", parent=self.root)
             return
         self.active_job_label = label
+        self.active_job_kind = kind
+        self.active_job_attempt = attempt
         self.job_output = f"[TraceOS] Starting: {label}\n$ {' '.join(shlex.quote(x) for x in args)}\n\n"
         if self.output_widget:
             self.set_text(self.output_widget, self.job_output)
@@ -497,6 +508,15 @@ class TraceOSApp:
                 args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1
             )
+            self._trace_diag(
+                "TASK_STARTED",
+                task=self.active_job_label or "unknown",
+                kind=self.active_job_kind or "generic",
+                pid=self.active_process.pid,
+                attempt=self.active_job_attempt if self.active_job_attempt is not None else "none",
+            )
+            if self.active_job_kind == "image":
+                self._trace_diag("IMAGE_CLI_STARTED", pid=self.active_process.pid, attempt=self.active_job_attempt or 0)
         except OSError as exc:
             self.job_output += f"[TraceOS] Unable to start task: {exc}\n"
             if self.output_widget:
@@ -537,9 +557,35 @@ class TraceOSApp:
             self.job_output += f"\n[TraceOS] Task finished with exit code {code}.\n"
             if self.output_widget and self.output_widget.winfo_exists():
                 self.output_widget.insert("end", f"\n[TraceOS] Task finished with exit code {code}.\n")
-            self._trace_diag("TASK_COMPLETED", task=self.active_job_label or "unknown", exit_code=code)
+            finished_kind = self.active_job_kind
+            finished_attempt = self.active_job_attempt
+            self._trace_diag("TASK_COMPLETED", task=self.active_job_label or "unknown", exit_code=code, attempt=finished_attempt if finished_attempt is not None else "none")
+            if finished_kind == "image":
+                start = self.job_output.find("{\n")
+                end_marker = "\n[TraceOS] Task finished with exit code"
+                end = self.job_output.find(end_marker, start)
+                payload = self.job_output[start:end] if start >= 0 and end > start else ""
+                try:
+                    parsed = json.loads(payload)
+                except (TypeError, ValueError):
+                    parsed = None
+                if parsed is not None and self.output_widget and self.output_widget.winfo_exists():
+                    self._trace_diag(
+                        "IMAGE_RESULT_RENDERED",
+                        attempt=finished_attempt if finished_attempt is not None else 0,
+                        status=parsed.get("status", "unknown"),
+                        sha256=parsed.get("sha256_after", parsed.get("sha256_before", "unknown")),
+                        exit_code=code,
+                    )
+                self._trace_diag(
+                    "IMAGE_CLI_COMPLETED",
+                    attempt=finished_attempt if finished_attempt is not None else 0,
+                    exit_code=code,
+                )
             self.active_process = None
             self.active_job_label = None
+            self.active_job_kind = None
+            self.active_job_attempt = None
             return
         if self.active_process and self.active_process.poll() is None:
             self.root.after(80, self.poll_job)
@@ -547,7 +593,9 @@ class TraceOSApp:
     def stop_job(self) -> None:
         if self.active_process and self.active_process.poll() is None:
             self.active_process.terminate()
-            self._trace_diag("TASK_STOPPED", task=self.active_job_label or "unknown")
+            self._trace_diag("TASK_STOPPED", task=self.active_job_label or "unknown", kind=self.active_job_kind or "generic", attempt=self.active_job_attempt if self.active_job_attempt is not None else "none")
+            if self.active_job_kind == "image":
+                self._trace_diag("IMAGE_CLI_STOPPED", attempt=self.active_job_attempt or 0)
             self.job_output += "\n[TraceOS] Task stopped by user.\n"
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
@@ -1091,6 +1139,7 @@ class TraceOSApp:
         self.action_button(bar, "RUN NMAP", start_scan, primary=True).pack(side="right")
 
     def image_osint(self) -> None:
+        image_attempt = 0
         self.heading(
             "INVESTIGATION / IMAGE", "Image OSINT",
             "Local-first image inspection. The selected source is analysed without uploading it."
@@ -1134,8 +1183,10 @@ class TraceOSApp:
                 ],
             )
             if selected:
+                nonlocal image_attempt
+                image_attempt += 1
                 source_var.set(selected)
-                self._trace_diag("IMAGE_SOURCE_SELECTED", source=selected)
+                self._trace_diag("IMAGE_SOURCE_SELECTED", attempt=image_attempt, source_kind="file-selected")
 
         def handoff() -> None:
             selected = source_var.get()
@@ -1151,7 +1202,7 @@ class TraceOSApp:
                 return
             try:
                 webbrowser.open("https://lens.google.com/")
-                self._trace_diag("IMAGE_BROWSER_HANDOFF_OPENED")
+                self._trace_diag("IMAGE_BROWSER_HANDOFF_OPENED", attempt=image_attempt)
             except Exception as exc:
                 self._trace_diag("IMAGE_BROWSER_HANDOFF_FAILED", exc_type=type(exc).__name__)
                 messagebox.showerror("Image OSINT", f"Unable to open browser: {exc}", parent=self.root)
@@ -1168,8 +1219,8 @@ class TraceOSApp:
             if not path.is_file():
                 messagebox.showwarning("Image OSINT", "The selected file is no longer available.", parent=self.root)
                 return
-            self._trace_diag("IMAGE_ANALYSIS_START_CLICKED", source=str(path))
-            self.run_job([TRACE, "image", str(path)], "Local image analysis")
+            self._trace_diag("IMAGE_ANALYSIS_START_CLICKED", attempt=image_attempt, source_kind="regular-file")
+            self.run_job([TRACE, "image", str(path)], "Local image analysis", kind="image", attempt=image_attempt)
 
         self.action_button(bar, "CHOOSE IMAGE", choose_image).pack(side="left")
         self.action_button(bar, "REVERSE-IMAGE SITE", handoff).pack(side="left", padx=7)
