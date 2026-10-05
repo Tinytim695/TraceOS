@@ -565,27 +565,55 @@ class TraceOSApp:
                 end_marker = "\n[TraceOS] Task finished with exit code"
                 end = self.job_output.find(end_marker, start)
                 payload = self.job_output[start:end] if start >= 0 and end > start else ""
-                try:
-                    parsed = json.loads(payload)
-                except (TypeError, ValueError):
-                    parsed = None
-                if parsed is not None and self.output_widget and self.output_widget.winfo_exists():
-                    self._trace_diag(
-                        "IMAGE_RESULT_RENDERED",
-                        attempt=finished_attempt if finished_attempt is not None else 0,
-                        image_attempt=finished_attempt if finished_attempt is not None else 0,
-                        status=parsed.get("status", "unknown"),
-                        sha256=parsed.get("sha256_after", parsed.get("sha256_before", "unknown")),
-                        source_unchanged=parsed.get("source_unchanged", "unknown"),
-                        mime=parsed.get("mime", "unknown"),
-                        exit_code=code,
-                    )
+                parse_error = ""
+                parsed = None
+                if payload:
+                    try:
+                        parsed = json.loads(payload)
+                    except (TypeError, ValueError) as exc:
+                        parse_error = type(exc).__name__
+                else:
+                    parse_error = "no_json_payload"
+                result_status = parsed.get("status", "unknown") if parsed is not None else "unknown"
+                result_sha = (
+                    parsed.get("sha256_after", parsed.get("sha256_before", "unknown"))
+                    if parsed is not None
+                    else "unknown"
+                )
+                result_unchanged = parsed.get("source_unchanged", "unknown") if parsed is not None else "unknown"
+                result_mime = parsed.get("mime", "unknown") if parsed is not None else "unknown"
                 self._trace_diag(
                     "IMAGE_CLI_COMPLETED",
                     attempt=finished_attempt if finished_attempt is not None else 0,
                     image_attempt=finished_attempt if finished_attempt is not None else 0,
                     exit_code=code,
+                    output_chars=len(self.job_output),
+                    json_payload="yes" if payload else "no",
+                    json_parse="ok" if parsed is not None else "failed",
+                    parse_error=parse_error or "none",
+                    result_status=result_status,
                 )
+                if parsed is not None:
+                    self._trace_diag(
+                        "IMAGE_RESULT_RENDERED",
+                        attempt=finished_attempt if finished_attempt is not None else 0,
+                        image_attempt=finished_attempt if finished_attempt is not None else 0,
+                        status=result_status,
+                        sha256=result_sha,
+                        source_unchanged=result_unchanged,
+                        mime=result_mime,
+                        exit_code=code,
+                    )
+                else:
+                    self._trace_diag(
+                        "IMAGE_RESULT_PARSE_FAILED",
+                        attempt=finished_attempt if finished_attempt is not None else 0,
+                        image_attempt=finished_attempt if finished_attempt is not None else 0,
+                        exit_code=code,
+                        output_chars=len(self.job_output),
+                        json_payload="yes" if payload else "no",
+                        parse_error=parse_error or "unknown",
+                    )
             self.active_process = None
             self.active_job_label = None
             self.active_job_kind = None
