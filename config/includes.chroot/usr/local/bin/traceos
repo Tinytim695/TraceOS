@@ -358,6 +358,151 @@ def list_evidence():
     for r in rows:
         q=r.split("\t")
         if len(q)==6: print(f" {q[0]}  {Path(q[2]).name}\n    {q[3]}  {q[4]} bytes  {q[5]}")
+MAX_IMAGE_SIZE = 100 * 1024 * 1024
+IMAGE_OUTPUT_LIMIT = 12000
+
+
+def _bounded_text(value: str, limit: int = IMAGE_OUTPUT_LIMIT) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + f"\n[TraceOS] Output truncated at {limit} characters."
+
+
+def _run_fd_tool(command, args, fd, timeout):
+    if not have(command):
+        return {
+            "state": "unavailable",
+            "command": command,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+        }
+    fd_path = f"/proc/self/fd/{fd}"
+    try:
+        result = subprocess.run(
+            [command, *args, fd_path],
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            shell=False,
+            pass_fds=(fd,),
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return {
+            "state": "timeout",
+            "command": command,
+            "exit_code": None,
+            "stdout": _bounded_text(stdout),
+            "stderr": _bounded_text(stderr or "Timed out."),
+        }
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "state": "failed",
+            "command": command,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+    return {
+        "state": "ok" if result.returncode == 0 else "failed",
+        "command": command,
+        "exit_code": result.returncode,
+        "stdout": _bounded_text(result.stdout or ""),
+        "stderr": _bounded_text(result.stderr or ""),
+    }
+
+
+def analyse_image(src):
+    path = Path(src).expanduser()
+    if any(ch in str(path) for ch in ("\t", "\r", "\n")):
+        print("[TraceOS] Unsupported image path: tab, CR and LF characters are not allowed.", file=sys.stderr)
+        return 2
+
+    fd = None
+    try:
+        fd = os.open(
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            print("[TraceOS] Image input is not a regular file.", file=sys.stderr)
+            return 2
+        if info.st_size > MAX_IMAGE_SIZE:
+            print(
+                f"[TraceOS] Image exceeds the local analysis limit of {MAX_IMAGE_SIZE} bytes.",
+                file=sys.stderr,
+            )
+            return 2
+
+        source_hash_before = _sha256_fd(fd)
+        file_result = _run_fd_tool("file", ["-b", "--mime-type", "--"], fd, 5)
+        mime = file_result["stdout"].strip().splitlines()[-1] if file_result["stdout"].strip() else ""
+
+        result = {
+            "schema_version": 1,
+            "status": "failed",
+            "source_path": str(path),
+            "size": info.st_size,
+            "sha256_before": source_hash_before,
+            "mime": mime,
+            "file": file_result,
+        }
+
+        if file_result["state"] == "unavailable":
+            result["status"] = "file_tool_unavailable"
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1
+        if file_result["state"] != "ok":
+            result["status"] = "file_tool_failed"
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1
+        if not mime.startswith("image/"):
+            result["status"] = "not_an_image"
+            source_hash_after = _sha256_fd(fd)
+            result["sha256_after"] = source_hash_after
+            result["source_unchanged"] = source_hash_before == source_hash_after
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 2
+
+        result["dimensions"] = _run_fd_tool(
+            "identify",
+            ["-format", "%m %wx%h"],
+            fd,
+            10,
+        )
+        result["metadata"] = _run_fd_tool(
+            "exiftool",
+            ["-j", "-n", "--"],
+            fd,
+            10,
+        )
+        result["ocr"] = _run_fd_tool(
+            "tesseract",
+            ["stdout", "--psm", "6"],
+            fd,
+            20,
+        )
+
+        source_hash_after = _sha256_fd(fd)
+        result["sha256_after"] = source_hash_after
+        result["source_unchanged"] = source_hash_before == source_hash_after
+        result["status"] = "ok" if result["source_unchanged"] else "source_changed"
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["source_unchanged"] else 1
+    except OSError as exc:
+        print(f"[TraceOS] Unable to open image safely: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def analyse(src):
     p=Path(src).expanduser()
     if not p.exists(): print(f"Not found: {p}",file=sys.stderr); return 2
@@ -540,6 +685,7 @@ def main(a):
         if rest and rest[0]=="add" and len(rest)>1:return add_evidence(rest[1])
         if rest and rest[0]=="verify":return verify_evidence()
         list_evidence();return 0
+    if c=="image":return analyse_image(rest[0]) if rest else 2
     if c=="analyse":return analyse(rest[0]) if rest else 2
     if c=="tools":show_tools();return 0
     if c=="network":return network(rest)
