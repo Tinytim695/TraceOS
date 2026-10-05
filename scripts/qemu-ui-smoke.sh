@@ -476,6 +476,8 @@ image_ready="no"
 image_page="no"
 image_selected="no"
 image_start="no"
+image_selected_attempt="unknown"
+image_start_attempt="unknown"
 image_cli_started="no"
 image_cli_completed="no"
 image_result_rendered="no"
@@ -534,8 +536,10 @@ if [[ "$image_ready" == "yes" ]]; then
         hmp_command "$monitor" "sendkey ret" "$STATE/monitor-image-use-path.log" || true
 
         for _ in $(seq 1 20); do
-            if [[ -n "$(image_marker_line "IMAGE_SOURCE_SELECTED")" ]]; then
+            source_line="$(image_marker_line "IMAGE_SOURCE_SELECTED")"
+            if [[ -n "$source_line" ]]; then
                 image_selected="yes"
+                image_selected_attempt="$(echo "$source_line" | sed -n 's/.*image_attempt=\([^ ]*\).*/\1/p')"
                 break
             fi
             sleep 1
@@ -548,8 +552,10 @@ if [[ "$image_ready" == "yes" ]]; then
             hmp_command "$monitor" "sendkey ret" "$STATE/monitor-image-start.log" || true
 
             for _ in $(seq 1 30); do
-                if [[ -n "$(image_marker_line "IMAGE_ANALYSIS_START_CLICKED")" ]]; then
+                start_line="$(image_marker_line "IMAGE_ANALYSIS_START_CLICKED")"
+                if [[ -n "$start_line" ]]; then
                     image_start="yes"
+                    image_start_attempt="$(echo "$start_line" | sed -n 's/.*image_attempt=\([^ ]*\).*/\1/p')"
                     break
                 fi
                 sleep 1
@@ -589,6 +595,9 @@ fi
     echo "PAGE_RENDERED=$image_page"
     echo "SOURCE_SELECTED=$image_selected"
     echo "START_CALLBACK=$image_start"
+    echo "SOURCE_ATTEMPT=$image_selected_attempt"
+    echo "START_ATTEMPT=$image_start_attempt"
+    echo "ATTEMPT_MATCH=$([[ "$image_selected_attempt" == "$image_start_attempt" ]] && echo yes || echo no)"
     echo "CLI_STARTED=$image_cli_started"
     echo "CLI_COMPLETED=$image_cli_completed"
     echo "RESULT_RENDERED=$image_result_rendered"
