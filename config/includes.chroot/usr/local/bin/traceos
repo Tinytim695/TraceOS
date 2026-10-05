@@ -368,7 +368,7 @@ def _bounded_text(value: str, limit: int = IMAGE_OUTPUT_LIMIT) -> str:
     return value[:limit] + f"\n[TraceOS] Output truncated at {limit} characters."
 
 
-def _run_fd_tool(command, args, fd, timeout):
+def _run_fd_tool(command, args, fd, timeout, path_first=False):
     if not have(command):
         return {
             "state": "unavailable",
@@ -379,8 +379,9 @@ def _run_fd_tool(command, args, fd, timeout):
         }
     fd_path = f"/proc/self/fd/{fd}"
     try:
+        argv = [command, fd_path, *args] if path_first else [command, *args, fd_path]
         result = subprocess.run(
-            [command, *args, fd_path],
+            argv,
             text=True,
             capture_output=True,
             timeout=timeout,
@@ -487,6 +488,7 @@ def analyse_image(src):
             ["stdout", "--psm", "6"],
             fd,
             20,
+            path_first=True,
         )
 
         source_hash_after = _sha256_fd(fd)
