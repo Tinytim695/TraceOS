@@ -169,6 +169,7 @@ capture_page() {
         -smp 2 \
         -vga std \
         -nic none \
+        -fw_cfg name=opt/traceos/ui-image-e2e,string=1 \
         -drive "file=$ISO,media=cdrom,readonly=on,format=raw" \
         -boot order=d \
         -display "vnc=unix:$vnc_socket" \
@@ -460,6 +461,139 @@ capture_screendump "$monitor" "$new_case_final_ppm" "$STATE/monitor-new-case-fin
 convert "$new_case_final_ppm" -resize 1280x720 -strip "$new_case_final_png"
 identify "$new_case_final_png"
 test -s "$new_case_final_png"
+
+# Diagnostic-only Image OSINT interaction against an opt-in synthetic fixture.
+image_matrix="$OUT/traceos-image-osint-matrix.txt"
+image_page_ppm="$OUT/traceos-image-page.ppm"
+image_page_png="$OUT/traceos-image-page.png"
+image_selected_ppm="$OUT/traceos-image-selected.ppm"
+image_selected_png="$OUT/traceos-image-selected.png"
+image_result_ppm="$OUT/traceos-image-result.ppm"
+image_result_png="$OUT/traceos-image-result.png"
+image_fixture="/home/traceos/traceosimage.png"
+image_expected_sha="431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+image_ready="no"
+image_page="no"
+image_selected="no"
+image_start="no"
+image_cli_started="no"
+image_cli_completed="no"
+image_result_rendered="no"
+image_failed="no"
+
+image_marker_line() {
+    local stage="$1"
+    grep -F "stage=$stage" "$serial_log" 2>/dev/null \
+        | grep -F "nonce=$gui_nonce" \
+        | grep -F "pid=$gui_pid" \
+        | tail -n 1 || true
+}
+
+wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 45 && image_ready="yes" || true
+
+if [[ "$image_ready" == "yes" ]]; then
+    fixture_line="$(grep -F "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" "$serial_log" | tail -n 1 || true)"
+    fixture_sha="$(echo "$fixture_line" | sed -n 's/.*sha256=\([^ ]*\).*/\1/p')"
+    fixture_size="$(echo "$fixture_line" | sed -n 's/.*size=\([0-9]*\).*/\1/p')"
+    if [[ "$fixture_sha" != "$image_expected_sha" || "$fixture_size" != "68" ]]; then
+        echo "[TraceOS] Synthetic image fixture mismatch." >&2
+        image_ready="no"
+    fi
+fi
+
+if [[ "$image_ready" == "yes" ]]; then
+    hmp_command "$monitor" "sendkey ctrl-shift-i" "$STATE/monitor-image-page-shortcut.log"
+    for _ in $(seq 1 30); do
+        if [[ -n "$(image_marker_line "image-osint-page-rendered")" ]]; then
+            image_page="yes"
+            break
+        fi
+        sleep 1
+    done
+
+    if [[ "$image_page" == "yes" ]]; then
+        capture_screendump "$monitor" "$image_page_ppm" "$STATE/monitor-image-page-screendump.log"
+        convert "$image_page_ppm" -resize 1280x720 -strip "$image_page_png"
+        identify "$image_page_png"
+
+        send_image_path() {
+            local i ch key log
+            for ((i=0; i<${#image_fixture}; i++)); do
+                ch="${image_fixture:i:1}"
+                case "$ch" in
+                    /) key="slash" ;;
+                    .) key="dot" ;;
+                    *) key="$ch" ;;
+                esac
+                log="$STATE/monitor-image-key-$i.log"
+                hmp_command "$monitor" "sendkey $key" "$log"
+            done
+        }
+
+        send_image_path
+        hmp_command "$monitor" "sendkey ret" "$STATE/monitor-image-use-path.log" || true
+
+        for _ in $(seq 1 20); do
+            if [[ -n "$(image_marker_line "IMAGE_SOURCE_SELECTED")" ]]; then
+                image_selected="yes"
+                break
+            fi
+            sleep 1
+        done
+
+        if [[ "$image_selected" == "yes" ]]; then
+            capture_screendump "$monitor" "$image_selected_ppm" "$STATE/monitor-image-selected-screendump.log"
+            convert "$image_selected_ppm" -resize 1280x720 -strip "$image_selected_png"
+            identify "$image_selected_png"
+            hmp_command "$monitor" "sendkey ret" "$STATE/monitor-image-start.log" || true
+
+            for _ in $(seq 1 30); do
+                if [[ -n "$(image_marker_line "IMAGE_ANALYSIS_START_CLICKED")" ]]; then
+                    image_start="yes"
+                    break
+                fi
+                sleep 1
+            done
+        fi
+
+        for _ in $(seq 1 60); do
+            [[ -n "$(image_marker_line "IMAGE_CLI_STARTED")" ]] && image_cli_started="yes"
+            [[ -n "$(image_marker_line "IMAGE_CLI_COMPLETED")" ]] && image_cli_completed="yes"
+            [[ -n "$(image_marker_line "IMAGE_RESULT_RENDERED")" ]] && image_result_rendered="yes"
+            [[ -n "$(image_marker_line "IMAGE_CLI_STOPPED")" ]] && image_failed="yes"
+            [[ "$image_result_rendered" == "yes" || "$image_failed" == "yes" ]] && break
+            sleep 1
+        done
+
+        if [[ "$image_result_rendered" == "yes" ]]; then
+            result_line="$(image_marker_line "IMAGE_RESULT_RENDERED")"
+            result_status="$(echo "$result_line" | sed -n 's/.*status=\([^ ]*\).*/\1/p')"
+            result_sha="$(echo "$result_line" | sed -n 's/.*sha256=\([^ ]*\).*/\1/p')"
+            result_unchanged="$(echo "$result_line" | sed -n 's/.*source_unchanged=\([^ ]*\).*/\1/p')"
+            result_mime="$(echo "$result_line" | sed -n 's/.*mime=\([^ ]*\).*/\1/p')"
+            if [[ "$result_status" != "ok" || "$result_sha" != "$image_expected_sha" || "$result_unchanged" != "True" || "$result_mime" != "image/png" ]]; then
+                image_result_rendered="no"
+                image_failed="yes"
+            else
+                capture_screendump "$monitor" "$image_result_ppm" "$STATE/monitor-image-result-screendump.log"
+                convert "$image_result_ppm" -resize 1280x720 -strip "$image_result_png"
+                identify "$image_result_png"
+            fi
+        fi
+    fi
+fi
+
+{
+    echo "STATUS=$([[ "$image_result_rendered" == "yes" ]] && echo PASS || echo UNKNOWN)"
+    echo "FIXTURE_READY=$image_ready"
+    echo "PAGE_RENDERED=$image_page"
+    echo "SOURCE_SELECTED=$image_selected"
+    echo "START_CALLBACK=$image_start"
+    echo "CLI_STARTED=$image_cli_started"
+    echo "CLI_COMPLETED=$image_cli_completed"
+    echo "RESULT_RENDERED=$image_result_rendered"
+    echo "EXPECTED_FIXTURE_SHA=$image_expected_sha"
+} >"$image_matrix"
 
 dashboard_png="$OUT/traceos-dashboard.png"
 dashboard_hash="$(sha256sum "$dashboard_png" | awk '{print $1}')"
