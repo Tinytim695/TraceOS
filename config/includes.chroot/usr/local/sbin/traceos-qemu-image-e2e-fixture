@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import pwd
 import subprocess
 import time
 from pathlib import Path
@@ -42,8 +43,11 @@ def main() -> int:
     data = base64.b64decode(PAYLOAD)
     digest = hashlib.sha256(data).hexdigest()
     FIXTURE.write_bytes(data)
+    traceos = pwd.getpwnam("traceos")
+    os.chown(FIXTURE, traceos.pw_uid, traceos.pw_gid)
     os.chmod(FIXTURE, 0o600)
     emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=valid")
+    emit("TRACEOS_IMAGE_E2E_FIXTURE_OWNER=traceos MODE=0600")
     emit(
         "TRACEOS_IMAGE_E2E_FIXTURE_READY=1 "
         f"sha256={digest} size={len(data)}"
