@@ -516,7 +516,7 @@ class TraceOSApp:
                 attempt=self.active_job_attempt if self.active_job_attempt is not None else "none",
             )
             if self.active_job_kind == "image":
-                self._trace_diag("IMAGE_CLI_STARTED", pid=self.active_process.pid, attempt=self.active_job_attempt or 0)
+                self._trace_diag("IMAGE_CLI_STARTED", pid=self.active_process.pid, attempt=self.active_job_attempt or 0, image_attempt=self.active_job_attempt or 0)
         except OSError as exc:
             self.job_output += f"[TraceOS] Unable to start task: {exc}\n"
             if self.output_widget:
@@ -573,13 +573,17 @@ class TraceOSApp:
                     self._trace_diag(
                         "IMAGE_RESULT_RENDERED",
                         attempt=finished_attempt if finished_attempt is not None else 0,
+                        image_attempt=finished_attempt if finished_attempt is not None else 0,
                         status=parsed.get("status", "unknown"),
                         sha256=parsed.get("sha256_after", parsed.get("sha256_before", "unknown")),
+                        source_unchanged=parsed.get("source_unchanged", "unknown"),
+                        mime=parsed.get("mime", "unknown"),
                         exit_code=code,
                     )
                 self._trace_diag(
                     "IMAGE_CLI_COMPLETED",
                     attempt=finished_attempt if finished_attempt is not None else 0,
+                    image_attempt=finished_attempt if finished_attempt is not None else 0,
                     exit_code=code,
                 )
             self.active_process = None
@@ -595,7 +599,7 @@ class TraceOSApp:
             self.active_process.terminate()
             self._trace_diag("TASK_STOPPED", task=self.active_job_label or "unknown", kind=self.active_job_kind or "generic", attempt=self.active_job_attempt if self.active_job_attempt is not None else "none")
             if self.active_job_kind == "image":
-                self._trace_diag("IMAGE_CLI_STOPPED", attempt=self.active_job_attempt or 0)
+                self._trace_diag("IMAGE_CLI_STOPPED", attempt=self.active_job_attempt or 0, image_attempt=self.active_job_attempt or 0)
             self.job_output += "\n[TraceOS] Task stopped by user.\n"
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
