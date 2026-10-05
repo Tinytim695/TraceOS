@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import importlib.machinery
 import io
 import json
 import os
@@ -17,11 +18,11 @@ MODULE_PATH = BIN_DIR / "traceos"
 
 def load_module():
     sys.path.insert(0, str(BIN_DIR))
-    spec = importlib.util.spec_from_file_location("traceos_cli_image_test", MODULE_PATH)
+    loader = importlib.machinery.SourceFileLoader("traceos_cli_image_test", str(MODULE_PATH))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    loader.exec_module(module)
     return module
 
 
