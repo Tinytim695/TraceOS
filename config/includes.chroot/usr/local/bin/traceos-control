@@ -12,6 +12,7 @@ import time
 import threading
 import tkinter as tk
 import uuid
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -106,6 +107,7 @@ class TraceOSApp:
         self.root.bind_all("<Control-Shift-N>", self._new_case_shortcut)
 
         self.active_process: subprocess.Popen[str] | None = None
+        self.active_job_label: str | None = None
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.job_output = ""
         self.output_widget: tk.Text | None = None
@@ -486,6 +488,7 @@ class TraceOSApp:
         if self.active_process and self.active_process.poll() is None:
             messagebox.showinfo("TraceOS", "A task is already running. Stop it before starting another.", parent=self.root)
             return
+        self.active_job_label = label
         self.job_output = f"[TraceOS] Starting: {label}\n$ {' '.join(shlex.quote(x) for x in args)}\n\n"
         if self.output_widget:
             self.set_text(self.output_widget, self.job_output)
@@ -534,7 +537,9 @@ class TraceOSApp:
             self.job_output += f"\n[TraceOS] Task finished with exit code {code}.\n"
             if self.output_widget and self.output_widget.winfo_exists():
                 self.output_widget.insert("end", f"\n[TraceOS] Task finished with exit code {code}.\n")
+            self._trace_diag("TASK_COMPLETED", task=self.active_job_label or "unknown", exit_code=code)
             self.active_process = None
+            self.active_job_label = None
             return
         if self.active_process and self.active_process.poll() is None:
             self.root.after(80, self.poll_job)
@@ -542,6 +547,7 @@ class TraceOSApp:
     def stop_job(self) -> None:
         if self.active_process and self.active_process.poll() is None:
             self.active_process.terminate()
+            self._trace_diag("TASK_STOPPED", task=self.active_job_label or "unknown")
             self.job_output += "\n[TraceOS] Task stopped by user.\n"
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
@@ -1084,6 +1090,94 @@ class TraceOSApp:
 
         self.action_button(bar, "RUN NMAP", start_scan, primary=True).pack(side="right")
 
+    def image_osint(self) -> None:
+        self.heading(
+            "INVESTIGATION / IMAGE", "Image OSINT",
+            "Local-first image inspection. The selected source is analysed without uploading it."
+        )
+        warning = self.card(self.content, padx=28, pady=7)
+        tk.Label(warning, text="LOCAL ANALYSIS ONLY", bg=CARD, fg=GOOD, font=("Sans", 9, "bold")).pack(anchor="w", padx=15, pady=(10, 1))
+        tk.Label(
+            warning,
+            text="Image analysis stays on this machine. Reverse-image search is a separate, user-confirmed browser handoff.",
+            bg=CARD, fg=MUTED, font=("Sans", 9)
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        mode_bar = tk.Frame(self.content, bg=BG)
+        mode_bar.pack(fill="x", padx=28, pady=(0, 6))
+        self.action_button(mode_bar, "CLI / WEB OSINT", self.osint).pack(side="left")
+        self.action_button(mode_bar, "IMAGE OSINT", self.image_osint, primary=True).pack(side="left", padx=7)
+
+        controls = self.card(self.content, padx=28, pady=7)
+        tk.Label(controls, text="SELECTED SOURCE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=15, pady=(10, 4)
+        )
+        source_var = tk.StringVar(value="No image selected")
+        tk.Label(
+            controls, textvariable=source_var, bg="#08111d", fg=TEXT,
+            anchor="w", justify="left", font=("Monospace", 9)
+        ).grid(row=1, column=0, columnspan=3, sticky="ew", padx=15, pady=(0, 12))
+
+        output_panel = self.card(self.content, padx=28, pady=7, expand=True)
+        self.set_output(output_panel, height=18)
+
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 14))
+
+        def choose_image() -> None:
+            selected = filedialog.askopenfilename(
+                parent=self.root,
+                title="Select an image for local analysis",
+                filetypes=[
+                    ("Image files", "*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tif *.tiff"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if selected:
+                source_var.set(selected)
+                self._trace_diag("IMAGE_SOURCE_SELECTED", source=selected)
+
+        def handoff() -> None:
+            selected = source_var.get()
+            if selected == "No image selected":
+                messagebox.showwarning("Image OSINT", "Choose an image first.", parent=self.root)
+                return
+            if not messagebox.askyesno(
+                "External browser handoff",
+                "Open an external reverse-image search site? TraceOS will not upload or submit this image.",
+                parent=self.root,
+            ):
+                self._trace_diag("IMAGE_BROWSER_HANDOFF_CANCELLED")
+                return
+            try:
+                webbrowser.open("https://lens.google.com/")
+                self._trace_diag("IMAGE_BROWSER_HANDOFF_OPENED")
+            except Exception as exc:
+                self._trace_diag("IMAGE_BROWSER_HANDOFF_FAILED", exc_type=type(exc).__name__)
+                messagebox.showerror("Image OSINT", f"Unable to open browser: {exc}", parent=self.root)
+
+        def start_image() -> None:
+            selected = source_var.get()
+            if selected == "No image selected":
+                messagebox.showwarning("Image OSINT", "Choose an image first.", parent=self.root)
+                return
+            path = Path(selected).expanduser()
+            if path.is_symlink():
+                messagebox.showwarning("Image OSINT", "For safety, select the actual image file rather than a symbolic link.", parent=self.root)
+                return
+            if not path.is_file():
+                messagebox.showwarning("Image OSINT", "The selected file is no longer available.", parent=self.root)
+                return
+            self._trace_diag("IMAGE_ANALYSIS_START_CLICKED", source=str(path))
+            self.run_job([TRACE, "image", str(path)], "Local image analysis")
+
+        self.action_button(bar, "CHOOSE IMAGE", choose_image).pack(side="left")
+        self.action_button(bar, "REVERSE-IMAGE SITE", handoff).pack(side="left", padx=7)
+        self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
+        self.action_button(bar, "START LOCAL ANALYSIS", start_image, primary=True).pack(side="right")
+
+        self.root.update_idletasks()
+        self._trace_diag("image-osint-page-rendered", page="image")
     def osint(self) -> None:
         self.heading(
             "INVESTIGATION", "Investigation Centre",
@@ -1115,6 +1209,15 @@ class TraceOSApp:
         controls.grid_columnconfigure(1, weight=3)
         controls.grid_columnconfigure(2, weight=2)
 
+        mode_bar = tk.Frame(self.content, bg=BG)
+        mode_bar.pack(fill="x", padx=28, pady=(0, 6))
+        self.action_button(mode_bar, "IMAGE OSINT", self.image_osint, primary=True).pack(side="left")
+        tk.Label(
+            mode_bar,
+            text="CURRENT MODE  •  PERSONAL / WEB CLI WORKBENCH",
+            bg=BG, fg=MUTED, font=("Sans", 8, "bold")
+        ).pack(side="left", padx=12)
+
         hint = tk.Label(
             self.content,
             text="Username: Sherlock/Maigret • Email: h8mail • WHOIS/DNS: domain or IP • Blackbird: its command arguments",
@@ -1132,7 +1235,6 @@ class TraceOSApp:
             lambda: self.open_terminal([TRACE, "osint"], "TraceOS Investigation Workbench")
         ).pack(side="left")
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
-        self.action_button(bar, "SAVE OUTPUT TO EVIDENCE", self.save_investigation_output).pack(side="left", padx=7)
 
         def start_osint() -> None:
             name = tool.get()
