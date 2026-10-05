@@ -75,6 +75,19 @@ class TraceOSImageTests(unittest.TestCase):
             self.assertTrue(completed)
             self.assertEqual(result, 2)
 
+    def test_fifo_failure_emits_structured_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo = pathlib.Path(tmp) / "image.fifo"
+            os.mkfifo(fifo)
+            output = io.StringIO()
+
+            with contextlib.redirect_stdout(output):
+                rc = self.mod.analyse_image(fifo)
+
+            self.assertEqual(rc, 2)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["status"], "not_a_regular_file")
+
     def test_run_fd_tool_uses_no_shell_and_inherits_open_fd(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "source.bin"
