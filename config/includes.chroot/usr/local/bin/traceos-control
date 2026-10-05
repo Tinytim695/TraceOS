@@ -1251,11 +1251,21 @@ class TraceOSApp:
 
         self.action_button(bar, "CHOOSE IMAGE", choose_image).pack(side="left")
         self.action_button(controls, "USE PATH", use_image_path).grid(row=3, column=2, sticky="e", padx=15, pady=(0, 12))
-        source_entry.bind("<Return>", lambda _event: use_image_path())
+
+        def handle_image_return(_event: tk.Event) -> str:
+            if source_var.get() == "No image selected":
+                use_image_path()
+            else:
+                start_image()
+            return "break"
+
+        source_entry.bind("<Return>", handle_image_return)
         self.action_button(bar, "REVERSE-IMAGE SITE", handoff).pack(side="left", padx=7)
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
         start_button = self.action_button(bar, "START LOCAL ANALYSIS", start_image, primary=True)
         start_button.pack(side="right")
+        start_button.bind("<Return>", lambda _event: (start_image(), "break")[1])
+        start_button.bind("<space>", lambda _event: (start_image(), "break")[1])
 
         self.root.update_idletasks()
         source_entry.focus_set()
