@@ -11,6 +11,10 @@ test -L /etc/systemd/system/default.target
 test -L /etc/systemd/system/display-manager.service
 test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-graphics.service
 test -f /usr/local/sbin/traceos-qemu-ui-diagnostics
+test -f /usr/local/sbin/traceos-qemu-image-e2e-fixture
+chmod +x /usr/local/sbin/traceos-qemu-image-e2e-fixture
 test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
+systemctl enable traceos-qemu-image-e2e-fixture.service
+test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-image-e2e-fixture.service
 test -f /usr/local/sbin/traceos-qemu-cli-e2e
 test -L /etc/systemd/system/graphical.target.wants/traceos-qemu-cli-e2e.service
