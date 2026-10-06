@@ -17,6 +17,11 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+TRACEOS_LIB = "/usr/local/lib/traceos"
+if TRACEOS_LIB not in sys.path:
+    sys.path.insert(0, TRACEOS_LIB)
+
+from investigation import build_basic_lookup_command
 from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 
 TRACE = "/usr/local/bin/traceos"
@@ -1362,17 +1367,60 @@ class TraceOSApp:
             if not value:
                 messagebox.showwarning("OSINT", "Enter a target or arguments first.", parent=self.root)
                 return
-            extras = shlex.split(extra.get()) if extra.get().strip() else []
-            if name in {"Sherlock", "Maigret"}:
+
+            try:
+                extras = shlex.split(extra.get()) if extra.get().strip() else []
+            except ValueError as exc:
+                messagebox.showerror(
+                    "OSINT",
+                    f"Invalid extra options quoting: {exc}",
+                    parent=self.root,
+                )
+                self._trace_diag("OSINT_ARGUMENT_PARSE_FAILED", tool=name)
+                return
+
+            if name in {"WHOIS", "DNS"}:
+                lookup_tool = "whois" if name == "WHOIS" else "dns"
+                try:
+                    args = build_basic_lookup_command(lookup_tool, value)
+                except ValueError as exc:
+                    messagebox.showerror(
+                        "OSINT",
+                        f"Invalid {name} target: {exc}",
+                        parent=self.root,
+                    )
+                    self._trace_diag(
+                        "OSINT_TARGET_VALIDATION_FAILED",
+                        tool=name,
+                        reason=str(exc),
+                    )
+                    return
+            elif name in {"Sherlock", "Maigret"}:
                 args = [name.lower(), value, *extras]
             elif name == "h8mail":
                 args = ["h8mail", "-t", value, *extras]
-            elif name == "WHOIS":
-                args = ["whois", value, *extras]
-            elif name == "DNS":
-                args = ["dig", value, *extras]
             else:
-                args = ["blackbird", *shlex.split(value), *extras]
+                try:
+                    value_args = shlex.split(value)
+                except ValueError as exc:
+                    messagebox.showerror(
+                        "OSINT",
+                        f"Invalid Blackbird arguments quoting: {exc}",
+                        parent=self.root,
+                    )
+                    self._trace_diag("OSINT_ARGUMENT_PARSE_FAILED", tool=name)
+                    return
+                args = ["blackbird", *value_args, *extras]
+
+            if not shutil.which(args[0]):
+                messagebox.showerror(
+                    "OSINT",
+                    f"{name} is unavailable in this TraceOS image.",
+                    parent=self.root,
+                )
+                self._trace_diag("OSINT_TOOL_UNAVAILABLE", tool=name, command=args[0])
+                return
+
             self.run_job(args, f"{name} investigation")
 
         self.action_button(bar, "START LOOKUP", start_osint, primary=True).pack(side="right")
