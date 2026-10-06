@@ -1,0 +1,19 @@
+# TraceOS security tool tiers
+# team|command|purpose|mode
+OSINT|sherlock|username discovery|external
+OSINT|maigret|username investigation|external
+OSINT|h8mail|email OSINT|external
+OSINT|blackbird|username/email discovery|external
+OSINT|whois|registration lookup|external
+OSINT|dig|DNS lookup|external
+RED|nmap|network/service discovery|authorized
+RED|ffuf|web content discovery/fuzzing|authorized
+RED|gobuster|directory/DNS discovery|authorized
+RED|sqlmap|SQL injection assessment|authorized
+BLUE|tcpdump|packet capture|local
+BLUE|tshark|packet analysis|local
+BLUE|wireshark|packet analysis GUI|local
+BLUE|yara|malware/file classification|local
+BLUE|sleuthkit|filesystem forensics|local
+BLUE|plaso-log2timeline|forensic timeline generation|local
+PURPLE|traceos-purple|exercise/detection ledger|case
