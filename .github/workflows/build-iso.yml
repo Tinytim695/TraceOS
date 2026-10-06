@@ -103,7 +103,9 @@ jobs:
             test -x "$root$path"
           done
 
-          for package in whois dnsutils bind9-dnsutils; do
+          # Debian 13/Trixie exposes dnsutils as a virtual package; the actual
+          # installed package providing /usr/bin/dig is bind9-dnsutils.
+          for package in whois bind9-dnsutils; do
             status="$(dpkg-query --admindir="$admindir" -W -f='${Status}' "$package")"
             version="$(dpkg-query --admindir="$admindir" -W -f='${Version}' "$package")"
             test "$status" = "install ok installed"
