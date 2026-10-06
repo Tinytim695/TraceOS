@@ -3,6 +3,7 @@ import types
 import importlib.util
 import pathlib
 import queue
+import sys
 import threading
 import unittest
 import uuid
