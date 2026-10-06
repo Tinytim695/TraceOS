@@ -68,6 +68,23 @@ class InvestigationAdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.mod.build_basic_lookup_command("unsupported", "example.com")
 
+    def test_basic_lookup_adapters_expose_expected_contract(self):
+        whois = self.mod.get_adapter("whois")
+        dns = self.mod.get_adapter("dns")
+        self.assertEqual(
+            (whois.key, whois.command, whois.network, whois.version_argv()),
+            ("whois", "whois", True, ["whois", "--version"]),
+        )
+        self.assertEqual(
+            (dns.key, dns.command, dns.network, dns.version_argv()),
+            ("dns", "dig", True, ["dig", "-v"]),
+        )
+
+    def test_basic_lookup_adapter_metadata_is_immutable(self):
+        adapter = self.mod.get_adapter("whois")
+        with self.assertRaises(AttributeError):
+            adapter.command = "nmap"
+
     def test_inventory_is_read_only_and_reports_availability(self):
         with mock.patch.object(self.mod.shutil, "which", side_effect=lambda command: "/usr/bin/" + command if command in {"whois", "dig"} else None):
             inventory = self.mod.inventory()

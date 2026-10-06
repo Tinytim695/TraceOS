@@ -526,6 +526,10 @@ class ActionRunner:
         elif exit_code != 0:
             termination_reason = "nonzero_exit"
             error_class = "tool_error"
+        elif stdout.truncated or stderr.truncated:
+            state = OUTPUT_LIMIT
+            termination_reason = "output_limit"
+            error_class = "output_limit"
 
         parsed_result = None
         if state == COMPLETED:

@@ -94,7 +94,13 @@ class ActionRunnerTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_action_does_not_execute_before_start(self):
+    def test_action_construction_does_not_spawn(self):
+        with mock.patch.object(actions.subprocess, "Popen") as popen:
+            request = self.request()
+        self.assertIsInstance(request.action_id, uuid.UUID)
+        popen.assert_not_called()
+
+    def test_action_executes_only_when_started(self):
         tool = self.fake(
             "whois",
             'touch "$(dirname "$0")/ran"; '
@@ -122,6 +128,19 @@ class ActionRunnerTests(unittest.TestCase):
         self.assertEqual(result.state, actions.INVALID_INPUT)
         self.assertEqual(result.error_class, "scope_mismatch")
         self.assertFalse((tool.parent / "ran").exists())
+
+    def test_scope_mode_mismatch_never_starts_child(self):
+        tool = self.fake("whois", 'touch "$(dirname "$0")/ran"')
+        scope = actions.ActionScope("active_scan", "example.com")
+        result = actions.ActionRunner().execute(self.request(scope=scope))
+        self.assertEqual(result.state, actions.INVALID_INPUT)
+        self.assertEqual(result.error_class, "scope_mismatch")
+        self.assertFalse((tool.parent / "ran").exists())
+
+    def test_scope_is_immutable(self):
+        scope = actions.ActionScope("passive_lookup", "example.com")
+        with self.assertRaises(FrozenInstanceError):
+            scope.target = "other.example"
 
     def test_network_action_requires_confirmation(self):
         tool = self.fake("whois", 'touch "$(dirname "$0")/ran"')
@@ -354,7 +373,7 @@ while child.poll() is None:
         self.assertEqual(result.stdout_preview, "out")
         self.assertEqual(result.stderr_preview, "err")
 
-    def test_large_output_is_bounded(self):
+    def test_large_stdout_is_drained_and_preview_bounded(self):
         self.fake(
             "whois",
             'i=0; while [ "$i" -lt 20000 ]; do '
@@ -363,7 +382,8 @@ while child.poll() is None:
         result = actions.ActionRunner().execute(
             self.request(output_limit_bytes=1024)
         )
-        self.assertEqual(result.state, actions.PARSE_FAILED)
+        self.assertEqual(result.state, actions.OUTPUT_LIMIT)
+        self.assertEqual(result.error_class, "output_limit")
         self.assertLessEqual(len(result.stdout_preview.encode()), 1024)
         self.assertGreater(result.stdout_byte_count, 1024)
         self.assertTrue(result.stdout_truncated)
@@ -378,7 +398,8 @@ while child.poll() is None:
         result = actions.ActionRunner().execute(
             self.request(timeout_seconds=5, output_limit_bytes=1024)
         )
-        self.assertEqual(result.state, actions.COMPLETED)
+        self.assertEqual(result.state, actions.OUTPUT_LIMIT)
+        self.assertEqual(result.error_class, "output_limit")
         self.assertEqual(result.stdout_byte_count, 50013)
         self.assertLessEqual(len(result.stdout_preview.encode()), 1024)
         self.assertTrue(result.stdout_truncated)
@@ -501,7 +522,7 @@ while child.poll() is None:
         )
         self.assertFalse((tool.parent / "ran").exists())
 
-    def test_stderr_large_output_is_drained(self):
+    def test_large_stderr_is_drained_and_preview_bounded(self):
         self.fake(
             "whois",
             'printf "Domain Name: EXAMPLE.COM\\n"; '
@@ -511,8 +532,9 @@ while child.poll() is None:
         result = actions.ActionRunner().execute(
             self.request(timeout_seconds=5, output_limit_bytes=1024)
         )
-        self.assertEqual(result.state, actions.COMPLETED)
+        self.assertEqual(result.state, actions.OUTPUT_LIMIT)
         self.assertEqual(result.stderr_byte_count, 50000)
+        self.assertLessEqual(len(result.stderr_preview.encode()), 1024)
         self.assertTrue(result.stderr_truncated)
 
 
