@@ -11,6 +11,7 @@ from unittest import mock
 
 
 MODULE = pathlib.Path(__file__).parents[1] / "config/includes.chroot/usr/local/bin/traceos-control"
+LIB = MODULE.parents[1] / "lib" / "traceos"
 
 
 def load_module():
