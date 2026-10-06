@@ -92,25 +92,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export LC_ALL=C
+          root=/tmp/traceos-root
+          admindir="$root/var/lib/dpkg"
+
+          test -s "$admindir/status"
+
           for path in /usr/bin/whois /usr/bin/dig; do
-            test -x "/tmp/traceos-root${path}"
+            test -f "$root$path"
+            test -x "$root$path"
           done
 
-          whois_status="$(chroot /tmp/traceos-root /usr/bin/dpkg-query -W -f='${Status}' whois)"
-          dnsutils_status="$(chroot /tmp/traceos-root /usr/bin/dpkg-query -W -f='${Status}' dnsutils)"
-          test "$whois_status" = "install ok installed"
-          test "$dnsutils_status" = "install ok installed"
+          for package in whois dnsutils bind9-dnsutils; do
+            status="$(dpkg-query --admindir="$admindir" -W -f='${Status}' "$package")"
+            version="$(dpkg-query --admindir="$admindir" -W -f='${Version}' "$package")"
+            test "$status" = "install ok installed"
+            test -n "$version"
+            printf 'PACKAGED_PACKAGE=%s STATUS=%s VERSION=%s\n' \
+              "$package" "$status" "$version"
+          done
 
-          whois_version="$(timeout 10s chroot /tmp/traceos-root /usr/bin/whois --version 2>&1)"
-          dig_version="$(timeout 10s chroot /tmp/traceos-root /usr/bin/dig -v 2>&1)"
-          test -n "$whois_version"
-          test -n "$dig_version"
+          dpkg-query --admindir="$admindir" -L whois | grep -Fx '/usr/bin/whois'
+          dpkg-query --admindir="$admindir" -L bind9-dnsutils | grep -Fx '/usr/bin/dig'
 
-          echo "[TraceOS] Packaged WHOIS version:"
-          printf '%s\n' "$whois_version"
-          echo "[TraceOS] Packaged dig version:"
-          printf '%s\n' "$dig_version"
-          echo "[TraceOS] Packaged WHOIS/DNS files, dpkg state and local version startup checks passed."
+          echo "[TraceOS] Packaged WHOIS/DNS filesystem and dpkg-state checks passed."
+          echo "[TraceOS] Executable startup is verified separately in the booted QEMU guest."
 
       - name: QEMU live-kernel boot smoke test
         shell: bash
