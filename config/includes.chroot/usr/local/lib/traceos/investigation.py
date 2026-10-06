@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,14 @@ TOOLS = (
 
 _LOOKUP_COMMANDS = {"whois": "whois", "dns": "dig"}
 _LABEL_RE = re.compile(r"^[A-Za-z0-9-]+$")
+_DNS_STATUS_RE = re.compile(
+    r"^;;\s*[^\n]*\bstatus:\s*([A-Z]+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_DNS_ANSWER_RE = re.compile(
+    r"^;;\s*flags:.*\bANSWER:\s*(\d+)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def validate_basic_lookup_target(target: str) -> str:
@@ -86,11 +95,147 @@ def build_basic_lookup_command(tool: str, target: str) -> list[str]:
     return [command, validate_basic_lookup_target(target)]
 
 
+class BasicLookupAdapter:
+    """Small immutable adapter contract for the initial passive lookups."""
+
+    __slots__ = (
+        "key",
+        "display_name",
+        "command",
+        "purpose",
+        "network",
+        "_version_args",
+    )
+
+    def __init__(
+        self,
+        key: str,
+        display_name: str,
+        command: str,
+        purpose: str,
+        network: bool,
+        version_args: tuple[str, ...],
+    ) -> None:
+        self.key = key
+        self.display_name = display_name
+        self.command = command
+        self.purpose = purpose
+        self.network = network
+        self._version_args = version_args
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if hasattr(self, name):
+            raise AttributeError("BasicLookupAdapter instances are immutable")
+        object.__setattr__(self, name, value)
+
+    def available(self) -> bool:
+        return shutil.which(self.command) is not None
+
+    def version_argv(self) -> list[str]:
+        return [self.command, *self._version_args]
+
+    def validate_target(self, target: str) -> str:
+        return validate_basic_lookup_target(target)
+
+    def build_argv(self, target: str) -> list[str]:
+        return [self.command, self.validate_target(target)]
+
+    def parse_result(
+        self,
+        stdout: str,
+        stderr: str,
+        exit_code: int,
+    ) -> dict[str, object]:
+        if exit_code != 0:
+            raise ValueError("result parser requires a successful tool exit")
+        if self.key == "dns":
+            return _parse_dns_result(stdout, stderr)
+        return _parse_whois_result(stdout, stderr)
+
+
+def _parse_whois_result(stdout: str, stderr: str) -> dict[str, object]:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("WHOIS produced no parseable output")
+
+    lowered = "\n".join(lines).lower()
+    no_data = any(
+        marker in lowered
+        for marker in ("no match", "not found", "no data", "no entries")
+    )
+    field_lines = [line for line in lines if ":" in line]
+    if not field_lines and not no_data:
+        raise ValueError("WHOIS output is not structurally parseable")
+
+    return {
+        "kind": "whois",
+        "status": "NO_DATA" if no_data else "RESULT",
+        "field_count": len(field_lines),
+        "line_count": len(lines),
+    }
+
+
+def _parse_dns_result(stdout: str, stderr: str) -> dict[str, object]:
+    status_match = _DNS_STATUS_RE.search(stdout)
+    answer_match = _DNS_ANSWER_RE.search(stdout)
+    if not status_match or not answer_match:
+        raise ValueError("DNS output missing dig header status/count")
+
+    rcode = status_match.group(1).upper()
+    answer_count = int(answer_match.group(1))
+    if rcode == "NXDOMAIN":
+        status = "NXDOMAIN"
+    elif rcode in {"SERVFAIL", "REFUSED", "FORMERR"}:
+        status = "TOOL_ERROR"
+    elif answer_count == 0:
+        status = "NO_ANSWER"
+    else:
+        status = "ANSWER"
+
+    return {
+        "kind": "dns",
+        "status": status,
+        "answer_count": answer_count,
+        "rcode": rcode,
+    }
+
+
+ADAPTERS: dict[str, BasicLookupAdapter] = {
+    "whois": BasicLookupAdapter(
+        "whois",
+        "WHOIS",
+        "whois",
+        "domain/IP registration lookup",
+        True,
+        ("--version",),
+    ),
+    "dns": BasicLookupAdapter(
+        "dns",
+        "DNS",
+        "dig",
+        "DNS inspection",
+        True,
+        ("-v",),
+    ),
+}
+
+
+def get_adapter(key: str) -> BasicLookupAdapter:
+    try:
+        return ADAPTERS[key]
+    except KeyError as exc:
+        raise KeyError(f"unknown adapter: {key}") from exc
+
+
 def inventory() -> list[tuple[ToolSpec, bool]]:
     return [(spec, shutil.which(spec.command) is not None) for spec in TOOLS]
 
 
-def run(spec: ToolSpec, args: list[str], timeout: int = 120) -> subprocess.CompletedProcess[str]:
+def run(
+    spec: ToolSpec,
+    args: list[str],
+    timeout: int = 120,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [spec.command, *args],
         capture_output=True,
