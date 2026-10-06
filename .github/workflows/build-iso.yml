@@ -88,6 +88,30 @@ jobs:
           test -L /tmp/traceos-root/etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
           echo "[TraceOS] QEMU graphics bootstrap and GUI diagnostic collector are present and enabled in the final squashfs."
 
+      - name: Validate packaged WHOIS and DNS tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /usr/bin/whois /usr/bin/dig; do
+            test -x "/tmp/traceos-root${path}"
+          done
+
+          whois_status="$(chroot /tmp/traceos-root /usr/bin/dpkg-query -W -f='${Status}' whois)"
+          dnsutils_status="$(chroot /tmp/traceos-root /usr/bin/dpkg-query -W -f='${Status}' dnsutils)"
+          test "$whois_status" = "install ok installed"
+          test "$dnsutils_status" = "install ok installed"
+
+          whois_version="$(timeout 10s chroot /tmp/traceos-root /usr/bin/whois --version 2>&1)"
+          dig_version="$(timeout 10s chroot /tmp/traceos-root /usr/bin/dig -v 2>&1)"
+          test -n "$whois_version"
+          test -n "$dig_version"
+
+          echo "[TraceOS] Packaged WHOIS version:"
+          printf '%s\n' "$whois_version"
+          echo "[TraceOS] Packaged dig version:"
+          printf '%s\n' "$dig_version"
+          echo "[TraceOS] Packaged WHOIS/DNS files, dpkg state and local version startup checks passed."
+
       - name: QEMU live-kernel boot smoke test
         shell: bash
         run: |
