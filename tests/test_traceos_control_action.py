@@ -1,4 +1,5 @@
 import importlib.machinery
+import types
 import importlib.util
 import pathlib
 import queue
@@ -12,6 +13,34 @@ MODULE = pathlib.Path(__file__).parents[1] / "config/includes.chroot/usr/local/b
 
 
 def load_module():
+    # The build runner does not install tkinter. Stub only the GUI modules
+    # needed to import the real control-centre source for lifecycle tests.
+    tk_stub = types.ModuleType("tkinter")
+    tk_stub.Tk = object
+    tk_stub.Event = object
+    tk_stub.Text = object
+    for name in ("Frame", "Label", "Button", "Entry", "StringVar"):
+        setattr(tk_stub, name, object)
+    tk_stub.END = "end"
+    tk_stub.NORMAL = "normal"
+    tk_stub.DISABLED = "disabled"
+    filedialog_stub = types.SimpleNamespace()
+    messagebox_stub = types.SimpleNamespace()
+    ttk_stub = types.SimpleNamespace()
+    tk_stub.filedialog = filedialog_stub
+    tk_stub.messagebox = messagebox_stub
+    tk_stub.ttk = ttk_stub
+    for name, value in (
+        ("tkinter", tk_stub),
+        ("tkinter.filedialog", filedialog_stub),
+        ("tkinter.messagebox", messagebox_stub),
+        ("tkinter.ttk", ttk_stub),
+    ):
+        sys.modules[name] = value
+
+    if str(LIB) not in sys.path:
+        sys.path.insert(0, str(LIB))
+
     loader = importlib.machinery.SourceFileLoader("traceos_control_action_tests", str(MODULE))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
