@@ -21,7 +21,8 @@ TRACEOS_LIB = "/usr/local/lib/traceos"
 if TRACEOS_LIB not in sys.path:
     sys.path.insert(0, TRACEOS_LIB)
 
-from investigation import build_basic_lookup_command
+from actions import ActionResult, ActionRunner, CONFIRMED
+from investigation import create_basic_lookup_request, get_adapter
 from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 
 TRACE = "/usr/local/bin/traceos"
@@ -84,6 +85,54 @@ def session_state() -> str:
     return "UNKNOWN"
 
 
+def action_result_matches(
+    active_action_id: uuid.UUID | None,
+    result: ActionResult,
+) -> bool:
+    """Accept a result only when it belongs to the action currently shown."""
+    return active_action_id is not None and result.action_id == active_action_id
+
+
+def format_basic_lookup_result(result: ActionResult) -> str:
+    """Render one bounded, structured lookup result for the GUI."""
+    lines = [
+        f"[TraceOS] Action ID: {result.action_id}",
+        f"Tool: {result.tool}",
+        f"State: {result.state}",
+        f"Exit code: {result.exit_code if result.exit_code is not None else 'none'}",
+        f"Termination: {result.termination_reason or 'none'}",
+        f"Error: {result.error_class or 'none'}",
+    ]
+    parsed = result.parsed_result
+    if isinstance(parsed, dict):
+        labels = (
+            ("status", "Status"),
+            ("answer_count", "Answer count"),
+            ("rcode", "Rcode"),
+            ("field_count", "Field count"),
+            ("line_count", "Line count"),
+        )
+        lines.append("")
+        lines.append("STRUCTURED RESULT")
+        for key, label in labels:
+            if key in parsed:
+                lines.append(f"{label}: {parsed[key]}")
+
+    lines.extend(
+        [
+            "",
+            "STDOUT (bounded preview)",
+            result.stdout_preview.rstrip() or "(empty)",
+            f"[bytes={result.stdout_byte_count} truncated={str(result.stdout_truncated).lower()} sha256={result.stdout_sha256}]",
+            "",
+            "STDERR (bounded preview)",
+            result.stderr_preview.rstrip() or "(empty)",
+            f"[bytes={result.stderr_byte_count} truncated={str(result.stderr_truncated).lower()} sha256={result.stderr_sha256}]",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
 class TraceOSApp:
     def __init__(self, root: tk.Tk, welcome: bool = False, start_page: str = "dashboard") -> None:
         self.root = root
@@ -117,6 +166,9 @@ class TraceOSApp:
         self.active_job_label: str | None = None
         self.active_job_kind: str | None = None
         self.active_job_attempt: int | None = None
+        self.active_action_id: uuid.UUID | None = None
+        self.active_action_cancel: threading.Event | None = None
+        self.action_queue: queue.Queue[ActionResult] = queue.Queue()
         self.output_queue: queue.Queue[str | None] = queue.Queue()
         self.job_output = ""
         self.output_widget: tk.Text | None = None
@@ -498,7 +550,136 @@ class TraceOSApp:
         except OSError as exc:
             messagebox.showerror("TraceOS Quick Shade", str(exc), parent=self.root)
 
+    def _action_worker(
+        self,
+        request,
+        cancel_event: threading.Event,
+    ) -> None:
+        result = ActionRunner().execute(request, cancel_event=cancel_event)
+        self.action_queue.put(result)
+
+    def start_basic_lookup_action(self, tool_key: str, target: str) -> None:
+        """Start a confirmed WHOIS/DNS lookup through the shared ActionRunner."""
+        if self.active_action_id is not None or (self.active_process and self.active_process.poll() is None):
+            messagebox.showinfo(
+                "TraceOS",
+                "A task is already running. Stop it before starting another.",
+                parent=self.root,
+            )
+            return
+
+        try:
+            adapter = get_adapter(tool_key)
+            normalized = adapter.validate_target(target)
+        except (KeyError, ValueError) as exc:
+            messagebox.showerror("OSINT", f"Invalid target: {exc}", parent=self.root)
+            self._trace_diag(
+                "ACTION_TARGET_VALIDATION_FAILED",
+                tool=tool_key,
+                reason=type(exc).__name__,
+            )
+            return
+
+        if not messagebox.askyesno(
+            f"Confirm {adapter.display_name} lookup",
+            f"This will contact external network services for {normalized}.\\n\\nProceed only if you are authorized to perform this lookup against this target.",
+            parent=self.root,
+        ):
+            self._trace_diag(
+                "ACTION_AUTHORIZATION_CANCELLED",
+                tool=tool_key,
+                target_kind="domain_or_ip",
+            )
+            return
+
+        try:
+            request = create_basic_lookup_request(
+                tool_key,
+                normalized,
+                authorization_state=CONFIRMED,
+            )
+        except (KeyError, ValueError) as exc:
+            messagebox.showerror("OSINT", f"Unable to create action: {exc}", parent=self.root)
+            self._trace_diag(
+                "ACTION_REQUEST_FAILED",
+                tool=tool_key,
+                reason=type(exc).__name__,
+            )
+            return
+
+        cancel_event = threading.Event()
+        self.active_action_id = request.action_id
+        self.active_action_cancel = cancel_event
+        self.active_job_label = adapter.display_name
+        self.active_job_kind = "action"
+        self.active_job_attempt = None
+        self.job_output = (
+            f"[TraceOS] Action: {adapter.display_name}\\n"
+            f"Target: {shlex.quote(normalized)}\\n"
+            "Authorization: CONFIRMED\\n"
+            f"Action ID: {request.action_id}\\n\\n"
+            "[TraceOS] Starting through ActionRunner...\\n"
+        )
+        if self.output_widget:
+            self.set_text(self.output_widget, self.job_output)
+        self._trace_diag(
+            "ACTION_STARTED",
+            action_id=request.action_id,
+            tool=tool_key,
+            target_kind="domain_or_ip",
+            state="STARTING",
+        )
+
+        threading.Thread(
+            target=self._action_worker,
+            args=(request, cancel_event),
+            daemon=True,
+            name=f"traceos-action-{str(request.action_id)[:8]}",
+        ).start()
+        self.root.after(50, self.poll_action_result)
+
+    def poll_action_result(self) -> None:
+        handled_current = False
+        while True:
+            try:
+                result = self.action_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if not action_result_matches(self.active_action_id, result):
+                self._trace_diag(
+                    "ACTION_RESULT_STALE_IGNORED",
+                    action_id=result.action_id,
+                    state=result.state,
+                )
+                continue
+
+            handled_current = True
+            self.job_output = format_basic_lookup_result(result)
+            if self.output_widget and self.output_widget.winfo_exists():
+                self.set_text(self.output_widget, self.job_output)
+            self._trace_diag(
+                "ACTION_RESULT_RENDERED",
+                action_id=result.action_id,
+                tool=result.tool,
+                state=result.state,
+                parsed="yes" if result.parsed_result is not None else "no",
+                exit_code=result.exit_code if result.exit_code is not None else "none",
+            )
+            self.active_action_id = None
+            self.active_action_cancel = None
+            self.active_job_label = None
+            self.active_job_kind = None
+            self.active_job_attempt = None
+
+        if not handled_current and self.active_action_id is not None:
+            self.root.after(80, self.poll_action_result)
+
+
     def run_job(self, args: list[str], label: str = "TraceOS", *, kind: str | None = None, attempt: int | None = None) -> None:
+        if self.active_action_id is not None:
+            messagebox.showinfo("TraceOS", "A task is already running. Stop it before starting another.", parent=self.root)
+            return
         if self.active_process and self.active_process.poll() is None:
             messagebox.showinfo("TraceOS", "A task is already running. Stop it before starting another.", parent=self.root)
             return
@@ -628,6 +809,17 @@ class TraceOSApp:
             self.root.after(80, self.poll_job)
 
     def stop_job(self) -> None:
+        if self.active_action_id is not None:
+            if self.active_action_cancel is not None:
+                self.active_action_cancel.set()
+            self._trace_diag(
+                "ACTION_CANCEL_REQUESTED",
+                action_id=self.active_action_id,
+            )
+            self.job_output += "\n[TraceOS] Cancellation requested...\n"
+            if self.output_widget:
+                self.set_text(self.output_widget, self.job_output)
+            return
         if self.active_process and self.active_process.poll() is None:
             self.active_process.terminate()
             self._trace_diag("TASK_STOPPED", task=self.active_job_label or "unknown", kind=self.active_job_kind or "generic", attempt=self.active_job_attempt if self.active_job_attempt is not None else "none")
@@ -1381,21 +1573,17 @@ class TraceOSApp:
 
             if name in {"WHOIS", "DNS"}:
                 lookup_tool = "whois" if name == "WHOIS" else "dns"
-                try:
-                    args = build_basic_lookup_command(lookup_tool, value)
-                except ValueError as exc:
-                    messagebox.showerror(
+                if extra.get().strip():
+                    messagebox.showwarning(
                         "OSINT",
-                        f"Invalid {name} target: {exc}",
+                        f"Extra options are not supported for {name} in the controlled Action mode.",
                         parent=self.root,
                     )
-                    self._trace_diag(
-                        "OSINT_TARGET_VALIDATION_FAILED",
-                        tool=name,
-                        reason=str(exc),
-                    )
+                    self._trace_diag("ACTION_EXTRA_OPTIONS_REJECTED", tool=name)
                     return
-            elif name in {"Sherlock", "Maigret"}:
+                self.start_basic_lookup_action(lookup_tool, value)
+                return
+            if name in {"Sherlock", "Maigret"}:
                 args = [name.lower(), value, *extras]
             elif name == "h8mail":
                 args = ["h8mail", "-t", value, *extras]

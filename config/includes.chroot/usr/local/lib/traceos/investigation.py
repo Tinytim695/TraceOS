@@ -9,6 +9,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+from actions import ActionRequest, ActionScope
+
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -225,6 +227,27 @@ def get_adapter(key: str) -> BasicLookupAdapter:
         return ADAPTERS[key]
     except KeyError as exc:
         raise KeyError(f"unknown adapter: {key}") from exc
+
+
+def create_basic_lookup_request(
+    tool_key: str,
+    target: str,
+    *,
+    authorization_state: str,
+    case_id: str | None = None,
+    timeout_seconds: float = 120,
+) -> ActionRequest:
+    """Create one immutable passive-lookup request; no process is started."""
+    adapter = get_adapter(tool_key)
+    normalized = adapter.validate_target(target)
+    return ActionRequest.create(
+        adapter_key=adapter.key,
+        target=normalized,
+        scope=ActionScope("passive_lookup", normalized),
+        authorization_state=authorization_state,
+        timeout_seconds=timeout_seconds,
+        case_id=case_id,
+    )
 
 
 def inventory() -> list[tuple[ToolSpec, bool]]:

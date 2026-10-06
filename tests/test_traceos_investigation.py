@@ -68,6 +68,30 @@ class InvestigationAdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.mod.build_basic_lookup_command("unsupported", "example.com")
 
+    def test_basic_lookup_request_factory_normalizes_and_sets_scope(self):
+        request = self.mod.create_basic_lookup_request(
+            "whois",
+            "münich.example",
+            authorization_state="CONFIRMED",
+            case_id="CASE-123",
+            timeout_seconds=42,
+        )
+        self.assertEqual(request.adapter_key, "whois")
+        self.assertEqual(request.target, "xn--mnich-kva.example")
+        self.assertEqual(request.scope.mode, "passive_lookup")
+        self.assertEqual(request.scope.target, "xn--mnich-kva.example")
+        self.assertEqual(request.authorization_state, "CONFIRMED")
+        self.assertEqual(request.case_id, "CASE-123")
+        self.assertEqual(request.timeout_seconds, 42)
+
+    def test_basic_lookup_request_factory_rejects_invalid_target(self):
+        with self.assertRaises(ValueError):
+            self.mod.create_basic_lookup_request(
+                "dns",
+                "http://example.com",
+                authorization_state="CONFIRMED",
+            )
+
     def test_basic_lookup_adapters_expose_expected_contract(self):
         whois = self.mod.get_adapter("whois")
         dns = self.mod.get_adapter("dns")
