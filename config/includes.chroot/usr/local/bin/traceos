@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 import datetime as dt, hashlib, json, mimetypes, os, shutil, stat, subprocess, sys
 from pathlib import Path
+
+# Use the installed library path in the ISO, but also resolve the sibling
+# library when this script is executed directly from the source tree.
 TRACEOS_LIB = "/usr/local/lib/traceos"
+if not os.path.isdir(TRACEOS_LIB):
+    TRACEOS_LIB = str(Path(__file__).resolve().parent.parent / "lib" / "traceos")
 if TRACEOS_LIB not in sys.path:
     sys.path.insert(0, TRACEOS_LIB)
+
 from investigation import build_basic_lookup_command
 from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
