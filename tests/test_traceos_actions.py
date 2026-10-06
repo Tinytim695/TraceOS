@@ -210,7 +210,6 @@ import time
 
 root = os.path.dirname(__file__)
 sentinel = os.path.join(root, "sentinel")
-parent_pid = os.path.join(root, "parent.pid")
 child_pid = os.path.join(root, "child.pid")
 
 
@@ -266,9 +265,10 @@ if __name__ == "__main__":
         time.sleep(1)
 '''
         return (
-            'cat > "$(dirname "$0")/group_helper.py" <<\'PY\'\n'
+            'printf "%s\\\\n" "$$" > "$(dirname "$0")/parent.pid"; '
+            + 'cat > "$(dirname "$0")/group_helper.py" <<\'PY\'\\n'
             + script
-            + '\nPY\n'
+            + '\\nPY\\n'
             + 'exec python3 "$(dirname "$0")/group_helper.py"'
         )
 
