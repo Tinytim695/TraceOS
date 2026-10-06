@@ -54,6 +54,8 @@ sherlock-project==0.16.2|sherlock|OSINT username discovery
 maigret==0.6.6|maigret|OSINT username investigation across thousands of sites
 h8mail==2.5.6|h8mail|OSINT email and breach-oriented lookups
 blackbird@b45505080ef51bb3ef52dc29879ee6bef31e5b94|blackbird|OSINT username/email search across hundreds of platforms
+whois|whois|WHOIS registration lookup for domains and IPs
+dnsutils|dig|DNS record lookup
 EOF
 
 echo "[TraceOS] OSINT tool installation complete."
