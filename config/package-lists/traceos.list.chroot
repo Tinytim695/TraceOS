@@ -87,3 +87,13 @@ firmware-linux
 # GUI
 python3-tk
 pipx
+
+# Blue Team / network monitoring and DFIR
+# Debian 13/Trixie native packages.
+tcpdump
+tshark
+wireshark
+yara
+python3-yara
+sleuthkit
+plaso
