@@ -34,6 +34,32 @@ serial(
 serial("TRACEOS_CI_E2E_RUN_NONCE=" + run_nonce)
 serial("TRACEOS_CI_E2E_STARTED=1")
 results={}; probes=[]
+def tool_version(label, binary, *args):
+    serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
+    try:
+        p=subprocess.run(
+            ["runuser","-u","traceos","--","env","HOME=/home/traceos",
+             "XDG_CONFIG_HOME=/home/traceos/.config",binary,*args],
+            text=True,capture_output=True,timeout=30
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout=exc.stdout or ""
+        stderr=exc.stderr or ""
+        if isinstance(stdout,bytes): stdout=stdout.decode("utf-8","replace")
+        if isinstance(stderr,bytes): stderr=stderr.decode("utf-8","replace")
+        (ART/(label+".stdout")).write_text(stdout)
+        (ART/(label+".stderr")).write_text(stderr + "\n[TraceOS] tool version check timed out after 30s\n")
+        (ART/(label+".exit")).write_text("124\n")
+        results[label]=124
+        serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=124 timeout=30s")
+        return None
+    (ART/(label+".stdout")).write_text(p.stdout)
+    (ART/(label+".stderr")).write_text(p.stderr)
+    (ART/(label+".exit")).write_text(str(p.returncode)+"\n")
+    results[label]=p.returncode
+    serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=" + str(p.returncode))
+    return p
+
 def cmd(label,*args):
     serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
     try:
@@ -58,6 +84,11 @@ def cmd(label,*args):
     results[label]=p.returncode
     serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=" + str(p.returncode))
     return p
+whois_version = tool_version("whois-version", "/usr/bin/whois", "--version")
+dig_version = tool_version("dig-version", "/usr/bin/dig", "-v")
+whois_version_ok = bool(whois_version and whois_version.returncode == 0 and (whois_version.stdout.strip() or whois_version.stderr.strip()))
+dig_version_ok = bool(dig_version and dig_version.returncode == 0 and (dig_version.stdout.strip() or dig_version.stderr.strip()))
+
 def probe(label):
     state=Path("/home/traceos/.config/traceos/current_case"); root=Path("/home/traceos/Cases").resolve(); cid=mid=""; regular=inside=False
     try:
@@ -106,9 +137,9 @@ report_ok=len(reports)==1 and vault_path.name in reports[0].read_text() and ledg
 if report_ok: (ART/"report.md").write_text(reports[0].read_text())
 timeline_ok=results.get("timeline")==0 and vault_path.name in (ART/"timeline.stdout").read_text()
 same_case=all(x==cid for x in probes)
-status="PASS" if all([ledger_ok,vault_pre_ok,verify_pass_ok,tamper_ok,tamper_verify,report_ok,timeline_ok,same_case]) else "FAIL"
-(ART/"matrix.txt").write_text("\n".join([f"STATUS={status}",f"CASE_ID={cid}",f"LEDGER_OK={'yes' if ledger_ok else 'no'}",f"VAULT_PRE_OK={'yes' if vault_pre_ok else 'no'}",f"VERIFY_PASS_OK={'yes' if verify_pass_ok else 'no'}",f"TAMPER_SAME_FILE_OK={'yes' if tamper_ok else 'no'}",f"VERIFY_TAMPER_HASH_MISMATCH_OK={'yes' if tamper_verify else 'no'}",f"REPORT_OK={'yes' if report_ok else 'no'}",f"TIMELINE_OK={'yes' if timeline_ok else 'no'}",f"SAME_CASE_ID_THROUGHOUT={'yes' if same_case else 'no'}",f"SOURCE_SHA256={source_hash}",f"VAULT_PRE_SHA256={vault_pre_hash or 'unknown'}",f"VAULT_POST_SHA256={vault_post_hash or 'unknown'}",f"LEDGER_RECORDED_SHA256={ledger_hash or 'unknown'}"])+"\n")
-allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.stdout','case-new.stderr','case-new.exit','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit'}
+status="PASS" if all([ledger_ok,vault_pre_ok,verify_pass_ok,tamper_ok,tamper_verify,report_ok,timeline_ok,same_case,whois_version_ok,dig_version_ok]) else "FAIL"
+(ART/"matrix.txt").write_text("\n".join([f"STATUS={status}",f"CASE_ID={cid}",f"LEDGER_OK={'yes' if ledger_ok else 'no'}",f"VAULT_PRE_OK={'yes' if vault_pre_ok else 'no'}",f"VERIFY_PASS_OK={'yes' if verify_pass_ok else 'no'}",f"TAMPER_SAME_FILE_OK={'yes' if tamper_ok else 'no'}",f"VERIFY_TAMPER_HASH_MISMATCH_OK={'yes' if tamper_verify else 'no'}",f"REPORT_OK={'yes' if report_ok else 'no'}",f"TIMELINE_OK={'yes' if timeline_ok else 'no'}",f"SAME_CASE_ID_THROUGHOUT={'yes' if same_case else 'no'}",f"WHOIS_VERSION_OK={'yes' if whois_version_ok else 'no'}",f"DIG_VERSION_OK={'yes' if dig_version_ok else 'no'}",f"SOURCE_SHA256={source_hash}",f"VAULT_PRE_SHA256={vault_pre_hash or 'unknown'}",f"VAULT_POST_SHA256={vault_post_hash or 'unknown'}",f"LEDGER_RECORDED_SHA256={ledger_hash or 'unknown'}"])+"\n")
+allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.stdout','case-new.stderr','case-new.exit','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit','whois-version.stdout','whois-version.stderr','whois-version.exit','dig-version.stdout','dig-version.stderr','dig-version.exit'}
 bundle=ART/"bundle.tar"
 with tarfile.open(bundle,"w") as tf:
     for name in sorted(allow):
