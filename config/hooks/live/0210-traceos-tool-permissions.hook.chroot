@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+chmod 0755 /usr/local/bin/traceos-purple
+chmod 0755 /usr/local/bin/traceos-osint
+chmod 0755 /usr/local/bin/traceos-control
+echo "[TraceOS] Security tool launcher permissions normalized."
