@@ -127,7 +127,7 @@ class ControlActionLifecycleTests(unittest.TestCase):
         request = self._request()
         cancel_event = threading.Event()
         result = mock.Mock()
-        with mock.patch.object(self.mod.ActionRunner) as runner_cls:
+        with mock.patch.object(self.mod, "ActionRunner") as runner_cls:
             runner_cls.return_value.execute.return_value = result
             app._action_worker(request, cancel_event)
         runner_cls.assert_called_once_with()
