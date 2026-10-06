@@ -97,7 +97,9 @@ try:
         "evidence-verify-pass.stdout", "evidence-verify-pass.stderr", "evidence-verify-pass.exit",
         "evidence-verify-tamper.stdout", "evidence-verify-tamper.stderr", "evidence-verify-tamper.exit",
         "report.stdout", "report.stderr", "report.exit",
-        "timeline.stdout", "timeline.stderr", "timeline.exit"}
+        "timeline.stdout", "timeline.stderr", "timeline.exit",
+        "whois-version.stdout", "whois-version.stderr", "whois-version.exit",
+        "dig-version.stdout", "dig-version.stderr", "dig-version.exit"}
 
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tf:
         names = tf.getnames()
@@ -230,6 +232,17 @@ try:
     audit("TIMELINE_REFERENCES_VAULT",
           bool(ledger_vault) and ledger_vault.rsplit("/", 1)[-1] in timeline_stdout)
 
+    whois_version_exit = exit_code("whois-version")
+    dig_version_exit = exit_code("dig-version")
+    whois_version_stdout = (out / "whois-version.stdout").read_text(errors="replace") if (out / "whois-version.stdout").exists() else ""
+    whois_version_stderr = (out / "whois-version.stderr").read_text(errors="replace") if (out / "whois-version.stderr").exists() else ""
+    dig_version_stdout = (out / "dig-version.stdout").read_text(errors="replace") if (out / "dig-version.stdout").exists() else ""
+    dig_version_stderr = (out / "dig-version.stderr").read_text(errors="replace") if (out / "dig-version.stderr").exists() else ""
+    audit("WHOIS_VERSION_EXIT", whois_version_exit == 0)
+    audit("WHOIS_VERSION_OUTPUT", bool(whois_version_stdout.strip() or whois_version_stderr.strip()))
+    audit("DIG_VERSION_EXIT", dig_version_exit == 0)
+    audit("DIG_VERSION_OUTPUT", bool(dig_version_stdout.strip() or dig_version_stderr.strip()))
+
     required_success_members = {
         "matrix.txt", "case.json", "case-path.txt", *state_files, "source.sha256", "case-new.stdout", "case-new.stderr", "case-new.exit",
         "ledger-check.txt", "vault-pre.txt", "vault-post.txt",
@@ -238,7 +251,9 @@ try:
         "evidence-verify-pass.stdout", "evidence-verify-pass.stderr", "evidence-verify-pass.exit",
         "evidence-verify-tamper.stdout", "evidence-verify-tamper.stderr", "evidence-verify-tamper.exit",
         "report.stdout", "report.stderr", "report.exit",
-        "timeline.stdout", "timeline.stderr", "timeline.exit"
+        "timeline.stdout", "timeline.stderr", "timeline.exit",
+        "whois-version.stdout", "whois-version.stderr", "whois-version.exit",
+        "dig-version.stdout", "dig-version.stderr", "dig-version.exit"
     }
     present_members = {p.name for p in out.iterdir() if p.is_file() and p.name != "result.txt"}
     audit("REQUIRED_BUNDLE_MEMBERS", required_success_members.issubset(present_members))
