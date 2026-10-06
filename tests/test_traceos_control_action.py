@@ -122,6 +122,20 @@ class ControlActionLifecycleTests(unittest.TestCase):
         thread_instance.start.assert_called_once_with()
         app.root.after.assert_called_once()
 
+    def test_action_messages_use_real_newlines(self):
+        app = self._app()
+        request = self._request()
+        thread_instance = mock.Mock()
+        with mock.patch.object(self.mod.messagebox, "askyesno", return_value=True) as ask, \
+             mock.patch.object(self.mod, "create_basic_lookup_request", return_value=request), \
+             mock.patch.object(self.mod.threading, "Thread", return_value=thread_instance):
+            app.start_basic_lookup_action("whois", "example.com")
+        prompt = ask.call_args.args[1]
+        self.assertIn("\n\n", prompt)
+        self.assertNotIn("\\\\n", prompt)
+        self.assertIn("\n", app.job_output)
+        self.assertNotIn("\\\\n", app.job_output)
+
     def test_worker_uses_action_runner_and_queues_result(self):
         app = self._app()
         request = self._request()
