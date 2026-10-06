@@ -29,6 +29,9 @@ def load_module():
     filedialog_stub = types.SimpleNamespace()
     messagebox_stub = types.SimpleNamespace()
     messagebox_stub.askyesno = lambda *args, **kwargs: False
+    messagebox_stub.showerror = lambda *args, **kwargs: None
+    messagebox_stub.showinfo = lambda *args, **kwargs: None
+    messagebox_stub.showwarning = lambda *args, **kwargs: None
     ttk_stub = types.SimpleNamespace()
     tk_stub.filedialog = filedialog_stub
     tk_stub.messagebox = messagebox_stub
