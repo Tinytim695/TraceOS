@@ -201,14 +201,75 @@ class ActionRunnerTests(unittest.TestCase):
         self.assertEqual(result.termination_reason, "timeout")
 
     def _group_test_body(self):
+        script = r'''
+import os
+import signal
+import subprocess
+import sys
+import time
+
+root = os.path.dirname(__file__)
+sentinel = os.path.join(root, "sentinel")
+parent_pid = os.path.join(root, "parent.pid")
+child_pid = os.path.join(root, "child.pid")
+
+
+def child_exit(signum, frame):
+    del signum, frame
+    try:
+        os.unlink(sentinel)
+    except FileNotFoundError:
+        pass
+    raise SystemExit(0)
+
+
+child = None
+
+
+def parent_exit(signum, frame):
+    del signum, frame
+    try:
+        if child is not None and child.poll() is None:
+            child.send_signal(signal.SIGTERM)
+            child.wait(timeout=1.0)
+    except Exception:
+        try:
+            if child is not None and child.poll() is None:
+                child.kill()
+        except Exception:
+            pass
+    try:
+        os.unlink(sentinel)
+    except FileNotFoundError:
+        pass
+    raise SystemExit(0)
+
+
+def run_child():
+    signal.signal(signal.SIGTERM, child_exit)
+    signal.signal(signal.SIGINT, child_exit)
+    with open(sentinel, "w", encoding="utf-8") as handle:
+        handle.write("child-running")
+    while True:
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    if sys.argv[-1] == "child":
+        run_child()
+    signal.signal(signal.SIGTERM, parent_exit)
+    signal.signal(signal.SIGINT, parent_exit)
+    child = subprocess.Popen([sys.executable, __file__, "child"])
+    with open(child_pid, "w", encoding="utf-8") as handle:
+        handle.write(str(child.pid))
+    while child.poll() is None:
+        time.sleep(1)
+'''
         return (
-            'sentinel="$(dirname "$0")/sentinel"; '
-            'parent_pid="$(dirname "$0")/parent.pid"; '
-            'trap "exit 0" TERM INT; '
-            'printf "%s\\n" "$$" > "$parent_pid"; '
-            '(trap "rm -f \\\\\\"$sentinel\\\\\\"; exit 0" TERM INT; '
-            'touch "$sentinel"; while :; do sleep 1; done) & '
-            'while :; do sleep 1; done'
+            'cat > "$(dirname "$0")/group_helper.py" <<\'PY\'\n'
+            + script
+            + '\nPY\n'
+            + 'exec python3 "$(dirname "$0")/group_helper.py"'
         )
 
     def _assert_pid_gone(self, pid_path):
