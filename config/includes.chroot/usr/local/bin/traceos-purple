@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""TraceOS Purple Team exercise ledger.
+
+This is a coordination layer, not an attack engine. It records an authorized
+exercise, expected telemetry, detection outcome and retest state inside the
+active case. Actual Red/Blue tools remain separately invoked.
+"""
+from __future__ import annotations
+
+import json
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+CASES = Path.home() / "Cases"
+
+def die(message: str) -> None:
+    print(f"[TraceOS] {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+def active_case() -> Path:
+    current = CASES / ".current"
+    if not current.is_file():
+        die("No active case. Create/select a case first.")
+    try:
+        target = Path(current.read_text(encoding="utf-8").strip()).resolve()
+    except OSError as exc:
+        die(f"Cannot read active case: {exc}")
+    if not target.is_dir() or not target.is_relative_to(CASES.resolve()):
+        die("Active case path is invalid.")
+    return target
+
+def ledger() -> Path:
+    path = active_case() / "purple"
+    path.mkdir(mode=0o700, exist_ok=True)
+    return path / "exercises.jsonl"
+
+def append(record: dict) -> None:
+    path = ledger()
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    print(json.dumps(record, indent=2, sort_keys=True))
+
+def usage() -> None:
+    print("""TraceOS Purple Team
+Usage:
+  traceos-purple plan TECHNIQUE TARGET EXPECTED_TELEMETRY
+  traceos-purple result EXERCISE_ID detected|missed|partial NOTES
+  traceos-purple list
+
+The ledger is case-local. The command never launches a Red or Blue tool.
+Use the Red/Blue tool workbenches separately, then record the observed result.
+""")
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] in {"-h", "--help", "help"}:
+        usage()
+        return 0
+    if argv[1] == "plan" and len(argv) >= 5:
+        record = {
+            "exercise_id": str(uuid.uuid4()),
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "technique": argv[2],
+            "authorized_target": argv[3],
+            "expected_telemetry": " ".join(argv[4:]),
+            "status": "planned",
+        }
+        append(record)
+        return 0
+    if argv[1] == "result" and len(argv) >= 5:
+        exercise_id, outcome = argv[2], argv[3]
+        if outcome not in {"detected", "missed", "partial"}:
+            die("Outcome must be detected, missed or partial.")
+        record = {
+            "exercise_id": exercise_id,
+            "recorded_utc": datetime.now(timezone.utc).isoformat(),
+            "outcome": outcome,
+            "notes": " ".join(argv[4:]),
+            "status": "completed",
+        }
+        append(record)
+        return 0
+    if argv[1] == "list":
+        path = ledger()
+        if not path.exists():
+            print("[TraceOS] No purple-team exercises recorded for this case.")
+            return 0
+        sys.stdout.write(path.read_text(encoding="utf-8"))
+        return 0
+    die("Invalid arguments. Use --help.")
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
