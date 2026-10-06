@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 import datetime as dt, hashlib, json, mimetypes, os, shutil, stat, subprocess, sys
 from pathlib import Path
+TRACEOS_LIB = "/usr/local/lib/traceos"
+if TRACEOS_LIB not in sys.path:
+    sys.path.insert(0, TRACEOS_LIB)
+from investigation import build_basic_lookup_command
 from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
 HOME=Path.home()
@@ -107,7 +111,7 @@ def status():
 ╰─────────────────────────────────────────╯
 """)
 def show_tools():
-    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search")]
+    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search"),("whois","OSINT WHOIS lookup"),("dig","OSINT DNS inspection")]
     print("\nTRACEOS TOOLBOX\n───────────────")
     for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
 def verify_evidence():
@@ -576,7 +580,7 @@ def network(a):
         return r.returncode
     print("Usage: traceos network {status|nmap TARGET}"); return 2
 def osint(a):
-    tools=["sherlock","maigret","h8mail","blackbird"]
+    tools=["sherlock","maigret","h8mail","blackbird","whois","dig"]
     if not a:
         print("\nTRACEOS OSINT WORKBENCH\n")
         for i,t in enumerate(tools,1):print(f" {i}) {t}")
@@ -585,8 +589,24 @@ def osint(a):
         if c=="0":return 0
         try:a=[tools[int(c)-1]]
         except (ValueError,IndexError):return 2
-    if a[0] not in tools or not have(a[0]):print(f"Tool unavailable: {a[0]}");return 1
-    if len(a)==1 and a[0] in {"sherlock","maigret"}:
+        if a[0] in {"whois","dig"}:
+            print("Domain or IP: ",end="",flush=True)
+            target=sys.stdin.readline().strip()
+            if not target:return 2
+            a.append(target)
+    if a[0] not in tools or not have(a[0]):
+        print(f"Tool unavailable: {a[0]}")
+        return 1
+    if a[0] in {"whois","dig"}:
+        if len(a) < 2:
+            print(f"Usage: traceos osint {a[0]} DOMAIN_OR_IP", file=sys.stderr)
+            return 2
+        try:
+            a = [*build_basic_lookup_command(a[0], a[1]), *a[2:]]
+        except ValueError as exc:
+            print(f"Invalid {a[0]} target: {exc}", file=sys.stderr)
+            return 2
+    elif len(a)==1 and a[0] in {"sherlock","maigret"}:
         print("Username: ",end="",flush=True)
         u=sys.stdin.readline().strip()
         if not u:return 2
@@ -598,6 +618,7 @@ def osint(a):
         if r.stderr.strip():print(r.stderr,file=sys.stderr)
         return r.returncode
     return 1
+
 def demo():
     previous=current_case()
     p=new_case("TraceOS Demo Investigation")
@@ -607,7 +628,7 @@ def demo():
     if previous: print(f"Previous case remains untouched: {previous}")
     return 0
 def doctor():
-    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","blueman-manager","ari"]
+    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","whois","dig","blueman-manager","ari"]
     assets=["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]
     configs=["/etc/xdg/autostart/traceos-welcome.desktop","/etc/lightdm/lightdm.conf.d/50-traceos.conf","/usr/local/bin/traceos-control","/usr/local/bin/traceos-shade"]
     print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")
