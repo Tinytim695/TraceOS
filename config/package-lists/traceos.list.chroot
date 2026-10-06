@@ -97,3 +97,8 @@ yara
 python3-yara
 sleuthkit
 plaso
+
+# Authorized web assessment / Red Team foundations
+ffuf
+gobuster
+sqlmap
