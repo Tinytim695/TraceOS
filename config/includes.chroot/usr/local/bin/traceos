@@ -608,7 +608,8 @@ def osint(a):
             print(f"Usage: traceos osint {a[0]} DOMAIN_OR_IP", file=sys.stderr)
             return 2
         try:
-            a = [*build_basic_lookup_command(a[0], a[1]), *a[2:]]
+            lookup_key = "dns" if a[0] == "dig" else a[0]
+            a = [*build_basic_lookup_command(lookup_key, a[1]), *a[2:]]
         except ValueError as exc:
             print(f"Invalid {a[0]} target: {exc}", file=sys.stderr)
             return 2
