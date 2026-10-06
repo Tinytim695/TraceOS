@@ -4,6 +4,7 @@ import pathlib
 import stat
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -58,6 +59,15 @@ class ActionRunnerTests(unittest.TestCase):
         path = self.root / name
         path.write_text(
             "#!/bin/sh\nset -eu\n" + body + "\n",
+            encoding="utf-8",
+        )
+        path.chmod(stat.S_IRWXU)
+        return path
+
+    def fake_python(self, name, source):
+        path = self.root / name
+        path.write_text(
+            "#!/usr/bin/python3\n" + textwrap.dedent(source).lstrip(),
             encoding="utf-8",
         )
         path.chmod(stat.S_IRWXU)
@@ -201,7 +211,7 @@ class ActionRunnerTests(unittest.TestCase):
         self.assertEqual(result.termination_reason, "timeout")
 
     def _group_test_body(self):
-        script = r'''
+        return r'''
 import os
 import signal
 import subprocess
@@ -210,19 +220,22 @@ import time
 
 root = os.path.dirname(__file__)
 sentinel = os.path.join(root, "sentinel")
+parent_pid = os.path.join(root, "parent.pid")
 child_pid = os.path.join(root, "child.pid")
+child = None
 
 
-def child_exit(signum, frame):
-    del signum, frame
+def remove_sentinel():
     try:
         os.unlink(sentinel)
     except FileNotFoundError:
         pass
+
+
+def child_exit(signum, frame):
+    del signum, frame
+    remove_sentinel()
     raise SystemExit(0)
-
-
-child = None
 
 
 def parent_exit(signum, frame):
@@ -237,10 +250,7 @@ def parent_exit(signum, frame):
                 child.kill()
         except Exception:
             pass
-    try:
-        os.unlink(sentinel)
-    except FileNotFoundError:
-        pass
+    remove_sentinel()
     raise SystemExit(0)
 
 
@@ -250,27 +260,25 @@ def run_child():
     with open(sentinel, "w", encoding="utf-8") as handle:
         handle.write("child-running")
     while True:
-        time.sleep(1)
+        time.sleep(1.0)
 
 
-if __name__ == "__main__":
-    if sys.argv[-1] == "child":
-        run_child()
-    signal.signal(signal.SIGTERM, parent_exit)
-    signal.signal(signal.SIGINT, parent_exit)
-    child = subprocess.Popen([sys.executable, __file__, "child"])
-    with open(child_pid, "w", encoding="utf-8") as handle:
-        handle.write(str(child.pid))
-    while child.poll() is None:
-        time.sleep(1)
+signal.signal(signal.SIGTERM, parent_exit)
+signal.signal(signal.SIGINT, parent_exit)
+
+with open(parent_pid, "w", encoding="utf-8") as handle:
+    handle.write(str(os.getpid()))
+
+if sys.argv[-1] == "child":
+    run_child()
+
+child = subprocess.Popen([sys.executable, __file__, "child"])
+with open(child_pid, "w", encoding="utf-8") as handle:
+    handle.write(str(child.pid))
+
+while child.poll() is None:
+    time.sleep(1.0)
 '''
-        return (
-            'printf "%s\\\\n" "$$" > "$(dirname "$0")/parent.pid"; '
-            + 'cat > "$(dirname "$0")/group_helper.py" <<\'PY\'\\n'
-            + script
-            + '\\nPY\\n'
-            + 'exec python3 "$(dirname "$0")/group_helper.py"'
-        )
 
     def _assert_pid_gone(self, pid_path):
         pid = int(pid_path.read_text(encoding="utf-8").strip())
@@ -286,9 +294,9 @@ if __name__ == "__main__":
         self.fail(f"process {pid} still exists after group termination")
 
     def test_timeout_kills_process_group(self):
-        tool = self.fake("whois", self._group_test_body())
+        tool = self.fake_python("whois", self._group_test_body())
         result = actions.ActionRunner(grace_seconds=0.15).execute(
-            self.request(timeout_seconds=0.3)
+            self.request(timeout_seconds=0.5)
         )
         self.assertEqual(result.state, actions.TIMED_OUT)
         time.sleep(0.1)
@@ -314,7 +322,7 @@ if __name__ == "__main__":
         self.assertEqual(holder["result"].state, actions.CANCELLED)
 
     def test_cancel_kills_process_group(self):
-        tool = self.fake("whois", self._group_test_body())
+        tool = self.fake_python("whois", self._group_test_body())
         cancel = threading.Event()
         holder = {}
 
