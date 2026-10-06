@@ -1,3 +1,4 @@
+import importlib.machinery
 import importlib.util
 import pathlib
 import queue
@@ -11,7 +12,8 @@ MODULE = pathlib.Path(__file__).parents[1] / "config/includes.chroot/usr/local/b
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("traceos_control_action_tests", MODULE)
+    loader = importlib.machinery.SourceFileLoader("traceos_control_action_tests", str(MODULE))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
