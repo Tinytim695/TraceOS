@@ -582,7 +582,7 @@ class TraceOSApp:
 
         if not messagebox.askyesno(
             f"Confirm {adapter.display_name} lookup",
-            f"This will contact external network services for {normalized}.\\n\\nProceed only if you are authorized to perform this lookup against this target.",
+            f"This will contact external network services for {normalized}.\n\nProceed only if you are authorized to perform this lookup against this target.",
             parent=self.root,
         ):
             self._trace_diag(
@@ -614,11 +614,11 @@ class TraceOSApp:
         self.active_job_kind = "action"
         self.active_job_attempt = None
         self.job_output = (
-            f"[TraceOS] Action: {adapter.display_name}\\n"
-            f"Target: {shlex.quote(normalized)}\\n"
-            "Authorization: CONFIRMED\\n"
-            f"Action ID: {request.action_id}\\n\\n"
-            "[TraceOS] Starting through ActionRunner...\\n"
+            f"[TraceOS] Action: {adapter.display_name}\n"
+            f"Target: {shlex.quote(normalized)}\n"
+            "Authorization: CONFIRMED\n"
+            f"Action ID: {request.action_id}\n\n"
+            "[TraceOS] Starting through ActionRunner...\n"
         )
         if self.output_widget:
             self.set_text(self.output_widget, self.job_output)
