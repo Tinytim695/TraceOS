@@ -28,6 +28,7 @@ def load_module():
     tk_stub.DISABLED = "disabled"
     filedialog_stub = types.SimpleNamespace()
     messagebox_stub = types.SimpleNamespace()
+    messagebox_stub.askyesno = lambda *args, **kwargs: False
     ttk_stub = types.SimpleNamespace()
     tk_stub.filedialog = filedialog_stub
     tk_stub.messagebox = messagebox_stub
