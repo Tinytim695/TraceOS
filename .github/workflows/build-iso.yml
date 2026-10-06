@@ -120,6 +120,13 @@ jobs:
           echo "[TraceOS] Packaged WHOIS/DNS filesystem and dpkg-state checks passed."
           echo "[TraceOS] Executable startup is verified separately in the booted QEMU guest."
 
+      - name: Validate bundled security toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/validate-toolchain.sh
+          scripts/validate-toolchain.sh /tmp/traceos-root
+
       - name: QEMU live-kernel boot smoke test
         shell: bash
         run: |
