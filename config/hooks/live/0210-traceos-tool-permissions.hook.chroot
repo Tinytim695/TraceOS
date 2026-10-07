@@ -3,4 +3,8 @@ set -eu
 chmod 0755 /usr/local/bin/traceos-purple
 chmod 0755 /usr/local/bin/traceos-osint
 chmod 0755 /usr/local/bin/traceos-control
+chmod 0755 /usr/local/bin/subfinder
+chmod 0755 /usr/local/bin/dnsx
+chmod 0755 /usr/local/bin/httpx
+chmod 0755 /usr/local/bin/naabu
 echo "[TraceOS] Security tool launcher permissions normalized."
