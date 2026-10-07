@@ -17,6 +17,7 @@ install_tool() {
 install_tool sherlock-project 0.16.2
 install_tool maigret 0.6.6
 install_tool h8mail 2.5.6
+install_tool holehe 1.61
 
 # Blackbird is actively maintained but distributed from source rather than
 # a released PyPI package. Pin an exact upstream commit and locked deps.
@@ -53,6 +54,7 @@ cat > /usr/share/traceos/osint-tools.txt <<'EOF'
 sherlock-project==0.16.2|sherlock|OSINT username discovery
 maigret==0.6.6|maigret|OSINT username investigation across thousands of sites
 h8mail==2.5.6|h8mail|OSINT email and breach-oriented lookups
+holehe==1.61|holehe|OSINT email-account existence checks
 blackbird@b45505080ef51bb3ef52dc29879ee6bef31e5b94|blackbird|OSINT username/email search across hundreds of platforms
 whois|whois|WHOIS registration lookup for domains and IPs
 dnsutils|dig|DNS record lookup
