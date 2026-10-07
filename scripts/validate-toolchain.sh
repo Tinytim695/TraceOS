@@ -34,7 +34,7 @@ check_cmd() {
 }
 
 echo "[TraceOS] OSINT"
-for cmd in sherlock maigret h8mail blackbird whois dig; do
+for cmd in sherlock maigret h8mail holehe blackbird whois dig; do
   check_cmd "$cmd"
 done
 
