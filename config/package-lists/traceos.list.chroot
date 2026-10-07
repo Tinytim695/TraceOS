@@ -102,3 +102,5 @@ plaso
 ffuf
 gobuster
 sqlmap
+whatweb
+wafw00f
