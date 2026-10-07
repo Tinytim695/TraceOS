@@ -20,7 +20,7 @@ RED|nuclei|template-driven vulnerability and misconfiguration detection|authoriz
 RED|zap|web application security proxy and authorized active testing|authorized
 RED|nikto|web server and CGI security checks|authorized
 RED|dalfox|XSS-focused parameter and web assessment|authorized
-RED|impacket-*|enterprise protocol assessment and enumeration|authorized/internal
+RED|GetNPUsers.py/GetUserSPNs.py/GetADUsers.py|Impacket enterprise protocol assessment and enumeration|authorized/internal
 RED|nxc|SMB/LDAP/WinRM/MSSQL/SSH enterprise assessment|authorized/internal
 RED|certipy|AD CS discovery and certificate-service assessment|authorized/internal
 RED|ldapsearch|LDAP directory querying and inspection|authorized/internal
