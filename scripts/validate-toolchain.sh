@@ -3,17 +3,18 @@ set -euo pipefail
 ROOT="${1:?usage: validate-toolchain.sh ROOTFS}"
 export LC_ALL=C
 resolve_cmd() {
-  local cmd="$1" candidate target
+  local cmd="$1" candidate target current depth
   for candidate in "$ROOT/usr/bin/$cmd" "$ROOT/usr/local/bin/$cmd"; do
-    if test -x "$candidate"; then printf '%s\n' "$candidate"; return 0; fi
-    if test -L "$candidate"; then
-      target="$(readlink "$candidate")"
+    current="$candidate"
+    for depth in 1 2 3 4 5 6 7 8; do
+      if test -x "$current"; then printf '%s\n' "$current"; return 0; fi
+      if ! test -L "$current"; then break; fi
+      target="$(readlink "$current")"
       case "$target" in
-        /*) target="$ROOT$target" ;;
-        *) target="$(dirname "$candidate")/$target" ;;
+        /*) current="$ROOT$target" ;;
+        *) current="$(dirname "$current")/$target" ;;
       esac
-      if test -x "$target"; then printf '%s\n' "$target"; return 0; fi
-    fi
+    done
   done
   printf '[MISSING] %s\n' "$cmd" >&2
   return 1
