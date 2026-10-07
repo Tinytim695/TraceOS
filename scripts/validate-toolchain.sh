@@ -34,7 +34,7 @@ for cmd in suricata suricata-update; do check_cmd "$cmd"; done
 for cmd in vol sigma; do check_cmd "$cmd"; done
 echo "[TraceOS] ENTERPRISE / ACTIVE DIRECTORY"
 for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno; do check_cmd "$cmd"; done
-for cmd in impacket-GetNPUsers impacket-GetUserSPNs impacket-GetADUsers; do check_cmd "$cmd"; done
+for cmd in GetNPUsers.py GetUserSPNs.py GetADUsers.py; do check_cmd "$cmd"; done
 echo "[TraceOS] PURPLE"
 check_cmd traceos-purple
 echo "[TraceOS] All required OSINT/Recon/Web/Red/Blue/DFIR/Enterprise/Purple command surfaces are packaged."
