@@ -197,11 +197,27 @@ capture_page() {
         exit 1
     fi
 
-    # TCG is slow. Give the real ISO boot path time to reach LightDM,
-    # XFCE and the TraceOS welcome/control centre.
-    # TCG boot time can vary on shared CI runners. Allow a longer window before
-    # declaring the real graphical desktop absent.
-    sleep 300
+    # TCG is slow and shared CI runners vary. Wait for the real Control Centre
+    # session marker instead of burning a fixed five minutes, but retain a
+    # 300-second hard ceiling before declaring the graphical desktop absent.
+    readiness_deadline=$((SECONDS + 300))
+    while (( SECONDS < readiness_deadline )); do
+        if grep -Fq "stage=CONTROL_CENTRE_SESSION_READY" "$STATE/serial-$page.log" 2>/dev/null; then
+            echo "[TraceOS] Control Centre session readiness observed."
+            break
+        fi
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "[TraceOS] QEMU exited before Control Centre session readiness." >&2
+            tail -n 220 "$STATE/serial-$page.log" >&2 || true
+            exit 1
+        fi
+        sleep 1
+    done
+    if ! grep -Fq "stage=CONTROL_CENTRE_SESSION_READY" "$STATE/serial-$page.log" 2>/dev/null; then
+        echo "[TraceOS] Control Centre session readiness marker was not observed before deadline." >&2
+        tail -n 220 "$STATE/serial-$page.log" >&2 || true
+        exit 1
+    fi
 
     capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
 
@@ -257,7 +273,7 @@ capture_page() {
     assert_serial "LIVE_SESSION_HOME=/home/traceos" "the graphical session home is /home/traceos"
     assert_serial "TRACEOS_XFCE_SESSION_RUNNING" "the TraceOS XFCE session is running"
     assert_serial "CONTROL_CENTRE_PROCESS_RUNNING" "the Control Centre process is running"
-    assert_serial "CONTROL_CENTRE_READY" "the Control Centre readiness marker was observed"
+    assert_serial "stage=CONTROL_CENTRE_SESSION_READY" "the Control Centre session readiness marker was observed"
 
     rm -f "$ppm"
     if [[ "$keep_alive" != "true" ]]; then
