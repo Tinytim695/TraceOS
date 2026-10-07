@@ -1,0 +1,8 @@
+TraceOS bundles Volatility 3 version 2.28.2 from the PyPI distribution.
+
+Project: https://github.com/volatilityfoundation/volatility3
+Release: https://github.com/volatilityfoundation/volatility3/releases/tag/v2.28.2
+License: Volatility Software License (VSL)
+
+The installed Python distribution is unmodified. Consult the upstream LICENSE.txt
+distributed with the Volatility 3 package for the complete license terms.

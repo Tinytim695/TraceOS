@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 ROOT="${1:?usage: validate-toolchain.sh ROOTFS}"
 export LC_ALL=C
-
 resolve_cmd() {
-  local cmd="$1"
-  local candidate target
+  local cmd="$1" candidate target
   for candidate in "$ROOT/usr/bin/$cmd" "$ROOT/usr/local/bin/$cmd"; do
     if test -x "$candidate"; then printf '%s\n' "$candidate"; return 0; fi
     if test -L "$candidate"; then
@@ -21,9 +18,7 @@ resolve_cmd() {
   printf '[MISSING] %s\n' "$cmd" >&2
   return 1
 }
-
 check_cmd() { local cmd="$1"; resolve_cmd "$cmd" >/dev/null; printf '[OK] %s\n' "$cmd"; }
-
 echo "[TraceOS] OSINT"
 for cmd in sherlock maigret h8mail holehe blackbird phoneinfoga subfinder whois dig; do check_cmd "$cmd"; done
 echo "[TraceOS] INFRASTRUCTURE RECON"
@@ -34,6 +29,8 @@ echo "[TraceOS] BLUE / DFIR"
 for cmd in tcpdump tshark wireshark yara; do check_cmd "$cmd"; done
 for cmd in fls mmls tsk_recover; do check_cmd "$cmd"; done
 for cmd in plaso-log2timeline plaso-psort; do check_cmd "$cmd"; done
+for cmd in suricata suricata-update; do check_cmd "$cmd"; done
+for cmd in vol sigma; do check_cmd "$cmd"; done
 echo "[TraceOS] PURPLE"
 check_cmd traceos-purple
-echo "[TraceOS] All required OSINT/Recon/Web/Red/Blue/Purple command surfaces are packaged."
+echo "[TraceOS] All required OSINT/Recon/Web/Red/Blue/DFIR/Purple command surfaces are packaged."

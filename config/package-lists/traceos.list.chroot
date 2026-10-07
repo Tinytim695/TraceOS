@@ -97,6 +97,8 @@ yara
 python3-yara
 sleuthkit
 plaso
+suricata
+suricata-update
 
 # Authorized web assessment / Red Team foundations
 ffuf
