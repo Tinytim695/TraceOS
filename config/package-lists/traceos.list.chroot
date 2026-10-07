@@ -104,3 +104,5 @@ gobuster
 sqlmap
 whatweb
 wafw00f
+nikto
+default-jre

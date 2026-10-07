@@ -16,6 +16,10 @@ RED|gobuster|directory/DNS discovery|authorized
 RED|sqlmap|SQL injection assessment|authorized
 RED|whatweb|web technology fingerprinting|authorized
 RED|wafw00f|web application firewall fingerprinting|authorized
+RED|nuclei|template-driven vulnerability and misconfiguration detection|authorized
+RED|zap|web application security proxy and authorized active testing|authorized
+RED|nikto|web server and CGI security checks|authorized
+RED|dalfox|XSS-focused parameter and web assessment|authorized
 BLUE|tcpdump|packet capture|local
 BLUE|tshark|packet analysis|local
 BLUE|wireshark|packet analysis GUI|local
