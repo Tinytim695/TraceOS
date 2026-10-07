@@ -20,6 +20,7 @@ install_tool h8mail 2.5.6
 install_tool holehe 1.61
 
 # PhoneInfoga is distributed as a signed release archive. Pin the release and
+# keep the checksum manifest verification in the build for provenance.
 # verify the upstream SHA-256 manifest before installing the amd64 binary.
 PHONEINFOGA_VERSION="2.11.0"
 PHONEINFOGA_ARCHIVE="phoneinfoga_Linux_x86_64.tar.gz"
