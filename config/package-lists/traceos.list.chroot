@@ -108,3 +108,10 @@ whatweb
 wafw00f
 nikto
 default-jre
+
+# Enterprise / Active Directory / internal assessment
+# Debian 13/Trixie protocol clients and diagnostics.
+ldap-utils
+smbclient
+samba-common-bin
+krb5-user

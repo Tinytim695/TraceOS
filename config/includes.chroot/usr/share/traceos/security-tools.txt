@@ -20,6 +20,14 @@ RED|nuclei|template-driven vulnerability and misconfiguration detection|authoriz
 RED|zap|web application security proxy and authorized active testing|authorized
 RED|nikto|web server and CGI security checks|authorized
 RED|dalfox|XSS-focused parameter and web assessment|authorized
+RED|impacket-*|enterprise protocol assessment and enumeration|authorized/internal
+RED|nxc|SMB/LDAP/WinRM/MSSQL/SSH enterprise assessment|authorized/internal
+RED|certipy|AD CS discovery and certificate-service assessment|authorized/internal
+RED|ldapsearch|LDAP directory querying and inspection|authorized/internal
+RED|smbclient|SMB share and protocol inspection|authorized/internal
+RED|rpcclient|MS-RPC enumeration|authorized/internal
+RED|kinit|Kerberos authentication diagnostics|authorized/internal
+RED|kvno|Kerberos service-ticket diagnostics|authorized/internal
 BLUE|tcpdump|packet capture|local
 BLUE|tshark|packet analysis|local
 BLUE|wireshark|packet analysis GUI|local
