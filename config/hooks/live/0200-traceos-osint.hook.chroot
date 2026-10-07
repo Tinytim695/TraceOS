@@ -40,6 +40,7 @@ test -x phoneinfoga
 install -m 0755 phoneinfoga /usr/local/bin/phoneinfoga
 /usr/local/bin/phoneinfoga version
 rm -rf "$PHONEINFOGA_TMP"
+cd /
 
 # Blackbird is actively maintained but distributed from source rather than
 # a released PyPI package. Pin an exact upstream commit and locked deps.
