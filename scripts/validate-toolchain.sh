@@ -39,7 +39,7 @@ for cmd in sherlock maigret h8mail blackbird whois dig; do
 done
 
 echo "[TraceOS] RED"
-for cmd in nmap ffuf gobuster sqlmap; do
+for cmd in nmap ffuf gobuster sqlmap whatweb wafw00f; do
   check_cmd "$cmd"
 done
 
