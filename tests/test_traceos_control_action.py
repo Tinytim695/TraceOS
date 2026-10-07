@@ -132,9 +132,9 @@ class ControlActionLifecycleTests(unittest.TestCase):
             app.start_basic_lookup_action("whois", "example.com")
         prompt = ask.call_args.args[1]
         self.assertIn("\n\n", prompt)
-        self.assertNotIn("\\\\n", prompt)
+        self.assertNotIn("\\n", prompt)
         self.assertIn("\n", app.job_output)
-        self.assertNotIn("\\\\n", app.job_output)
+        self.assertNotIn("\\n", app.job_output)
 
     def test_worker_uses_action_runner_and_queues_result(self):
         app = self._app()
