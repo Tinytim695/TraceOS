@@ -1,7 +1,7 @@
 # TraceOS Block 4: Enterprise / Active Directory / Internal Assessment
 # project|version|command|purpose|license|mode|provenance
-fortra/impacket|0.13.1|impacket-*|SMB/RPC/LDAP/Kerberos protocol assessment and enumeration|Impacket modified Apache 1.1|authorized|PyPI impacket-0.13.1
-Pennyw0rth/NetExec|1.5.1|nxc|authorized SMB/LDAP/WinRM/MSSQL/SSH enumeration and assessment|BSD-3-Clause|authorized|PyPI netexec-1.5.1
+fortra/impacket|0.13.1|GetNPUsers.py, GetUserSPNs.py, GetADUsers.py|SMB/RPC/LDAP/Kerberos protocol assessment and enumeration|Impacket modified Apache 1.1|authorized|PyPI impacket-0.13.1
+Pennyw0rth/NetExec|1.5.1|nxc|authorized SMB/LDAP/WinRM/MSSQL/SSH enumeration and assessment|BSD-3-Clause|authorized|GitHub commit c7dc286ba65daf10402cdc470e531b84e6d3d911 (v1.5.1)
 ly4k/Certipy|5.1.0|certipy|AD CS discovery and certificate-service assessment|MIT|authorized|PyPI certipy-ad-5.1.0
 debian/openldap|installed|ldapsearch|LDAP directory querying and inspection|OpenLDAP license|authorized|Debian Trixie package
 debian/samba-client|installed|smbclient|SMB share and protocol inspection|GPL|authorized|Debian Trixie package
