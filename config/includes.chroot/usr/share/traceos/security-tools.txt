@@ -24,6 +24,10 @@ BLUE|tcpdump|packet capture|local
 BLUE|tshark|packet analysis|local
 BLUE|wireshark|packet analysis GUI|local
 BLUE|yara|malware/file classification|local
+BLUE|suricata|network IDS/IPS|local
+BLUE|suricata-update|Suricata rule management|local/network-update
 BLUE|sleuthkit|filesystem forensics|local
 BLUE|plaso-log2timeline|forensic timeline generation|local
+BLUE|vol|volatile memory forensics|local
+BLUE|sigma|Sigma rule validation and conversion|local
 PURPLE|traceos-purple|exercise/detection ledger|case
