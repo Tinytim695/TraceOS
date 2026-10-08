@@ -116,6 +116,11 @@ smbclient
 samba-common-bin
 krb5-user
 
+# Block 6B / AD and authentication assessment.
+john
+hashcat
+golang-go
+
 # Block 6A / Metasploit source-build runtime and native gem build dependencies.
 ruby
 ruby-dev
