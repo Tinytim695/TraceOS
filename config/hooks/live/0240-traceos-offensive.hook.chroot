@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+
+MSF_COMMIT="c6e99d08265b081d2f180086790b12811642c278"
+MSF_VERSION="6.5.6"
+MSF_DIR="/opt/traceos-metasploit"
+MSF_BUNDLER="2.5.22"
+
+echo "[TraceOS] Installing Metasploit Framework $MSF_VERSION @ $MSF_COMMIT"
+rm -rf "$MSF_DIR"
+git clone --filter=blob:none --no-checkout https://github.com/rapid7/metasploit-framework.git "$MSF_DIR"
+cd "$MSF_DIR"
+git checkout --detach "$MSF_COMMIT"
+test "$(git rev-parse HEAD)" = "$MSF_COMMIT"
+grep -Fx "3.3.8" .ruby-version
+gem install --no-document "bundler==$MSF_BUNDLER"
+bundle _$MSF_BUNDLER_ config set --local deployment true
+bundle _$MSF_BUNDLER_ config set --local without "development test coverage"
+bundle _$MSF_BUNDLER_ install --jobs 4 --retry 3
+
+cat > /usr/local/bin/msfconsole <<'EOF'
+#!/bin/sh
+set -eu
+export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
+exec bundle _2.5.22_ exec ruby /opt/traceos-metasploit/msfconsole "$@"
+EOF
+cat > /usr/local/bin/msfvenom <<'EOF'
+#!/bin/sh
+set -eu
+export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
+exec bundle _2.5.22_ exec ruby /opt/traceos-metasploit/msfvenom "$@"
+EOF
+cat > /usr/local/bin/msfdb <<'EOF'
+#!/bin/sh
+set -eu
+export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
+exec bundle _2.5.22_ exec ruby /opt/traceos-metasploit/msfdb "$@"
+EOF
+chmod 0755 /usr/local/bin/msfconsole /usr/local/bin/msfvenom /usr/local/bin/msfdb
+
+E4L_COMMIT="f34e7bb"
+E4L_VERSION="1.3.10"
+E4L_DIR="/opt/traceos-enum4linux-ng"
+echo "[TraceOS] Installing enum4linux-ng $E4L_VERSION"
+rm -rf "$E4L_DIR"
+git clone --filter=blob:none --no-checkout https://github.com/cddmp/enum4linux-ng.git "$E4L_DIR"
+cd "$E4L_DIR"
+git checkout --detach "$E4L_COMMIT"
+test "$(git rev-parse --short=7 HEAD)" = "$E4L_COMMIT"
+python3 -m venv "$E4L_DIR/venv"
+"$E4L_DIR/venv/bin/pip" install --no-cache-dir --disable-pip-version-check -r requirements.txt
+"$E4L_DIR/venv/bin/pip" check
+
+cat > /usr/local/bin/enum4linux-ng <<'EOF'
+#!/bin/sh
+set -eu
+exec /opt/traceos-enum4linux-ng/venv/bin/python /opt/traceos-enum4linux-ng/enum4linux-ng.py "$@"
+EOF
+chmod 0755 /usr/local/bin/enum4linux-ng
+
+cat > /usr/share/traceos/offensive-operations-tools.txt <<'EOF'
+# TraceOS Block 6A: Offensive Operations Foundation
+# project|version|command|purpose|license|mode|provenance
+rapid7/metasploit-framework|6.5.6|msfconsole,msfvenom,msfdb|authorized exploitation framework, payload generation and assessment workspace|BSD-3-Clause core plus component licenses|authorized|Git commit c6e99d08265b081d2f180086790b12811642c278
+cddmp/enum4linux-ng|1.3.10|enum4linux-ng|Windows/Samba SMB and RPC enumeration with structured YAML/JSON output|GPL-3.0|authorized|Git commit f34e7bb (v1.3.10)
+EOF
+
+cd /
+echo "[TraceOS] Block 6A offensive operations installation complete."
