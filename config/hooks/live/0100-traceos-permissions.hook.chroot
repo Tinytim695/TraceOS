@@ -10,6 +10,10 @@ chmod 0755 /usr/local/bin/traceos-session-hardening
 chmod 0755 /usr/local/bin/traceos-evidence-mount
 chmod 0755 /usr/local/bin/traceos-evidence-umount
 chmod 0755 /usr/local/bin/blackbird
+chmod 0755 /usr/local/bin/msfconsole
+chmod 0755 /usr/local/bin/msfvenom
+chmod 0755 /usr/local/bin/msfdb
+chmod 0755 /usr/local/bin/enum4linux-ng
 mkdir -p /usr/share/traceos
 mkdir -p /etc/skel/Cases
 
