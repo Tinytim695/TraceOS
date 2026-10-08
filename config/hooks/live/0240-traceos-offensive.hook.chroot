@@ -13,7 +13,7 @@ cd "$MSF_DIR"
 git checkout --detach "$MSF_COMMIT"
 test "$(git rev-parse HEAD)" = "$MSF_COMMIT"
 grep -Fx "3.3.8" .ruby-version
-test "$(bundle --version | awk '{print $3}')" = "$MSF_BUNDLER"
+test "$(bundle "_${MSF_BUNDLER}_" --version | awk '{print $3}')" = "$MSF_BUNDLER"
 bundle "_${MSF_BUNDLER}_" config set --local deployment true
 bundle "_${MSF_BUNDLER}_" config set --local without "development test coverage"
 bundle "_${MSF_BUNDLER}_" install --jobs 4 --retry 3
@@ -21,18 +21,21 @@ bundle "_${MSF_BUNDLER}_" install --jobs 4 --retry 3
 cat > /usr/local/bin/msfconsole <<'EOF'
 #!/bin/sh
 set -eu
+MSF_BUNDLER="2.6.7"
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
 exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfconsole "$@"
 EOF
 cat > /usr/local/bin/msfvenom <<'EOF'
 #!/bin/sh
 set -eu
+MSF_BUNDLER="2.6.7"
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
 exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfvenom "$@"
 EOF
 cat > /usr/local/bin/msfdb <<'EOF'
 #!/bin/sh
 set -eu
+MSF_BUNDLER="2.6.7"
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
 exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfdb "$@"
 EOF
@@ -58,7 +61,7 @@ exec /opt/traceos-enum4linux-ng/venv/bin/python /opt/traceos-enum4linux-ng/enum4
 EOF
 chmod 0755 /usr/local/bin/enum4linux-ng
 
-cat > /usr/share/traceos/offensive-operations-tools.txt <<'EOF'
+cat > /usr/share/traceos/offensive-operations-tools.txt <<'EOF
 # TraceOS Block 6A: Offensive Operations Foundation
 # project|version|command|purpose|license|mode|provenance
 rapid7/metasploit-framework|6.5.6|msfconsole,msfvenom,msfdb|authorized exploitation framework, payload generation and assessment workspace|BSD-3-Clause core plus component licenses|authorized|Git commit c6e99d08265b081d2f180086790b12811642c278
