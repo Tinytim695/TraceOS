@@ -26,6 +26,8 @@ echo "[TraceOS] INFRASTRUCTURE RECON"
 for cmd in dnsx httpx naabu; do check_cmd "$cmd"; done
 echo "[TraceOS] WEB APPLICATION ASSESSMENT"
 for cmd in nmap ffuf gobuster sqlmap whatweb wafw00f nuclei zap nikto dalfox; do check_cmd "$cmd"; done
+echo "[TraceOS] BLOCK 6A OFFENSIVE OPERATIONS"
+for cmd in msfconsole msfvenom msfdb enum4linux-ng; do check_cmd "$cmd"; done
 echo "[TraceOS] BLUE / DFIR"
 for cmd in tcpdump tshark wireshark yara; do check_cmd "$cmd"; done
 for cmd in fls mmls tsk_recover; do check_cmd "$cmd"; done
