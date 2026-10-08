@@ -74,7 +74,16 @@ TraceOS includes Debian's `package-update-indicator`, intended for Xfce desktops
 
 ## OSINT workbench
 
-The OSINT workbench includes Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, Holehe 1.61, PhoneInfoga 2.11.0, Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, GHunt 2.2.0, theHarvester 4.11.1, DNSRecon 1.6.3, and dnstwist 20250130. Blackbird uses an authoritative runtime dependency lock kept in `config/third-party/blackbird-requirements.txt`; its optional AI path is not enabled by TraceOS. Advanced OSINT tools are pinned to upstream releases and validated as packaged command surfaces during ISO builds.
+The OSINT workbench includes Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, Holehe 1.61, PhoneInfoga 2.11.0, Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, GHunt 2.3.4, theHarvester 4.11.1, DNSRecon 1.6.3, and dnstwist 20250130. Blackbird uses an authoritative runtime dependency lock kept in `config/third-party/blackbird-requirements.txt`; its optional AI path is not enabled by TraceOS. Advanced OSINT tools are pinned to upstream releases and validated as packaged command surfaces during ISO builds.
+
+## Block 6A: Offensive Operations Foundation
+
+Block 6A adds a real offensive-assessment foundation rather than mock buttons:
+
+- **Metasploit Framework 6.5.6**, pinned to upstream Git commit `c6e99d08265b081d2f180086790b12811642c278`, with `msfconsole`, `msfvenom`, and `msfdb`.
+- **enum4linux-ng 1.3.10**, pinned to upstream commit `f34e7bb`, for structured Windows/Samba enumeration.
+- The build validates installation and command surfaces but does not execute offensive actions against targets during ISO construction.
+- Future Block 6 stages will add exploit intelligence, credential/authentication assessment, AD attack-path analysis, controlled post-exploitation simulation, operator/C2 simulation, and ATT&CK-linked Purple Team validation.
 
 ## Security engineering
 
