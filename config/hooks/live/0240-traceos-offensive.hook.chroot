@@ -13,7 +13,8 @@ cd "$MSF_DIR"
 git checkout --detach "$MSF_COMMIT"
 test "$(git rev-parse HEAD)" = "$MSF_COMMIT"
 grep -Fx "3.3.8" .ruby-version
-test "$(bundle "_${MSF_BUNDLER}_" --version | awk '{print $3}')" = "$MSF_BUNDLER"
+MSF_BUNDLER_VERSION="$(bundle "_${MSF_BUNDLER}_" --version)"
+test "$MSF_BUNDLER_VERSION" = "Bundler version $MSF_BUNDLER"
 bundle "_${MSF_BUNDLER}_" config set --local deployment true
 bundle "_${MSF_BUNDLER}_" config set --local without "development test coverage"
 bundle "_${MSF_BUNDLER}_" install --jobs 4 --retry 3
