@@ -6,6 +6,53 @@ cd "$ROOT"
 
 echo "[TraceOS] Static preflight: syntax, shebangs and manifests"
 
+REQUIRED_DIRS=(
+    config/hooks/live
+    config/includes.chroot/usr/local/bin
+    config/includes.chroot/usr/local/sbin
+    config/includes.chroot/usr/share/traceos
+    scripts
+    tests
+)
+for path in "${REQUIRED_DIRS[@]}"; do
+    if [[ ! -d "$path" ]]; then
+        printf '[TraceOS] ERROR: required directory is missing: %s\n' "$path" >&2
+        exit 1
+    fi
+done
+
+REQUIRED_FILES=(
+    config/hooks/live/0205-traceos-recon.hook.chroot
+    config/hooks/live/0220-traceos-web-assessment.hook.chroot
+    config/includes.chroot/usr/share/traceos/projectdiscovery-tools.txt
+    config/includes.chroot/usr/share/traceos/web-assessment-tools.txt
+    config/includes.chroot/usr/local/bin/traceos_case.py
+    config/includes.chroot/usr/local/bin/traceos-purple
+    scripts/validate-toolchain.sh
+    tests/test_validate_toolchain.py
+    tests/test_traceos_purple.py
+    tests/test_generated_wrappers.py
+)
+for path in "${REQUIRED_FILES[@]}"; do
+    if [[ ! -f "$path" ]]; then
+        printf '[TraceOS] ERROR: required file is missing: %s\n' "$path" >&2
+        exit 1
+    fi
+done
+
+SCAN_DIRS=(
+    config/hooks/live
+    config/includes.chroot/usr/local/bin
+    config/includes.chroot/usr/local/sbin
+    scripts
+)
+FILE_LIST="$(mktemp)"
+trap 'rm -f "$FILE_LIST"' EXIT
+if ! find "${SCAN_DIRS[@]}" -type f -print0 > "$FILE_LIST"; then
+    echo "[TraceOS] ERROR: failed to enumerate source files for static preflight." >&2
+    exit 1
+fi
+
 while IFS= read -r -d '' file; do
     first="$(head -n 1 "$file" || true)"
     case "$first" in
@@ -28,14 +75,7 @@ while IFS= read -r -d '' file; do
             echo "[TraceOS] Unclassified shebang in $file: $first"
             ;;
     esac
-done < <(
-    find \
-        config/hooks/live \
-        config/includes.chroot/usr/local/bin \
-        config/includes.chroot/usr/local/sbin \
-        scripts \
-        -type f -print0
-)
+done < "$FILE_LIST"
 
 echo "[TraceOS] Manifest contract checks"
 python3 - <<'PY'

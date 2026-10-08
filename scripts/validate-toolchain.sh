@@ -4,47 +4,90 @@ ROOT="${1:?usage: validate-toolchain.sh ROOTFS}"
 export LC_ALL=C
 
 resolve_cmd() {
-  local cmd="$1" candidate target current normalized root_canon
-  root_canon="$(cd "$ROOT" && pwd -P)"
+  local cmd="$1" resolved root_canon
+  root_canon="$(cd -- "$ROOT" && pwd -P)"
 
-  for candidate in \
-      "$root_canon/usr/bin/$cmd" \
-      "$root_canon/usr/sbin/$cmd" \
-      "$root_canon/usr/local/bin/$cmd"
-  do
-    current="$candidate"
-    declare -A seen=()
+  # Resolve path components one at a time. readlink -f alone can collapse
+  # symlinks in parent directories and bypass the explicit chain-depth limit.
+  if resolved="$(python3 - "$root_canon" "$cmd" <<'PY'
+import os
+import stat
+import sys
 
-    for depth in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
-      # Inspect a command symlink before any executability test. Absolute
-      # symlink targets are rooted inside the guest ROOTFS, not the CI host.
-      if [[ -L "$current" ]]; then
-        target="$(readlink -- "$current")" || break
-        if [[ "$target" = /* ]]; then
-          current="$root_canon$target"
-        else
-          current="$(dirname -- "$current")/$target"
-        fi
-      fi
+root, command = sys.argv[1:]
+if not command or command in (".", "..") or "/" in command:
+    raise SystemExit(1)
 
-      normalized="$(readlink -f -- "$current" 2>/dev/null)" || break
-      case "$normalized" in
-        "$root_canon/"*) ;;
-        *) break ;;
-      esac
 
-      if [[ -n "${seen["$normalized"]+seen}" ]]; then
-        break
-      fi
-      seen["$normalized"]=1
+def resolve_candidate(candidate, max_symlinks=16):
+    relative = os.path.relpath(candidate, root)
+    if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        return None
 
-      if [[ -f "$normalized" && -x "$normalized" ]]; then
-        printf '%s\n' "$normalized"
-        return 0
-      fi
-      break
-    done
-  done
+    pending = relative.split(os.sep)
+    resolved = []
+    seen = set()
+    symlink_count = 0
+
+    while pending:
+        component = pending.pop(0)
+        if component in ("", "."):
+            continue
+        if component == "..":
+            if not resolved:
+                return None
+            resolved.pop()
+            continue
+
+        probe = os.path.join(root, *resolved, component)
+        try:
+            metadata = os.lstat(probe)
+        except OSError:
+            return None
+
+        if stat.S_ISLNK(metadata.st_mode):
+            link_path = tuple(resolved + [component])
+            if link_path in seen:
+                return None
+            seen.add(link_path)
+            symlink_count += 1
+            if symlink_count > max_symlinks:
+                return None
+
+            try:
+                target = os.readlink(probe)
+            except OSError:
+                return None
+            if os.path.isabs(target):
+                resolved = []  # Absolute links are guest-root-relative.
+            pending = target.lstrip("/").split("/") + pending
+            continue
+
+        if pending and not stat.S_ISDIR(metadata.st_mode):
+            return None
+        resolved.append(component)
+
+    final_path = os.path.join(root, *resolved)
+    try:
+        final_info = os.lstat(final_path)
+    except OSError:
+        return None
+    if not stat.S_ISREG(final_info.st_mode) or not os.access(final_path, os.X_OK):
+        return None
+    return final_path
+
+
+for directory in ("usr/bin", "usr/sbin", "usr/local/bin"):
+    found = resolve_candidate(os.path.join(root, directory, command))
+    if found is not None:
+        print(found)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+)"; then
+    printf '%s\n' "$resolved"
+    return 0
+  fi
 
   printf '[MISSING] %s\n' "$cmd" >&2
   return 1

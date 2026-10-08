@@ -71,5 +71,20 @@ class ValidateToolchainResolutionTests(unittest.TestCase):
         os.mkfifo(self.root / "usr/bin/tool", 0o600)
         self.assertNotEqual(self.resolve().returncode, 0)
 
+    def test_excessive_parent_directory_symlink_chain_is_rejected(self):
+        usr = self.root / "usr"
+        (usr / "bin").rmdir()
+        real_bin = usr / "real-bin"
+        real_bin.mkdir()
+        self.executable(real_bin / "tool")
+        previous = "real-bin"
+        for number in range(17, 0, -1):
+            link = usr / f"link{number}"
+            link.symlink_to(previous)
+            previous = link.name
+        (usr / "bin").symlink_to(previous)
+        result = self.resolve()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
 if __name__ == "__main__":
     unittest.main()
