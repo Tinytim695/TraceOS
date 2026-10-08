@@ -13,7 +13,7 @@ cd "$MSF_DIR"
 git checkout --detach "$MSF_COMMIT"
 test "$(git rev-parse HEAD)" = "$MSF_COMMIT"
 grep -Fx "3.3.8" .ruby-version
-gem install --no-document "bundler==$MSF_BUNDLER"
+gem install --no-document --clear-sources --source https://rubygems.org "bundler==$MSF_BUNDLER"
 bundle "_${MSF_BUNDLER}_" config set --local deployment true
 bundle "_${MSF_BUNDLER}_" config set --local without "development test coverage"
 bundle "_${MSF_BUNDLER}_" install --jobs 4 --retry 3
@@ -22,19 +22,19 @@ cat > /usr/local/bin/msfconsole <<'EOF'
 #!/bin/sh
 set -eu
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
-exec bundle _2.5.22_ exec ruby /opt/traceos-metasploit/msfconsole "$@"
+exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfconsole "$@"
 EOF
 cat > /usr/local/bin/msfvenom <<'EOF'
 #!/bin/sh
 set -eu
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
-exec bundle _2.5.22_ exec ruby /opt/traceos-metasploit/msfvenom "$@"
+exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfvenom "$@"
 EOF
 cat > /usr/local/bin/msfdb <<'EOF'
 #!/bin/sh
 set -eu
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
-exec bundle _2.5.22_ exec ruby /opt/traceos-metasploit/msfdb "$@"
+exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfdb "$@"
 EOF
 chmod 0755 /usr/local/bin/msfconsole /usr/local/bin/msfvenom /usr/local/bin/msfdb
 
