@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 echo "[TraceOS] Static preflight: syntax, shebangs and manifests"
@@ -11,7 +11,7 @@ while IFS= read -r -d '' file; do
     case "$first" in
         '#!'*python*)
             echo "[TraceOS] Python: $file"
-            PYTHONPYCACHEPREFIX="\${TMPDIR:-/tmp}/traceos-pycache" \
+            PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/traceos-pycache" \
                 python3 -m py_compile "$file"
             ;;
         '#!'*'/bin/bash'*|'#!'*/env\ bash*)

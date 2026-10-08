@@ -2,8 +2,9 @@
 set -euo pipefail
 ROOT="${1:?usage: validate-toolchain.sh ROOTFS}"
 export LC_ALL=C
+
 resolve_cmd() {
-  local cmd="$1" candidate target current root_canon normalized
+  local cmd="$1" candidate target current normalized root_canon
   root_canon="$(cd "$ROOT" && pwd -P)"
 
   for candidate in \
@@ -13,32 +14,32 @@ resolve_cmd() {
   do
     current="$candidate"
     declare -A seen=()
+
     for depth in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
-      normalized="$(realpath -ms -- "$current")" || break
+      # Inspect a command symlink before any executability test. Absolute
+      # symlink targets are rooted inside the guest ROOTFS, not the CI host.
+      if [[ -L "$current" ]]; then
+        target="$(readlink -- "$current")" || break
+        if [[ "$target" = /* ]]; then
+          current="$root_canon$target"
+        else
+          current="$(dirname -- "$current")/$target"
+        fi
+      fi
+
+      normalized="$(readlink -f -- "$current" 2>/dev/null)" || break
       case "$normalized" in
         "$root_canon/"*) ;;
         *) break ;;
       esac
-      if [[ -n "\${seen["$normalized"]+seen}" ]]; then
+
+      if [[ -n "${seen["$normalized"]+seen}" ]]; then
         break
       fi
       seen["$normalized"]=1
-      current="$normalized"
 
-      # Resolve symlinks before checking executability. Absolute targets are
-      # guest-rooted and never resolved against the CI host filesystem.
-      if [[ -L "$current" ]]; then
-        target="$(readlink "$current")" || break
-        if [[ "$target" = /* ]]; then
-          current="$root_canon$target"
-        else
-          current="$(dirname "$current")/$target"
-        fi
-        continue
-      fi
-
-      if [[ -f "$current" && -x "$current" ]]; then
-        printf '%s\n' "$current"
+      if [[ -f "$normalized" && -x "$normalized" ]]; then
+        printf '%s\n' "$normalized"
         return 0
       fi
       break
@@ -50,7 +51,7 @@ resolve_cmd() {
 }
 check_cmd() { local cmd="$1"; resolve_cmd "$cmd" >/dev/null; printf '[OK] %s\n' "$cmd"; }
 
-if [[ -n "\${TRACEOS_VALIDATE_CMD:-}" ]]; then
+if [[ -n "${TRACEOS_VALIDATE_CMD:-}" ]]; then
   check_cmd "$TRACEOS_VALIDATE_CMD"
   exit 0
 fi
