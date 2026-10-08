@@ -4,7 +4,7 @@ set -eu
 MSF_COMMIT="c6e99d08265b081d2f180086790b12811642c278"
 MSF_VERSION="6.5.6"
 MSF_DIR="/opt/traceos-metasploit"
-MSF_BUNDLER="2.5.22"
+MSF_BUNDLER="2.6.7"
 
 echo "[TraceOS] Installing Metasploit Framework $MSF_VERSION @ $MSF_COMMIT"
 rm -rf "$MSF_DIR"
@@ -13,7 +13,7 @@ cd "$MSF_DIR"
 git checkout --detach "$MSF_COMMIT"
 test "$(git rev-parse HEAD)" = "$MSF_COMMIT"
 grep -Fx "3.3.8" .ruby-version
-gem install --no-document --clear-sources --source https://rubygems.org "bundler==$MSF_BUNDLER"
+test "$(bundle --version | awk '{print $3}')" = "$MSF_BUNDLER"
 bundle "_${MSF_BUNDLER}_" config set --local deployment true
 bundle "_${MSF_BUNDLER}_" config set --local without "development test coverage"
 bundle "_${MSF_BUNDLER}_" install --jobs 4 --retry 3
