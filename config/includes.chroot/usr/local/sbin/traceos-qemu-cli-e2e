@@ -105,7 +105,7 @@ try:
     entrypoint_ok = (
         os.access(msfdb_entrypoint, os.X_OK)
         and entrypoint_text.startswith("#!/bin/sh")
-        and 'exec bundle "_\${MSF_BUNDLER}_" exec ruby ' in entrypoint_text
+        and 'exec bundle "_${MSF_BUNDLER}_" exec ruby ' in entrypoint_text
     )
 except OSError as exc:
     (ART/"msfdb-entrypoint.txt").write_text(f"ERROR={exc}\n")
