@@ -4,7 +4,7 @@ ROOT="${1:?usage: validate-toolchain.sh ROOTFS}"
 export LC_ALL=C
 resolve_cmd() {
   local cmd="$1" candidate target current depth
-  for candidate in "$ROOT/usr/bin/$cmd" "$ROOT/usr/local/bin/$cmd"; do
+  for candidate in "$ROOT/usr/bin/$cmd" "$ROOT/usr/sbin/$cmd" "$ROOT/usr/local/bin/$cmd"; do
     current="$candidate"
     for depth in 1 2 3 4 5 6 7 8; do
       if test -x "$current"; then printf '%s\n' "$current"; return 0; fi
@@ -28,6 +28,8 @@ echo "[TraceOS] WEB APPLICATION ASSESSMENT"
 for cmd in nmap ffuf gobuster sqlmap whatweb wafw00f nuclei zap nikto dalfox; do check_cmd "$cmd"; done
 echo "[TraceOS] BLOCK 6A OFFENSIVE OPERATIONS"
 for cmd in msfconsole msfvenom msfdb enum4linux-ng; do check_cmd "$cmd"; done
+echo "[TraceOS] BLOCK 6B AD / AUTHENTICATION ASSESSMENT"
+for cmd in bloodhound-python kerbrute hashcat john; do check_cmd "$cmd"; done
 echo "[TraceOS] BLUE / DFIR"
 for cmd in tcpdump tshark wireshark yara; do check_cmd "$cmd"; done
 for cmd in fls mmls tsk_recover; do check_cmd "$cmd"; done
