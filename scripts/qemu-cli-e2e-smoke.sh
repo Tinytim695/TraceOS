@@ -99,7 +99,15 @@ try:
         "report.stdout", "report.stderr", "report.exit",
         "timeline.stdout", "timeline.stderr", "timeline.exit",
         "whois-version.stdout", "whois-version.stderr", "whois-version.exit",
-        "dig-version.stdout", "dig-version.stderr", "dig-version.exit"}
+        "dig-version.stdout", "dig-version.stderr", "dig-version.exit",
+        "ruby-version.stdout", "ruby-version.stderr", "ruby-version.exit",
+        "bundler-version.stdout", "bundler-version.stderr", "bundler-version.exit",
+        "msf-bundle-check.stdout", "msf-bundle-check.stderr", "msf-bundle-check.exit",
+        "msfconsole-startup.stdout", "msfconsole-startup.stderr", "msfconsole-startup.exit",
+        "msfvenom-startup.stdout", "msfvenom-startup.stderr", "msfvenom-startup.exit",
+        "msfdb-startup.stdout", "msfdb-startup.stderr", "msfdb-startup.exit",
+        "enum4linux-ng-startup.stdout", "enum4linux-ng-startup.stderr", "enum4linux-ng-startup.exit",
+        "msfdb-entrypoint.txt"}
 
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tf:
         names = tf.getnames()
@@ -243,6 +251,25 @@ try:
     audit("DIG_VERSION_EXIT", dig_version_exit == 0)
     audit("DIG_VERSION_OUTPUT", bool(dig_version_stdout.strip() or dig_version_stderr.strip()))
 
+    for label in (
+        "ruby-version",
+        "bundler-version",
+        "msf-bundle-check",
+        "msfconsole-startup",
+        "msfvenom-startup",
+        "msfdb-startup",
+        "enum4linux-ng-startup",
+    ):
+        exit_value = exit_code(label)
+        stdout = (out / f"{label}.stdout").read_text(errors="replace") if (out / f"{label}.stdout").exists() else ""
+        stderr = (out / f"{label}.stderr").read_text(errors="replace") if (out / f"{label}.stderr").exists() else ""
+        audit(f"{label.upper().replace('-', '_')}_EXIT", exit_value == 0)
+        audit(f"{label.upper().replace('-', '_')}_OUTPUT", bool(stdout.strip() or stderr.strip()))
+
+    entrypoint_text = (out / "msfdb-entrypoint.txt").read_text(errors="replace") if (out / "msfdb-entrypoint.txt").exists() else ""
+    audit("MSFDB_ENTRYPOINT", entrypoint_text.startswith("#!/bin/sh") and 'exec bundle "_\${MSF_BUNDLER}_" exec ruby ' in entrypoint_text)
+
+
     required_success_members = {
         "matrix.txt", "case.json", "case-path.txt", *state_files, "source.sha256", "case-new.stdout", "case-new.stderr", "case-new.exit",
         "ledger-check.txt", "vault-pre.txt", "vault-post.txt",
@@ -253,7 +280,15 @@ try:
         "report.stdout", "report.stderr", "report.exit",
         "timeline.stdout", "timeline.stderr", "timeline.exit",
         "whois-version.stdout", "whois-version.stderr", "whois-version.exit",
-        "dig-version.stdout", "dig-version.stderr", "dig-version.exit"
+        "dig-version.stdout", "dig-version.stderr", "dig-version.exit",
+        "ruby-version.stdout", "ruby-version.stderr", "ruby-version.exit",
+        "bundler-version.stdout", "bundler-version.stderr", "bundler-version.exit",
+        "msf-bundle-check.stdout", "msf-bundle-check.stderr", "msf-bundle-check.exit",
+        "msfconsole-startup.stdout", "msfconsole-startup.stderr", "msfconsole-startup.exit",
+        "msfvenom-startup.stdout", "msfvenom-startup.stderr", "msfvenom-startup.exit",
+        "msfdb-startup.stdout", "msfdb-startup.stderr", "msfdb-startup.exit",
+        "enum4linux-ng-startup.stdout", "enum4linux-ng-startup.stderr", "enum4linux-ng-startup.exit",
+        "msfdb-entrypoint.txt"
     }
     present_members = {p.name for p in out.iterdir() if p.is_file() and p.name != "result.txt"}
     audit("REQUIRED_BUNDLE_MEMBERS", required_success_members.issubset(present_members))
