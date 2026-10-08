@@ -38,7 +38,15 @@ jobs:
             po4a \
             debian-archive-keyring \
             file \
-            imagemagick
+            imagemagick \
+            shellcheck
+
+      - name: Static preflight: syntax, shebangs and manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/preflight-static.sh
+          scripts/preflight-static.sh
 
       - name: Install pinned live-build
         run: |
