@@ -14,9 +14,9 @@ git checkout --detach "$MSF_COMMIT"
 test "$(git rev-parse HEAD)" = "$MSF_COMMIT"
 grep -Fx "3.3.8" .ruby-version
 gem install --no-document "bundler==$MSF_BUNDLER"
-bundle "_"$MSF_BUNDLER"_" config set --local deployment true
-bundle _$MSF_BUNDLER_ config set --local without "development test coverage"
-bundle "_"$MSF_BUNDLER"_" install --jobs 4 --retry 3
+bundle "_${MSF_BUNDLER}_" config set --local deployment true
+bundle "_${MSF_BUNDLER}_" config set --local without "development test coverage"
+bundle "_${MSF_BUNDLER}_" install --jobs 4 --retry 3
 
 cat > /usr/local/bin/msfconsole <<'EOF'
 #!/bin/sh
