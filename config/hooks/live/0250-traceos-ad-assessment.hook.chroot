@@ -25,6 +25,7 @@ KERBRUTE_VERSION="1.0.3"
 KERBRUTE_DIR="/tmp/traceos-kerbrute"
 
 echo "[TraceOS] Building Kerbrute $KERBRUTE_VERSION @ $KERBRUTE_COMMIT"
+cd /
 rm -rf "$KERBRUTE_DIR"
 git clone --filter=blob:none --no-checkout https://github.com/ropnop/kerbrute.git "$KERBRUTE_DIR"
 cd "$KERBRUTE_DIR"
@@ -34,10 +35,17 @@ GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath \
     -ldflags "-X github.com/ropnop/kerbrute/util.Version=${KERBRUTE_VERSION} -X github.com/ropnop/kerbrute/util.GitCommit=${KERBRUTE_COMMIT}" \
     -o /usr/local/bin/kerbrute .
 test -x /usr/local/bin/kerbrute
-/usr/local/bin/kerbrute version | grep -F "Version: $KERBRUTE_VERSION" >/dev/null
-/usr/local/bin/kerbrute version | grep -F "Commit: $KERBRUTE_COMMIT" >/dev/null
-rm -rf "$KERBRUTE_DIR"
+if version_output="$(/usr/local/bin/kerbrute version 2>&1)"; then
+    version_status=0
+else
+    version_status=$?
+fi
+printf '%s\n' "$version_output"
+test "$version_status" -eq 0
+printf '%s\n' "$version_output" | grep -F "Version: $KERBRUTE_VERSION" >/dev/null
+printf '%s\n' "$version_output" | grep -F "Commit: $KERBRUTE_COMMIT" >/dev/null
 cd /
+rm -rf "$KERBRUTE_DIR"
 
 cat > /usr/share/traceos/ad-assessment-tools.txt <<'EOF'
 # TraceOS Block 6B: Windows / Active Directory / Authentication Assessment
