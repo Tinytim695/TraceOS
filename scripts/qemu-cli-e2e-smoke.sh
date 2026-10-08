@@ -267,7 +267,7 @@ try:
         audit(f"{label.upper().replace('-', '_')}_OUTPUT", bool(stdout.strip() or stderr.strip()))
 
     entrypoint_text = (out / "msfdb-entrypoint.txt").read_text(errors="replace") if (out / "msfdb-entrypoint.txt").exists() else ""
-    audit("MSFDB_ENTRYPOINT", entrypoint_text.startswith("#!/bin/sh") and 'exec bundle "_\${MSF_BUNDLER}_" exec ruby ' in entrypoint_text)
+    audit("MSFDB_ENTRYPOINT", entrypoint_text.startswith("#!/bin/sh") and 'exec bundle "_${MSF_BUNDLER}_" exec ruby ' in entrypoint_text)
 
 
     required_success_members = {
