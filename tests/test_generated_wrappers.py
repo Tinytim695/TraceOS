@@ -19,7 +19,7 @@ class GeneratedWrapperFixturesTests(unittest.TestCase):
         for path, body in matches:
             self.assertIn('MSF_BUNDLER="2.6.7"', body, path)
             self.assertIn('exec bundle "_${MSF_BUNDLER}_"', body, path)
-            result = subprocess.run([
+            result = subprocess.run(
                 ["bash", "-n"], input=body, text=True, capture_output=True
             )
             self.assertEqual(result.returncode, 0, f"{path}: {result.stderr}")
