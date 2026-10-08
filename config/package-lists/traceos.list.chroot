@@ -133,3 +133,21 @@ libsqlite3-dev
 libpq-dev
 libpcap-dev
 default-libmysqlclient-dev
+
+# Block 6A runtime/build dependencies
+ruby
+ruby-dev
+bundler
+build-essential
+pkg-config
+libssl-dev
+libreadline-dev
+zlib1g-dev
+libffi-dev
+libyaml-dev
+libxml2-dev
+libxslt1-dev
+libsqlite3-dev
+libpq-dev
+libpcap-dev
+default-libmysqlclient-dev
