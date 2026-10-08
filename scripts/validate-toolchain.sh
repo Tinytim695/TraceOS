@@ -21,7 +21,7 @@ resolve_cmd() {
 }
 check_cmd() { local cmd="$1"; resolve_cmd "$cmd" >/dev/null; printf '[OK] %s\n' "$cmd"; }
 echo "[TraceOS] OSINT"
-for cmd in sherlock maigret h8mail holehe blackbird phoneinfoga subfinder whois dig; do check_cmd "$cmd"; done
+for cmd in sherlock maigret h8mail holehe blackbird phoneinfoga ghunt theHarvester dnsrecon dnstwist subfinder whois dig; do check_cmd "$cmd"; done
 echo "[TraceOS] INFRASTRUCTURE RECON"
 for cmd in dnsx httpx naabu; do check_cmd "$cmd"; done
 echo "[TraceOS] WEB APPLICATION ASSESSMENT"
