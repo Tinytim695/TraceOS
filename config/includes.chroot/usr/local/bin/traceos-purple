@@ -1,46 +1,159 @@
 #!/usr/bin/env python3
 """TraceOS Purple Team exercise ledger.
 
-This is a coordination layer, not an attack engine. It records an authorized
-exercise, expected telemetry, detection outcome and retest state inside the
-active case. Actual Red/Blue tools remain separately invoked.
+This coordination layer records an authorized exercise and never launches a
+Red or Blue tool. New records use the active CaseStore selection and are
+written securely beneath the case notes/ directory.
+
+Existing legacy purple/exercises.jsonl ledgers are preserved in place and are
+never silently migrated.
 """
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import stat
 import sys
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
-CASES = Path.home() / "Cases"
+from traceos_case import CaseError, CaseRecord, CaseStore
+
+LEDGER_NAME = "purple-exercises.jsonl"
+MAX_LIST_BYTES = 4 * 1024 * 1024
+STORE = CaseStore()
+
 
 def die(message: str) -> None:
     print(f"[TraceOS] {message}", file=sys.stderr)
     raise SystemExit(2)
 
-def active_case() -> Path:
-    current = CASES / ".current"
-    if not current.is_file():
-        die("No active case. Create/select a case first.")
-    try:
-        target = Path(current.read_text(encoding="utf-8").strip()).resolve()
-    except OSError as exc:
-        die(f"Cannot read active case: {exc}")
-    if not target.is_dir() or not target.is_relative_to(CASES.resolve()):
-        die("Active case path is invalid.")
-    return target
 
-def ledger() -> Path:
-    path = active_case() / "purple"
-    path.mkdir(mode=0o700, exist_ok=True)
-    return path / "exercises.jsonl"
+def active_case() -> CaseRecord:
+    try:
+        record = STORE.current()
+    except CaseError as exc:
+        die(f"Cannot determine active case: {exc}")
+    if record is None:
+        die("No active case. Create/select a case first.")
+    return record
+
+
+def _open_new_ledger(case: CaseRecord, create: bool) -> tuple[int, int]:
+    if case.legacy:
+        die("Purple Team ledger writes require a schema-v1 case with a notes/ directory.")
+    try:
+        notes_fd = STORE.open_required_dir(case.path, "notes")
+    except CaseError as exc:
+        die(f"Cannot open active case notes directory securely: {exc}")
+
+    os.fchmod(notes_fd, 0o700)
+    flags = (
+        os.O_WRONLY
+        | os.O_APPEND
+        | os.O_CLOEXEC
+        | os.O_NOFOLLOW
+        | os.O_NONBLOCK
+    )
+    if create:
+        flags |= os.O_CREAT
+
+    try:
+        fd = os.open(
+            LEDGER_NAME,
+            flags,
+            0o600,
+            dir_fd=notes_fd,
+        )
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError("Purple ledger is not a regular file.")
+        os.fchmod(fd, 0o600)
+        return notes_fd, fd
+    except OSError as exc:
+        os.close(notes_fd)
+        die(f"Cannot securely open {LEDGER_NAME}: {exc}")
+
 
 def append(record: dict) -> None:
-    path = ledger()
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    case = active_case()
+    notes_fd, fd = _open_new_ledger(case, create=True)
+    payload = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            written = 0
+            while written < len(payload):
+                try:
+                    count = os.write(fd, payload[written:])
+                except InterruptedError:
+                    continue
+                if count <= 0:
+                    raise OSError("Purple ledger write made no progress.")
+                written += count
+            os.fsync(fd)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError as exc:
+        die(f"Cannot complete and sync Purple ledger write: {exc}")
+    finally:
+        os.close(fd)
+        os.close(notes_fd)
+
     print(json.dumps(record, indent=2, sort_keys=True))
+
+
+def _read_new_ledger(case: CaseRecord) -> str | None:
+    if case.legacy:
+        return None
+    try:
+        notes_fd = STORE.open_required_dir(case.path, "notes")
+    except CaseError as exc:
+        die(f"Cannot open active case notes directory securely: {exc}")
+
+    fd = None
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        try:
+            fd = os.open(LEDGER_NAME, flags, dir_fd=notes_fd)
+        except FileNotFoundError:
+            return None
+
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError("Purple ledger is not a regular file.")
+
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, 64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_LIST_BYTES:
+                raise OSError("Purple ledger is too large to list safely.")
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        die(f"Cannot safely read {LEDGER_NAME}: {exc}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(notes_fd)
+
+
+def _legacy_ledger_preserved(case: CaseRecord) -> bool:
+    legacy_dir = case.path / "purple"
+    try:
+        directory = os.lstat(legacy_dir)
+        if stat.S_ISLNK(directory.st_mode) or not stat.S_ISDIR(directory.st_mode):
+            return False
+        ledger = os.lstat(legacy_dir / "exercises.jsonl")
+        return stat.S_ISREG(ledger.st_mode)
+    except (FileNotFoundError, OSError):
+        return False
+
 
 def usage() -> None:
     print("""TraceOS Purple Team
@@ -49,14 +162,18 @@ Usage:
   traceos-purple result EXERCISE_ID detected|missed|partial NOTES
   traceos-purple list
 
-The ledger is case-local. The command never launches a Red or Blue tool.
-Use the Red/Blue tool workbenches separately, then record the observed result.
+The active case is resolved through CaseStore.current().
+The new ledger is case-local at notes/purple-exercises.jsonl.
+Legacy purple/exercises.jsonl ledgers are preserved in place and are not
+silently migrated.
 """)
+
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] in {"-h", "--help", "help"}:
         usage()
         return 0
+
     if argv[1] == "plan" and len(argv) >= 5:
         record = {
             "exercise_id": str(uuid.uuid4()),
@@ -68,6 +185,7 @@ def main(argv: list[str]) -> int:
         }
         append(record)
         return 0
+
     if argv[1] == "result" and len(argv) >= 5:
         exercise_id, outcome = argv[2], argv[3]
         if outcome not in {"detected", "missed", "partial"}:
@@ -81,14 +199,24 @@ def main(argv: list[str]) -> int:
         }
         append(record)
         return 0
+
     if argv[1] == "list":
-        path = ledger()
-        if not path.exists():
-            print("[TraceOS] No purple-team exercises recorded for this case.")
-            return 0
-        sys.stdout.write(path.read_text(encoding="utf-8"))
+        case = active_case()
+        contents = _read_new_ledger(case)
+        if contents:
+            sys.stdout.write(contents)
+        else:
+            print("[TraceOS] No Purple Team exercises recorded for this case.")
+        if _legacy_ledger_preserved(case):
+            print(
+                "[TraceOS] Preserved legacy purple/exercises.jsonl; "
+                "no migration was performed.",
+                file=sys.stderr,
+            )
         return 0
+
     die("Invalid arguments. Use --help.")
+
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
