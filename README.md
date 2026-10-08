@@ -83,7 +83,18 @@ Block 6A adds a real offensive-assessment foundation rather than mock buttons:
 - **Metasploit Framework 6.5.6**, pinned to upstream Git commit `c6e99d08265b081d2f180086790b12811642c278`, with `msfconsole`, `msfvenom`, and `msfdb`.
 - **enum4linux-ng 1.3.10**, pinned to upstream commit `f34e7bb`, for structured Windows/Samba enumeration.
 - The build validates installation and command surfaces but does not execute offensive actions against targets during ISO construction.
-- Future Block 6 stages will add exploit intelligence, credential/authentication assessment, AD attack-path analysis, controlled post-exploitation simulation, operator/C2 simulation, and ATT&CK-linked Purple Team validation.
+
+## Block 6B: Windows / Active Directory / Authentication Assessment
+
+Block 6B extends the offensive workstation into enterprise identity and authentication assessment:
+
+- **BloodHound.py 1.9.0**, pinned to upstream Git commit `fd3f322e066d66314bfb31d4ae6f497df5872177`, for BloodHound-compatible Active Directory collection.
+- **Kerbrute 1.0.3**, pinned to upstream Git commit `9dad6e171abdc7491f587c793aa05411264a3393` and built from source with Debian's Go toolchain.
+- **Hashcat 6.2.6+ds2-1** and **John the Ripper 1.9.0-2**, using Debian Trixie packages for offline password/hash recovery assessment.
+- Existing **Impacket 0.13.1**, **NetExec 1.5.1**, **Certipy 5.1.0**, LDAP, SMB, RPC, and Kerberos tooling form the surrounding AD assessment stack.
+- The tools are operator-invoked and intended for explicitly authorized assessments; TraceOS does not automate uncontrolled credential spraying or destructive actions during ISO construction.
+- The full BloodHound CE server/frontend remains a separate evaluation item because its current upstream release is not shipped as a simple standalone Linux asset. BloodHound.py is the portable collector component bundled in this block.
+
 
 ## Security engineering
 
