@@ -41,6 +41,7 @@ PHONEINFOGA_ARCHIVE="phoneinfoga_Linux_x86_64.tar.gz"
 PHONEINFOGA_BASE="https://github.com/sundowndev/phoneinfoga/releases/download/v${PHONEINFOGA_VERSION}"
 PHONEINFOGA_TMP="/tmp/traceos-phoneinfoga"
 
+cd /
 rm -rf "$PHONEINFOGA_TMP"
 mkdir -p "$PHONEINFOGA_TMP"
 cd "$PHONEINFOGA_TMP"
@@ -53,8 +54,8 @@ tar -xzf "$PHONEINFOGA_ARCHIVE"
 test -x phoneinfoga
 install -m 0755 phoneinfoga /usr/local/bin/phoneinfoga
 /usr/local/bin/phoneinfoga version
-rm -rf "$PHONEINFOGA_TMP"
 cd /
+rm -rf "$PHONEINFOGA_TMP"
 
 # Blackbird is actively maintained but distributed from source rather than
 # a released PyPI package. Pin an exact upstream commit and locked deps.
@@ -62,6 +63,7 @@ BLACKBIRD_COMMIT="b45505080ef51bb3ef52dc29879ee6bef31e5b94"
 BLACKBIRD_DIR="/opt/traceos-blackbird"
 
 echo "[TraceOS] Installing Blackbird at $BLACKBIRD_COMMIT"
+cd /
 rm -rf "$BLACKBIRD_DIR"
 git clone https://github.com/antoniaci/blackbird.git "$BLACKBIRD_DIR"
 cd "$BLACKBIRD_DIR"
