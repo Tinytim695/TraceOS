@@ -41,7 +41,9 @@ class PurpleLedgerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((first.path / "notes/purple-exercises.jsonl").is_file())
         self.assertFalse((second.path / "notes/purple-exercises.jsonl").exists())
-        self.assertIn(first.case_id, result.stdout)
+        ledger_text = (first.path / "notes/purple-exercises.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"authorized_target": "example.test"', result.stdout)
+        self.assertIn('"technique": "T1059"', ledger_text)
 
     def test_list_does_not_create_new_ledger(self):
         case = self.store.create("Purple List")
