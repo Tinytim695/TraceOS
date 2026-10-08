@@ -14,7 +14,7 @@ resolve_cmd() {
     current="$candidate"
     declare -A seen=()
     for depth in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
-      normalized="$(realpath -m -- "$current")" || break
+      normalized="$(realpath -ms -- "$current")" || break
       case "$normalized" in
         "$root_canon/"*) ;;
         *) break ;;
