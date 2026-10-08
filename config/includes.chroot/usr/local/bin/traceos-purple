@@ -59,6 +59,7 @@ def _open_new_ledger(case: CaseRecord, create: bool) -> tuple[int, int]:
     if create:
         flags |= os.O_CREAT
 
+    fd = None
     try:
         fd = os.open(
             LEDGER_NAME,
@@ -72,6 +73,8 @@ def _open_new_ledger(case: CaseRecord, create: bool) -> tuple[int, int]:
         os.fchmod(fd, 0o600)
         return notes_fd, fd
     except OSError as exc:
+        if fd is not None:
+            os.close(fd)
         os.close(notes_fd)
         die(f"Cannot securely open {LEDGER_NAME}: {exc}")
 
