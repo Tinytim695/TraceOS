@@ -10,6 +10,7 @@ install_zip_tool() {
     tmp="/tmp/traceos-web-$name"
 
     echo "[TraceOS] Installing web assessment tool $name $version"
+    cd /
     rm -rf "$tmp"
     mkdir -p "$tmp"
     cd "$tmp"
@@ -26,13 +27,18 @@ install_zip_tool() {
     chmod 0755 "$tmp/$name"
     test -x "$tmp/$name"
 
-    version_output="$("$tmp/$name" -version 2>&1)"
+    if version_output="$("$tmp/$name" -version 2>&1)"; then
+        version_status=0
+    else
+        version_status=$?
+    fi
     printf '%s\n' "$version_output"
+    test "$version_status" -eq 0
     printf '%s\n' "$version_output" | grep -F "$version" >/dev/null
 
     install -m 0755 "$tmp/$name" "/usr/local/bin/$name"
-    rm -rf "$tmp"
     cd /
+    rm -rf "$tmp"
 }
 
 install_tar_tool() {
@@ -58,8 +64,13 @@ install_tar_tool() {
     chmod 0755 "$binary"
     test -x "$binary"
 
-    version_output="$("$binary" --version 2>&1)"
+    if version_output="$("$binary" --version 2>&1)"; then
+        version_status=0
+    else
+        version_status=$?
+    fi
     printf '%s\n' "$version_output"
+    test "$version_status" -eq 0
     printf '%s\n' "$version_output" | grep -F "$version" >/dev/null
 
     install -m 0755 "$binary" "/usr/local/bin/$name"
@@ -84,6 +95,7 @@ ZAP_URL="https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/${
 ZAP_TMP="/tmp/traceos-web-zap"
 
 echo "[TraceOS] Installing OWASP ZAP $ZAP_VERSION"
+cd /
 rm -rf "$ZAP_TMP" /opt/traceos-zap
 mkdir -p "$ZAP_TMP" /opt/traceos-zap
 cd "$ZAP_TMP"
@@ -96,17 +108,18 @@ cat > /usr/local/bin/zap <<'EOF'
 exec /opt/traceos-zap/zap.sh "$@"
 EOF
 chmod 0755 /usr/local/bin/zap
-/usr/local/bin/zap -version 2>&1 | grep -F "$ZAP_VERSION" >/dev/null
+if version_output="$(/usr/local/bin/zap -version 2>&1)"; then
+    version_status=0
+else
+    version_status=$?
+fi
+printf '%s\n' "$version_output"
+test "$version_status" -eq 0
+printf '%s\n' "$version_output" | grep -F "$ZAP_VERSION" >/dev/null
 rm -rf "$ZAP_TMP"
 cd /
 
-cat > /usr/share/traceos/web-assessment-tools.txt <<'EOF'
-# TraceOS Block 2: Web Application Assessment
-# project|version|command|purpose|license|asset_sha256|mode
-projectdiscovery/nuclei|3.11.1|nuclei|template-driven vulnerability and misconfiguration detection|MIT|ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6|authorized
-hahwul/dalfox|3.2.3|dalfox|XSS-focused parameter and web assessment|MIT|3b059b6bb55e686b5f240852ea6a6750aa5e35a3b404e4027ffe505e2b60a470|authorized
-zaproxy/zaproxy|2.17.0|zap|web application security proxy, passive analysis and authorized active testing|Apache-2.0|efe799aaa3627db683b43f00c9c210aea0b75c00cc8f0a0f0434d12bb3ddde5a|authorized
-debian/nikto|1:2.1.5-3.1|nikto|web server and CGI security checks|GPL-3.0-only|debian-package|authorized
-EOF
-
+# web-assessment-tools.txt under config/includes.chroot is the authoritative
+# inventory. This hook installs the pinned binaries only and does not rewrite
+# the checked-in manifest.
 echo "[TraceOS] Block 2 web assessment installation complete."
