@@ -18,7 +18,7 @@ install_tool sherlock-project 0.16.2
 install_tool maigret 0.6.6
 install_tool h8mail 2.5.6
 install_tool holehe 1.61
-install_tool ghunt 2.2.0
+install_tool ghunt 2.3.4
 
 install_git_tool() {
     label="$1"
@@ -94,7 +94,7 @@ h8mail==2.5.6|h8mail|OSINT email and breach-oriented lookups
 holehe==1.61|holehe|OSINT email-account existence checks
 phoneinfoga==2.11.0|phoneinfoga|OSINT phone-number reconnaissance and metadata lookup
 blackbird@b45505080ef51bb3ef52dc29879ee6bef31e5b94|blackbird|OSINT username/email search across hundreds of platforms
-ghunt==2.2.0|ghunt|Google-account OSINT and public profile intelligence; interactive login required for authenticated modules
+ghunt==2.3.4|ghunt|Google-account OSINT and public profile intelligence; interactive login required for authenticated modules
 theHarvester@4.11.1|theHarvester|OSINT collection of names, emails, hosts and related infrastructure from public sources
 dnsrecon@1.6.3|dnsrecon|DNS enumeration, records, subdomain discovery and zone-transfer assessment
 dnstwist@20250130|dnstwist|domain permutation and lookalike-domain discovery for brand/phishing exposure
