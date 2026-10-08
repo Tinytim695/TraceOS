@@ -41,7 +41,7 @@ jobs:
             imagemagick \
             shellcheck
 
-      - name: Static preflight: syntax, shebangs and manifests
+      - name: "Static preflight: syntax, shebangs and manifests"
         shell: bash
         run: |
           set -euo pipefail
