@@ -28,7 +28,7 @@ class ValidateToolchainResolutionTests(unittest.TestCase):
     def resolve(self):
         env = os.environ.copy()
         env["TRACEOS_VALIDATE_CMD"] = "tool"
-        return subprocess.run([
+        return subprocess.run(
             ["bash", str(SCRIPT), str(self.root)],
             env=env, text=True, capture_output=True
         )
