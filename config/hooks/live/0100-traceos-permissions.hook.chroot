@@ -1,23 +1,18 @@
 #!/bin/sh
-set -e
+set -eu
 
-chmod 0755 /usr/local/bin/traceos
-chmod 0755 /usr/local/bin/traceos-control
-chmod 0755 /usr/local/bin/traceos-session
-chmod 0755 /usr/local/bin/traceos-osint
-chmod 0755 /usr/local/bin/traceos-update
-chmod 0755 /usr/local/bin/traceos-session-hardening
-chmod 0755 /usr/local/bin/traceos-evidence-mount
-chmod 0755 /usr/local/bin/traceos-evidence-umount
-chmod 0755 /usr/local/bin/blackbird
-chmod 0755 /usr/local/bin/msfconsole
-chmod 0755 /usr/local/bin/msfvenom
-chmod 0755 /usr/local/bin/msfdb
-chmod 0755 /usr/local/bin/enum4linux-ng
-chmod 0755 /usr/local/bin/msfconsole
-chmod 0755 /usr/local/bin/msfvenom
-chmod 0755 /usr/local/bin/msfdb
-chmod 0755 /usr/local/bin/enum4linux-ng
+# Some live-build phases can materialize chroot includes in more than one
+# stage. Normalize permissions when the bundled command is present, without
+# making an early hook fail merely because a later include stage has not yet
+# materialized it.
+for command in     traceos     traceos-control     traceos-session     traceos-osint     traceos-update     traceos-session-hardening     traceos-evidence-mount     traceos-evidence-umount     blackbird
+do
+    path="/usr/local/bin/$command"
+    if test -e "$path"; then
+        chmod 0755 "$path"
+    fi
+done
+
 mkdir -p /usr/share/traceos
 mkdir -p /etc/skel/Cases
 
