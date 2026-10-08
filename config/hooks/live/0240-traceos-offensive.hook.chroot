@@ -62,7 +62,7 @@ exec /opt/traceos-enum4linux-ng/venv/bin/python /opt/traceos-enum4linux-ng/enum4
 EOF
 chmod 0755 /usr/local/bin/enum4linux-ng
 
-cat > /usr/share/traceos/offensive-operations-tools.txt <<'EOF
+cat > /usr/share/traceos/offensive-operations-tools.txt <<'EOF'
 # TraceOS Block 6A: Offensive Operations Foundation
 # project|version|command|purpose|license|mode|provenance
 rapid7/metasploit-framework|6.5.6|msfconsole,msfvenom,msfdb|authorized exploitation framework, payload generation and assessment workspace|BSD-3-Clause core plus component licenses|authorized|Git commit c6e99d08265b081d2f180086790b12811642c278
