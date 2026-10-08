@@ -34,13 +34,13 @@ serial(
 serial("TRACEOS_CI_E2E_RUN_NONCE=" + run_nonce)
 serial("TRACEOS_CI_E2E_STARTED=1")
 results={}; probes=[]
-def tool_version(label, binary, *args):
+def tool_version(label, binary, *args, cwd=None):
     serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
     try:
         p=subprocess.run(
             ["runuser","-u","traceos","--","env","HOME=/home/traceos",
              "XDG_CONFIG_HOME=/home/traceos/.config",binary,*args],
-            text=True,capture_output=True,timeout=30
+            text=True,capture_output=True,timeout=30,cwd=cwd
         )
     except subprocess.TimeoutExpired as exc:
         stdout=exc.stdout or ""
@@ -86,6 +86,34 @@ def cmd(label,*args):
     return p
 whois_version = tool_version("whois-version", "/usr/bin/whois", "--version")
 dig_version = tool_version("dig-version", "/usr/bin/dig", "-v")
+
+ruby_version = tool_version("ruby-version", "/usr/bin/ruby", "--version")
+bundler_version = tool_version("bundler-version", "/usr/bin/bundle", "_2.6.7_", "--version")
+bundle_check = tool_version(
+    "msf-bundle-check",
+    "/usr/bin/bundle",
+    "_2.6.7_",
+    "check",
+    cwd="/opt/traceos-metasploit",
+)
+
+msfdb_entrypoint = Path("/usr/local/bin/msfdb")
+entrypoint_ok = False
+try:
+    entrypoint_text = msfdb_entrypoint.read_text(errors="replace")
+    (ART/"msfdb-entrypoint.txt").write_text(entrypoint_text)
+    entrypoint_ok = (
+        os.access(msfdb_entrypoint, os.X_OK)
+        and entrypoint_text.startswith("#!/bin/sh")
+        and 'exec bundle "_\${MSF_BUNDLER}_" exec ruby ' in entrypoint_text
+    )
+except OSError as exc:
+    (ART/"msfdb-entrypoint.txt").write_text(f"ERROR={exc}\n")
+
+msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
+msfvenom_startup = tool_version("msfvenom-startup", "/usr/local/bin/msfvenom", "--version")
+msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help")
+enum4linux_startup = tool_version("enum4linux-ng-startup", "/usr/local/bin/enum4linux-ng", "--help")
 whois_version_ok = bool(whois_version and whois_version.returncode == 0 and (whois_version.stdout.strip() or whois_version.stderr.strip()))
 dig_version_ok = bool(dig_version and dig_version.returncode == 0 and (dig_version.stdout.strip() or dig_version.stderr.strip()))
 
@@ -137,9 +165,27 @@ report_ok=len(reports)==1 and vault_path.name in reports[0].read_text() and ledg
 if report_ok: (ART/"report.md").write_text(reports[0].read_text())
 timeline_ok=results.get("timeline")==0 and vault_path.name in (ART/"timeline.stdout").read_text()
 same_case=all(x==cid for x in probes)
-status="PASS" if all([ledger_ok,vault_pre_ok,verify_pass_ok,tamper_ok,tamper_verify,report_ok,timeline_ok,same_case,whois_version_ok,dig_version_ok]) else "FAIL"
+startup_ok = all([
+    ruby_version and ruby_version.returncode == 0 and (ruby_version.stdout.strip() or ruby_version.stderr.strip()),
+    bundler_version and bundler_version.returncode == 0 and "Bundler version 2.6.7" in (bundler_version.stdout + bundler_version.stderr),
+    bundle_check and bundle_check.returncode == 0,
+    entrypoint_ok,
+    msfconsole_startup and msfconsole_startup.returncode == 0 and (msfconsole_startup.stdout.strip() or msfconsole_startup.stderr.strip()),
+    msfvenom_startup and msfvenom_startup.returncode == 0 and (msfvenom_startup.stdout.strip() or msfvenom_startup.stderr.strip()),
+    msfdb_startup and msfdb_startup.returncode == 0 and (msfdb_startup.stdout.strip() or msfdb_startup.stderr.strip()),
+    enum4linux_startup and enum4linux_startup.returncode == 0 and (enum4linux_startup.stdout.strip() or enum4linux_startup.stderr.strip()),
+])
+status="PASS" if all([ledger_ok,vault_pre_ok,verify_pass_ok,tamper_ok,tamper_verify,report_ok,timeline_ok,same_case,whois_version_ok,dig_version_ok,startup_ok]) else "FAIL"
 (ART/"matrix.txt").write_text("\n".join([f"STATUS={status}",f"CASE_ID={cid}",f"LEDGER_OK={'yes' if ledger_ok else 'no'}",f"VAULT_PRE_OK={'yes' if vault_pre_ok else 'no'}",f"VERIFY_PASS_OK={'yes' if verify_pass_ok else 'no'}",f"TAMPER_SAME_FILE_OK={'yes' if tamper_ok else 'no'}",f"VERIFY_TAMPER_HASH_MISMATCH_OK={'yes' if tamper_verify else 'no'}",f"REPORT_OK={'yes' if report_ok else 'no'}",f"TIMELINE_OK={'yes' if timeline_ok else 'no'}",f"SAME_CASE_ID_THROUGHOUT={'yes' if same_case else 'no'}",f"WHOIS_VERSION_OK={'yes' if whois_version_ok else 'no'}",f"DIG_VERSION_OK={'yes' if dig_version_ok else 'no'}",f"SOURCE_SHA256={source_hash}",f"VAULT_PRE_SHA256={vault_pre_hash or 'unknown'}",f"VAULT_POST_SHA256={vault_post_hash or 'unknown'}",f"LEDGER_RECORDED_SHA256={ledger_hash or 'unknown'}"])+"\n")
-allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.stdout','case-new.stderr','case-new.exit','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit','whois-version.stdout','whois-version.stderr','whois-version.exit','dig-version.stdout','dig-version.stderr','dig-version.exit'}
+allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.stdout','case-new.stderr','case-new.exit','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit','whois-version.stdout','whois-version.stderr','whois-version.exit','dig-version.stdout','dig-version.stderr','dig-version.exit',
+'ruby-version.stdout','ruby-version.stderr','ruby-version.exit',
+'bundler-version.stdout','bundler-version.stderr','bundler-version.exit',
+'msf-bundle-check.stdout','msf-bundle-check.stderr','msf-bundle-check.exit',
+'msfconsole-startup.stdout','msfconsole-startup.stderr','msfconsole-startup.exit',
+'msfvenom-startup.stdout','msfvenom-startup.stderr','msfvenom-startup.exit',
+'msfdb-startup.stdout','msfdb-startup.stderr','msfdb-startup.exit',
+'enum4linux-ng-startup.stdout','enum4linux-ng-startup.stderr','enum4linux-ng-startup.exit',
+'msfdb-entrypoint.txt'}
 bundle=ART/"bundle.tar"
 with tarfile.open(bundle,"w") as tf:
     for name in sorted(allow):
