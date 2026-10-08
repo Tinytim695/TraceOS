@@ -14,6 +14,10 @@ chmod 0755 /usr/local/bin/msfconsole
 chmod 0755 /usr/local/bin/msfvenom
 chmod 0755 /usr/local/bin/msfdb
 chmod 0755 /usr/local/bin/enum4linux-ng
+chmod 0755 /usr/local/bin/msfconsole
+chmod 0755 /usr/local/bin/msfvenom
+chmod 0755 /usr/local/bin/msfdb
+chmod 0755 /usr/local/bin/enum4linux-ng
 mkdir -p /usr/share/traceos
 mkdir -p /etc/skel/Cases
 
