@@ -29,6 +29,10 @@ REQUIRED_FILES=(
     config/includes.chroot/usr/local/bin/traceos_case.py
     config/includes.chroot/usr/local/bin/traceos-purple
     scripts/validate-toolchain.sh
+    scripts/validate-grub-config.py
+    scripts/test-grub-config-validator.py
+    config/hooks/live/0240-traceos-offensive.hook.chroot
+    scripts/qemu-ui-smoke.sh
     tests/test_validate_toolchain.py
     tests/test_traceos_purple.py
     tests/test_generated_wrappers.py
@@ -76,6 +80,16 @@ while IFS= read -r -d '' file; do
             ;;
     esac
 done < "$FILE_LIST"
+
+echo "[TraceOS] Targeted GRUB and requested cheap checks"
+offensive_hook="config/hooks/live/0240-traceos-offensive.hook.chroot"
+sh -n "$offensive_hook"
+dash -n "$offensive_hook"
+shellcheck --shell=sh "$offensive_hook"
+bash -n scripts/qemu-ui-smoke.sh
+PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/traceos-pycache" \
+    python3 -m py_compile config/includes.chroot/usr/local/bin/traceos
+python3 scripts/test-grub-config-validator.py
 
 echo "[TraceOS] Manifest contract checks"
 python3 - <<'PY'
