@@ -1,0 +1,57 @@
+#!/bin/sh
+set -u
+
+no_welcome="$(printenv TRACEOS_NO_WELCOME 2>/dev/null || printf '0')"
+cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+
+if [ -z "${DISPLAY:-}" ] || [ "$no_welcome" = "1" ]; then
+    exit 0
+fi
+
+log_dir="${XDG_CACHE_HOME:-$HOME/.cache}/traceos"
+mkdir -p "$log_dir" 2>/dev/null || true
+log_file="$log_dir/welcome.log"
+exec >>"$log_file" 2>&1
+
+echo "[TraceOS] welcome launcher: $(date -Is)"
+echo "[TraceOS] DISPLAY=${DISPLAY:-unset}"
+echo "[TraceOS] XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-unset}"
+echo "[TraceOS] cmdline=$cmdline"
+
+page_args=""
+case " $cmdline " in
+    *" traceos-qemu-page=dashboard "*) page_args="--dashboard" ;;
+    *" traceos-qemu-page=osint "*) page_args="--osint" ;;
+    *" traceos-qemu-page=shade "*) page_args="--shade" ;;
+esac
+
+# XFCE may still be bringing the compositor/panel up when XDG autostart fires.
+# Give the session a chance to settle, then retry a crashed launcher rather
+# than silently falling back to the stock XFCE desktop.
+sleep 8
+
+for attempt in 1 2 3; do
+    echo "[TraceOS] launch attempt $attempt"
+    if [ "$page_args" = "--dashboard" ]; then
+        /usr/local/bin/traceos-control-launch
+        rc=$?
+    elif [ "$page_args" = "--osint" ]; then
+        /usr/local/bin/traceos-control-launch --osint
+        rc=$?
+    elif [ "$page_args" = "--shade" ]; then
+        /usr/local/bin/traceos-shade
+        rc=$?
+    else
+        /usr/local/bin/traceos-control-launch --welcome
+        rc=$?
+    fi
+
+    echo "[TraceOS] launcher exit code=$rc"
+    if [ "$rc" -eq 0 ]; then
+        exit 0
+    fi
+    sleep 5
+done
+
+echo "[TraceOS] Control Centre failed after 3 launch attempts."
+exit 1

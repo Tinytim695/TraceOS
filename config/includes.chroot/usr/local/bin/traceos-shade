@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""TraceOS Quick Shade: a local, touch-friendly control and notification surface."""
+from __future__ import annotations
+
+import datetime as dt
+import shutil
+import subprocess
+import tkinter as tk
+from pathlib import Path
+
+
+BG = "#000000"
+PANEL = "#0d0d0d"
+CARD = "#1b1b1b"
+CARD_ACTIVE = "#262626"
+TEXT = "#f5f5f5"
+MUTED = "#a6a6a6"
+TRACE = "#72f1e8"
+GOOD = "#82e8a9"
+
+
+def command_text(args: list[str], default: str = "") -> str:
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, check=False, timeout=3)
+        return (result.stdout or "").strip() or default
+    except (OSError, subprocess.SubprocessError):
+        return default
+
+
+def wifi_state() -> str:
+    value = command_text(["nmcli", "-t", "-f", "WIFI", "general"], "unknown").lower()
+    if value == "enabled":
+        state = command_text(["nmcli", "-t", "-f", "STATE", "general"], "unknown").lower()
+        return "Connected" if "connected" in state else "Enabled"
+    return "Off"
+
+
+def bluetooth_state() -> str:
+    value = command_text(["bluetoothctl", "show"], "unknown").lower()
+    if "powered: yes" in value:
+        return "On"
+    if "powered: no" in value:
+        return "Off"
+    return "Available"
+
+
+def session_state() -> str:
+    return command_text(["/usr/local/bin/traceos-session", "mode"], "Unknown")
+
+
+def network_usage() -> str:
+    total = 0
+    try:
+        for interface in Path("/sys/class/net").iterdir():
+            if interface.name == "lo":
+                continue
+            total += int((interface / "statistics/rx_bytes").read_text())
+            total += int((interface / "statistics/tx_bytes").read_text())
+        return f"{total / (1024 ** 3):.2f} GB traffic since boot"
+    except (OSError, ValueError):
+        return "Local traffic"
+
+
+def battery() -> str:
+    for capacity in Path("/sys/class/power_supply").glob("BAT*/capacity"):
+        try:
+            return f"{capacity.read_text().strip()}%"
+        except OSError:
+            pass
+    return "AC power"
+
+
+class QuickShade:
+    def __init__(self) -> None:
+        self.root = tk.Tk()
+        self.root.title("TraceOS Quick Shade")
+        self.root.configure(bg=BG)
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
+        self.root.attributes("-alpha", 0.98)
+
+        width = max(940, self.root.winfo_screenwidth() - 80)
+        height = max(730, self.root.winfo_screenheight() - 80)
+        x = (self.root.winfo_screenwidth() - width) // 2
+        y = (self.root.winfo_screenheight() - height) // 2
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+        self.main = tk.Frame(self.root, bg=BG)
+        self.main.pack(fill="both", expand=True, padx=24, pady=20)
+        self.build()
+
+        self.root.bind("<Escape>", lambda _event: self.root.destroy())
+        self.root.bind("<Control-q>", lambda _event: self.root.destroy())
+
+    def tile(self, parent: tk.Widget, title: str, value: str, icon: str, command) -> None:
+        card = tk.Frame(parent, bg=CARD, highlightthickness=0, bd=0)
+        card.pack(side="left", fill="both", expand=True, padx=6)
+
+        icon_button = tk.Button(
+            card, text=icon, command=command, bg=TEXT, fg="#101010",
+            activebackground=TRACE, activeforeground="#101010",
+            relief="flat", bd=0, font=("Sans", 20, "bold"),
+            width=2, height=1
+        )
+        icon_button.pack(anchor="w", padx=16, pady=(16, 10))
+
+        labels = tk.Frame(card, bg=CARD)
+        labels.pack(fill="both", expand=True)
+        tk.Label(labels, text=title, bg=CARD, fg=TEXT, font=("Sans", 13, "bold")).pack(
+            anchor="w", padx=16, pady=(4, 0)
+        )
+        tk.Label(labels, text=value, bg=CARD, fg=MUTED, font=("Sans", 10)).pack(
+            anchor="w", padx=16, pady=(0, 17)
+        )
+
+        for widget in (card, labels):
+            widget.bind("<Button-1>", lambda _event, fn=command: fn())
+
+    def notification(self, parent: tk.Widget, source: str, title: str, body: str) -> None:
+        box = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground="#171717")
+        box.pack(fill="x", pady=4)
+
+        tk.Label(
+            box, text="T", bg="#252525", fg=TRACE, font=("Sans", 12, "bold"),
+            width=2, height=1
+        ).pack(side="left", padx=(12, 8), pady=14)
+
+        body_box = tk.Frame(box, bg=PANEL)
+        body_box.pack(side="left", fill="x", expand=True, pady=10)
+        tk.Label(body_box, text=source, bg=PANEL, fg=MUTED, font=("Sans", 8, "bold")).pack(anchor="w")
+        tk.Label(body_box, text=title, bg=PANEL, fg=TEXT, font=("Sans", 10, "bold")).pack(anchor="w")
+        tk.Label(body_box, text=body, bg=PANEL, fg=MUTED, font=("Sans", 9)).pack(anchor="w")
+
+    def pill(self, parent: tk.Widget, text: str, command) -> None:
+        tk.Button(
+            parent, text=text, command=command,
+            bg=CARD, fg=TEXT, activebackground=CARD_ACTIVE,
+            activeforeground=TRACE, relief="flat", bd=0,
+            font=("Sans", 10, "bold"), padx=16, pady=9
+        ).pack(side="left", padx=5)
+
+    def launch(self, args: list[str]) -> None:
+        try:
+            subprocess.Popen(args)
+        except OSError:
+            pass
+
+    def terminal(self, args: list[str]) -> None:
+        self.root.destroy()
+        if shutil.which("xfce4-terminal"):
+            subprocess.Popen(["xfce4-terminal", "--title=TraceOS", "--execute", *args])
+
+    def build(self) -> None:
+        now = dt.datetime.now()
+        top = tk.Frame(self.main, bg=BG)
+        top.pack(fill="x", pady=(0, 18))
+
+        tk.Label(top, text=now.strftime("%H:%M"), bg=BG, fg=TEXT, font=("Sans", 24, "bold")).pack(anchor="w")
+        tk.Label(top, text=now.strftime("%a, %d %b"), bg=BG, fg=MUTED, font=("Sans", 11)).pack(anchor="w")
+        tk.Label(top, text=f"TRACEOS  •  {battery()}", bg=BG, fg=TEXT, font=("Sans", 10, "bold")).place(
+            relx=1.0, rely=0.12, anchor="e"
+        )
+
+        tiles = tk.Frame(self.main, bg=BG)
+        tiles.pack(fill="x")
+        self.tile(tiles, "Wi-Fi", wifi_state(), "⌁", lambda: self.launch(["nm-connection-editor"]))
+        self.tile(tiles, "Bluetooth", bluetooth_state(), "ᛒ", lambda: self.launch(["blueman-manager"]))
+        self.tile(tiles, "Network", network_usage(), "↕", lambda: self.terminal(["/usr/local/bin/traceos", "network", "status"]))
+        self.tile(tiles, "Session", session_state(), "◉", lambda: self.terminal(["/usr/local/bin/traceos", "status"]))
+
+        tk.Label(
+            self.main, text="NOTIFICATIONS", bg=BG, fg=MUTED,
+            font=("Sans", 9, "bold")
+        ).pack(anchor="w", pady=(24, 8))
+
+        notes = tk.Frame(self.main, bg=BG)
+        notes.pack(fill="both", expand=True)
+        self.notification(notes, "TRACEOS", "Local-first investigation workstation", "External lookups happen only when you launch them.")
+        self.notification(notes, "CASE VAULT", "Evidence stays in your case workspace", "SHA-256 records protect the integrity ledger.")
+        self.notification(notes, "SYSTEM", "Quick Shade is running locally", "No built-in telemetry or automatic uploads.")
+
+        bottom = tk.Frame(self.main, bg=BG)
+        bottom.pack(fill="x", pady=(14, 0))
+        self.pill(bottom, "TRACEOS CENTRE", lambda: self.terminal(["/usr/local/bin/traceos-control"]))
+        self.pill(bottom, "TIMELINE", lambda: self.terminal(["/usr/local/bin/traceos", "timeline"]))
+        self.pill(bottom, "DOCTOR", lambda: self.terminal(["/usr/local/bin/traceos", "doctor"]))
+        self.pill(bottom, "CLOSE", self.root.destroy)
+
+
+if __name__ == "__main__":
+    QuickShade().root.mainloop()

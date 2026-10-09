@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+export PIPX_GLOBAL_HOME=/opt/pipx
+export PIPX_GLOBAL_BIN_DIR=/usr/local/bin
+export PIPX_GLOBAL_MAN_DIR=/usr/local/share/man
+
+mkdir -p "$PIPX_GLOBAL_HOME" "$PIPX_GLOBAL_BIN_DIR" "$PIPX_GLOBAL_MAN_DIR"
+
+install_pipx_tool() {
+    package="$1"
+    version="$2"
+    echo "[TraceOS] Installing enterprise assessment tool: $package==$version"
+    pipx install --global "$package==$version"
+}
+
+install_pipx_git_tool() {
+    name="$1"
+    source="$2"
+    echo "[TraceOS] Installing enterprise assessment tool: $name from $source"
+    pipx install --global "$source"
+}
+
+install_pipx_tool impacket 0.13.1
+install_pipx_git_tool "netexec 1.5.1" "git+https://github.com/Pennyw0rth/NetExec@c7dc286ba65daf10402cdc470e531b84e6d3d911"
+install_pipx_tool certipy-ad 5.1.0
+
+cat > /usr/share/traceos/enterprise-assessment-tools.txt <<'EOF'
+# TraceOS Block 4: Enterprise / Active Directory / Internal Assessment
+# project|version|command|purpose|license|mode|provenance
+fortra/impacket|0.13.1|impacket-*|SMB/RPC/LDAP/Kerberos protocol assessment and enumeration|Impacket modified Apache 1.1|authorized|PyPI impacket-0.13.1
+Pennyw0rth/NetExec|1.5.1|nxc|authorized SMB/LDAP/WinRM/MSSQL/SSH enumeration and assessment|BSD-3-Clause|authorized|GitHub commit c7dc286ba65daf10402cdc470e531b84e6d3d911 (v1.5.1)
+ly4k/Certipy|5.1.0|certipy|AD CS discovery and certificate-service assessment|MIT|authorized|PyPI certipy-ad-5.1.0
+debian/openldap|installed|ldapsearch|LDAP directory querying and inspection|OpenLDAP license|authorized|Debian Trixie package
+debian/samba-client|installed|smbclient|SMB share and protocol inspection|GPL|authorized|Debian Trixie package
+debian/samba-common-bin|installed|rpcclient|MS-RPC enumeration|GPL|authorized|Debian Trixie package
+debian/krb5-user|installed|kinit|Kerberos authentication diagnostics|MIT|authorized|Debian Trixie package
+debian/krb5-user|installed|kvno|Kerberos service-ticket diagnostics|MIT|authorized|Debian Trixie package
+EOF
+
+echo "[TraceOS] Enterprise / Active Directory assessment installation complete."

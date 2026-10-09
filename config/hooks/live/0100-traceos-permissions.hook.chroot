@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+# Some live-build phases can materialize chroot includes in more than one
+# stage. Normalize permissions when the bundled command is present, without
+# making an early hook fail merely because a later include stage has not yet
+# materialized it.
+for command in     traceos     traceos-control     traceos-session     traceos-osint     traceos-update     traceos-session-hardening     traceos-evidence-mount     traceos-evidence-umount     blackbird
+do
+    path="/usr/local/bin/$command"
+    if test -e "$path"; then
+        chmod 0755 "$path"
+    fi
+done
+
+mkdir -p /usr/share/traceos
+mkdir -p /etc/skel/Cases
+
+# Keep the live image usable without making the build assume a real password.
+if id traceos >/dev/null 2>&1; then
+    usermod -aG sudo,netdev,plugdev traceos || true
+fi

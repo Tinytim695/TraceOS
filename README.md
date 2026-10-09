@@ -1,0 +1,121 @@
+# TraceOS
+
+TraceOS is a Debian-based Linux desktop project focused on digital investigation, forensics, privacy-first tooling, and a local AI terminal assistant.
+
+## Project goals
+
+- Proper graphical Linux desktop for everyday use
+- Native investigation and forensic tooling
+- Local-first case management
+- Terminal-first AI assistant support
+- Reproducible ISO builds
+- No telemetry or automatic evidence uploads
+
+## Current milestone
+
+**0.1.0 foundation**
+
+The first milestone establishes a bootable Debian 13 "trixie" XFCE desktop image with a TraceOS launcher, core system utilities, networking tools, forensic/image packages, and reproducible GitHub Actions builds.
+
+## Build locally
+
+On a Debian-based build host:
+
+```bash
+sudo apt update
+sudo apt install -y live-build debootstrap xorriso
+./build.sh
+```
+
+The resulting image is:
+
+```
+live-image-amd64.hybrid.iso
+```
+
+## Pre-USB validation
+
+Every main-branch ISO build runs a clean image build, ISO layout validation, a Linux live-kernel boot smoke test, and a graphical QEMU smoke test that captures the Dashboard, OSINT Centre, and Quick Shade from the real built ISO. The CI job also publishes a small QEMU screenshot artifact separately from the large ISO artifact so the desktop can be inspected without downloading the full image.
+
+Before flashing a downloaded ISO, verify its SHA-256 against the accompanying `traceos-0.1.0-amd64.iso.sha256` file. Flashing the image to a USB device is destructive to the selected device, so identify the target device carefully and verify the checksum before writing it.
+
+The first physical USB boot should be treated as a hardware validation pass. Check Wi-Fi/networking, display resolution, audio, USB storage detection, Bluetooth where available, read-only evidence mounting, suspend/shutdown behaviour, and the default amnesic session before relying on the image for real work.
+
+## Demo Lab
+
+Demo Lab always creates a separate synthetic case containing clearly marked demonstration evidence. It does not inject demo material into the currently selected case.
+
+## Safety model
+
+TraceOS is designed for legitimate administration, incident response, forensics, CTFs, and security testing on systems you are authorized to assess. Network and security utilities are user-invoked rather than automatically run against external targets.
+
+## Session model
+
+TraceOS provides explicit live session modes at boot:
+
+- **Amnesic (no persistent storage)**: boots with `nopersistence`. The live overlay is not written to a persistence volume. This is not a secure disk-erase feature.
+- **Persistent**: boots with `persistence` and looks for a live-boot persistence volume.
+- **Persistent (Encrypted LUKS)**: boots with `persistence persistence-encryption=luks` and permits LUKS persistence.
+- **Persistent from USB** and **Encrypted Persistent from USB** are available under advanced boot options.
+
+For persistence, live-boot expects a persistence volume labelled `persistence` (or another explicitly selected label) with a `persistence.conf` file. The volume can be prepared separately on an ext4 filesystem or another supported medium. TraceOS does not automatically partition, format, encrypt, or select a user's disks.
+
+The default boot entry is Amnesic, deliberately making the safest session behaviour the automatic path. The Control Centre reports the active session mode.
+
+A separate recovery/factory-reset workflow will be developed for installed systems. It will require explicit confirmation and will distinguish ordinary reset from hardware/device secure-erase operations.
+
+## Forensic desktop safety
+
+TraceOS disables desktop auto-mount/auto-open behaviour at session start and disables Thunar thumbnails by default. TraceOS disables Thunar volume-management auto-mount behaviour and the desktop auto-mount/auto-open settings. For deliberate evidence access, `traceos-evidence-mount /dev/<partition>` mounts a block-device partition read-only with `nosuid,nodev,noexec`; ext2/3/4 also use `noload` to prevent journal replay. Use `traceos-evidence-umount` when finished. These helpers do not provide hardware write blocking.
+
+## Updates
+
+TraceOS includes Debian's `package-update-indicator`, intended for Xfce desktops, so normal Debian updates can be reported to the user. Use `traceos update check` to refresh package metadata and inspect available upgrades, or `traceos update` for a user-approved Debian full upgrade. Bundled third-party OSINT tools stay pinned until a tested TraceOS update replaces them. `traceos update check` shows the installed stack and Debian updates; new ISO builds are the controlled path for changing bundled third-party versions.
+
+## OSINT workbench
+
+The OSINT workbench includes Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, Holehe 1.61, PhoneInfoga 2.11.0, Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, GHunt 2.3.4, theHarvester 4.11.1, DNSRecon 1.6.3, and dnstwist 20250130. Blackbird uses an authoritative runtime dependency lock kept in `config/third-party/blackbird-requirements.txt`; its optional AI path is not enabled by TraceOS. Advanced OSINT tools are pinned to upstream releases and validated as packaged command surfaces during ISO builds.
+
+## Block 6A: Offensive Operations Foundation
+
+Block 6A adds a real offensive-assessment foundation rather than mock buttons:
+
+- **Metasploit Framework 6.5.6**, pinned to upstream Git commit `c6e99d08265b081d2f180086790b12811642c278`, with `msfconsole`, `msfvenom`, and `msfdb`.
+- **enum4linux-ng 1.3.10**, pinned to upstream commit `f34e7bb`, for structured Windows/Samba enumeration.
+- The build validates installation and command surfaces but does not execute offensive actions against targets during ISO construction.
+
+## Block 6B: Windows / Active Directory / Authentication Assessment
+
+Block 6B extends the offensive workstation into enterprise identity and authentication assessment:
+
+- **BloodHound.py 1.9.0**, pinned to upstream Git commit `fd3f322e066d66314bfb31d4ae6f497df5872177`, for BloodHound-compatible Active Directory collection.
+- **Kerbrute 1.0.3**, pinned to upstream Git commit `9dad6e171abdc7491f587c793aa05411264a3393` and built from source with Debian's Go toolchain.
+- **Hashcat 6.2.6+ds2-1** and **John the Ripper 1.9.0-2**, using Debian Trixie packages for offline password/hash recovery assessment.
+- Existing **Impacket 0.13.1**, **NetExec 1.5.1**, **Certipy 5.1.0**, LDAP, SMB, RPC, and Kerberos tooling form the surrounding AD assessment stack.
+- The tools are operator-invoked and intended for explicitly authorized assessments; TraceOS does not automate uncontrolled credential spraying or destructive actions during ISO construction.
+- The full BloodHound CE server/frontend remains a separate evaluation item because its current upstream release is not shipped as a simple standalone Linux asset. BloodHound.py is the portable collector component bundled in this block.
+
+
+## Security engineering
+
+The ISO build uses Debian security repositories over HTTPS and pins the live-build source to a known upstream revision. Pull requests are handled by a separate read-only security-check workflow instead of executing untrusted PR code in the privileged ISO build. Static checks include ShellCheck, Bandit, Python compilation, and a tracked-secret pattern scan.
+
+Before a public 1.0 release, TraceOS must also pass VM/hardware boot tests, dependency/package audits, removable-media tests, privilege/service checks, evidence-handling tests, and signed-release verification.
+
+## Roadmap
+
+- Desktop foundation
+- TraceOS control centre
+- CaseForge integration
+- ShellSieve integration
+- TraceLock integration
+- DNAProcess integration
+- Image forensics integration
+- OSINT workspace
+- Core OSINT tools bundled in the live image
+- Advanced OSINT and entity-intelligence collection
+- Red Team assessment expansion
+- Blue Team detection and hunting expansion
+- Purple Team ATT&CK-linked validation workflows
+- Local Ari/llama.cpp integration
+- Installer and signed releases

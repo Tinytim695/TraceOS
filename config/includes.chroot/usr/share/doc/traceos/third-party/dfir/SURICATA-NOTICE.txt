@@ -1,0 +1,11 @@
+TraceOS uses the Debian Trixie suricata package and suricata-update package.
+
+Suricata: 1:7.0.10-1+deb13u4
+suricata-update: 1.3.4-1
+
+Projects:
+https://suricata.io/
+https://github.com/OISF/suricata-update
+
+The Debian packages and their license/copyright metadata remain authoritative
+for redistribution and attribution.

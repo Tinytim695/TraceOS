@@ -1,0 +1,12 @@
+[Unit]
+Description=TraceOS QEMU GUI diagnostic bridge
+After=traceos-qemu-graphics.service
+ConditionVirtualization=vm
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/traceos-qemu-ui-diagnostics
+Restart=no
+
+[Install]
+WantedBy=graphical.target

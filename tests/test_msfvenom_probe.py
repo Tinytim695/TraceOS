@@ -21,7 +21,7 @@ def load_function(path, name):
 
 
 class MsfVenomProbeTests(unittest.TestCase):
-    def test_guest_probe_uses_help_not_version(self):
+    def test_guest_probe_uses_help_not_version_and_never_generates_payload(self):
         tree = ast.parse(GUEST.read_text(encoding="utf-8"), filename=str(GUEST))
         assignment = next(
             node for node in ast.walk(tree)
@@ -31,12 +31,8 @@ class MsfVenomProbeTests(unittest.TestCase):
         )
         self.assertIsInstance(assignment.value, ast.Call)
         self.assertEqual(assignment.value.func.id, "tool_version")
-        self.assertEqual(
-            [arg.value for arg in assignment.value.args],
-            ["msfvenom-startup", "/usr/local/bin/msfvenom", "--help"],
-        )
-        # This must remain a help-only probe: never request payload creation.
         probe_args = [arg.value for arg in assignment.value.args]
+        self.assertEqual(probe_args, ["msfvenom-startup", "/usr/local/bin/msfvenom", "--help"])
         self.assertNotIn("--payload", probe_args)
         self.assertNotIn("--out", probe_args)
         self.assertNotIn("-p", probe_args)
@@ -64,20 +60,24 @@ Options:
                     with self.subTest(output=output):
                         self.assertFalse(checker(output))
 
-    def test_guest_matrix_and_startup_gate_use_help_validation(self):
-        source = GUEST.read_text(encoding="utf-8")
-        self.assertIn("MSFVENOM_HELP_OK", source)
-        self.assertIn("    msfvenom_help_ok,", source)
+    def test_guest_and_host_expect_pinned_upstream_help_exit(self):
+        guest = GUEST.read_text(encoding="utf-8")
+        host = HOST.read_text(encoding="utf-8")
+        self.assertIn("msfvenom_startup.returncode == 1", guest)
+        self.assertIn('exit_code("msfvenom-startup") == 1', host)
+
+    def test_host_requires_successful_help_exit_and_content(self):
         host = HOST.read_text(encoding="utf-8")
         self.assertIn('"MSFVENOM_HELP_CONTENT"', host)
         self.assertIn('"MATRIX_MSFVENOM_HELP_OK"', host)
-        self.assertIn('exit_code("msfvenom-startup") == 0', host)
+        self.assertIn("valid_msfvenom_help(msfvenom_help_output)", host)
 
     def test_version_unknown_is_not_accepted_as_help(self):
         for path in (GUEST, HOST):
             with self.subTest(path=path):
                 checker = load_function(path, "valid_msfvenom_help")
                 self.assertFalse(checker("msfvenom: version unknown"))
+
 
 if __name__ == "__main__":
     unittest.main()

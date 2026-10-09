@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+install -d /etc/systemd/system/graphical.target.wants
+chmod 0755 /usr/local/sbin/traceos-qemu-ui-diagnostics
+chmod 0755 /usr/local/sbin/traceos-qemu-cli-e2e
+ln -sf ../traceos-qemu-graphics.service /etc/systemd/system/graphical.target.wants/traceos-qemu-graphics.service
+ln -sf ../traceos-qemu-ui-diagnostics.service /etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
+ln -sf ../traceos-qemu-cli-e2e.service /etc/systemd/system/graphical.target.wants/traceos-qemu-cli-e2e.service

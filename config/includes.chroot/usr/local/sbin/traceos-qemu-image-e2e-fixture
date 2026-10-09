@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import base64
+import hashlib
+import os
+import pwd
+import subprocess
+import time
+from pathlib import Path
+
+SERIAL = "/dev/ttyS0"
+MARK = Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ui-image-e2e/raw")
+FIXTURE = Path("/home/traceos/traceosimage.png")
+PAYLOAD = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
+def emit(value: str) -> None:
+    print(value, flush=True)
+    try:
+        fd = os.open(SERIAL, os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            os.write(fd, (value + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+def main() -> int:
+    if subprocess.run(["systemd-detect-virt", "--quiet", "--vm"], check=False).returncode != 0:
+        return 0
+    emit("TRACEOS_IMAGE_E2E_PREFLIGHT=1")
+    for _ in range(30):
+        if MARK.is_file():
+            break
+        time.sleep(1)
+    else:
+        emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=missing")
+        return 0
+    marker = MARK.read_text(encoding="utf-8", errors="replace").strip()
+    if marker != "1":
+        emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=invalid")
+        return 0
+    data = base64.b64decode(PAYLOAD)
+    digest = hashlib.sha256(data).hexdigest()
+    FIXTURE.write_bytes(data)
+    traceos = pwd.getpwnam("traceos")
+    os.chown(FIXTURE, traceos.pw_uid, traceos.pw_gid)
+    os.chmod(FIXTURE, 0o600)
+    emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=valid")
+    emit("TRACEOS_IMAGE_E2E_FIXTURE_OWNER=traceos MODE=0600")
+    emit(
+        "TRACEOS_IMAGE_E2E_FIXTURE_READY=1 "
+        f"sha256={digest} size={len(data)}"
+    )
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

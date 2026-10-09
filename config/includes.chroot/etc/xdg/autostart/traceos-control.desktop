@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TraceOS Control Centre
+Comment=Launch the TraceOS investigation cockpit
+Exec=/usr/local/bin/traceos-control-launch --welcome
+TryExec=/usr/local/bin/traceos-control-launch
+OnlyShowIn=XFCE;
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=8

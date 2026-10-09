@@ -1,0 +1,757 @@
+#!/usr/bin/env python3
+import datetime as dt, hashlib, json, mimetypes, os, shutil, stat, subprocess, sys
+from pathlib import Path
+
+# Use the installed library path in the ISO, but also resolve the sibling
+# library when this script is executed directly from the source tree.
+TRACEOS_LIB = "/usr/local/lib/traceos"
+if not os.path.isdir(TRACEOS_LIB):
+    TRACEOS_LIB = str(Path(__file__).resolve().parent.parent / "lib" / "traceos")
+if TRACEOS_LIB not in sys.path:
+    sys.path.insert(0, TRACEOS_LIB)
+
+from investigation import build_basic_lookup_command
+from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
+VERSION=Path("/usr/share/traceos/VERSION").read_text().strip() if Path("/usr/share/traceos/VERSION").exists() else "0.1.0"
+HOME=Path.home()
+CASE_STORE=CaseStore()
+CASES=CASE_STORE.cases_root
+STATE=CASE_STORE.state_path
+os.umask(0o077)
+
+def now():
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+def have(c):
+    return shutil.which(c) is not None
+
+def run(a,t=30):
+    try:
+        return subprocess.run(a,text=True,capture_output=True,timeout=t,check=False)
+    except (OSError,subprocess.SubprocessError):
+        return None
+
+def case_root():
+    return CASE_STORE.cases_root
+
+def is_safe_case_path(p):
+    try:
+        CASE_STORE.validate_path(Path(p))
+        return True
+    except CaseError:
+        return False
+
+def current_case():
+    record = CASE_STORE.current()
+    return record.path if record else None
+
+def case_name(p):
+    if not p:
+        return "NONE"
+    return CASE_STORE.read(Path(p)).title
+
+def set_case(p):
+    return CASE_STORE.select(Path(p))
+
+def safe_case_name(n):
+    return CASE_STORE.validate_title(n)
+
+def new_case(name, description=""):
+    record = CASE_STORE.create(name, description)
+    print(f"Created and selected case: {record.path}")
+    return record.path
+
+def list_cases():
+    print("\nTRACEOS CASES\n─────────────")
+    entries = CASE_STORE.list_cases()
+    if not entries:
+        print("  No cases yet.")
+        return
+    try:
+        active = CASE_STORE.current()
+        active_path = active.path if active else None
+    except CaseError:
+        active_path = None
+    for entry in entries:
+        if entry.error:
+            print(f" ! {entry.path.name}  [ERROR] {entry.error}")
+            continue
+        record = entry.record
+        marker = "*" if record and record.path == active_path else " "
+        legacy = " LEGACY" if record and record.legacy else ""
+        print(f" {marker} {record.title}  [{record.path.name}]{legacy}")
+
+def sha256_file(path, chunk_size=1024*1024):
+    digest=hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""): digest.update(chunk)
+    return digest.hexdigest()
+def session_mode():
+    try: c=Path("/proc/cmdline").read_text()
+    except OSError: return "UNKNOWN"
+    if "nopersistence" in c:return "AMNESIC"
+    if "persistence-encryption=luks" in c:return "PERSISTENT LUKS"
+    if "persistence" in c:return "PERSISTENT"
+    return "LIVE DEFAULT"
+def network_mode():
+    r=run(["nmcli","-t","-f","STATE","general"],3); return r.stdout.strip().splitlines()[0].upper() if r and r.stdout.strip() else "UNKNOWN"
+def status():
+    try:
+        entries = CASE_STORE.list_cases()
+        n = sum(1 for entry in entries if entry.record)
+        record = CASE_STORE.current()
+        case_label = record.title if record else "NONE"
+    except CaseError as exc:
+        n = 0
+        case_label = f"ERROR: {exc}"
+    print(f"""
+╭──────────────── TRACEOS ────────────────╮
+│ DIGITAL INVESTIGATION WORKSTATION       │
+│ Version    {VERSION:<28}│
+├─────────────────────────────────────────┤
+│ Case       {case_label[:29]:<29}│
+│ Workspaces {n:<29}│
+│ Session    {session_mode():<29}│
+│ Network    {network_mode():<29}│
+│ Telemetry  none built in               │
+╰─────────────────────────────────────────╯
+""")
+def show_tools():
+    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search"),("whois","OSINT WHOIS lookup"),("dig","OSINT DNS inspection")]
+    print("\nTRACEOS TOOLBOX\n───────────────")
+    for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
+def verify_evidence():
+    p=current_case()
+    if not p:
+        print("No current case."); return 2
+    evidence_fd = None
+    hashes_fd = None
+    try:
+        evidence_fd, hashes_fd = CASE_STORE.open_required_dirs(
+            p, ("evidence", "hashes")
+        )
+        ledger_fd = os.open(
+            "evidence.tsv",
+            os.O_RDONLY
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=hashes_fd,
+        )
+        try:
+            ledger_info = os.fstat(ledger_fd)
+            if not stat.S_ISREG(ledger_info.st_mode):
+                print("Evidence ledger is not a regular file.", file=sys.stderr)
+                return 1
+            with os.fdopen(ledger_fd, "r", encoding="utf-8") as handle:
+                ledger_fd = None
+                rows = handle.read().splitlines()[1:]
+        finally:
+            if ledger_fd is not None:
+                os.close(ledger_fd)
+    except (OSError, CaseError, UnicodeError) as exc:
+        print(f"Unable to read evidence ledger: {exc}", file=sys.stderr)
+        return 1
+
+    checked=0; failures=0
+    for r in rows:
+        q=r.split("\t")
+        if len(q)!=6:
+            print("  [FAIL] malformed evidence ledger row")
+            failures+=1
+            continue
+        vault=Path(q[2]).expanduser()
+        expected=q[3]
+        try:
+            relative = vault.relative_to(p / "evidence")
+        except ValueError:
+            relative = None
+        if (
+            relative is None
+            or len(relative.parts) != 1
+            or relative.name in {"", ".", ".."}
+        ):
+            print(f"  [FAIL] missing or out-of-case vault copy: {vault}")
+            failures+=1
+            continue
+
+        vault_fd = None
+        try:
+            vault_fd = os.open(
+                relative.name,
+                os.O_RDONLY
+                | getattr(os, "O_NONBLOCK", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=evidence_fd,
+            )
+            info = os.fstat(vault_fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("vault entry is not a regular file")
+            actual = _sha256_fd(vault_fd)
+            checked += 1
+            if actual == expected:
+                print(f"  [OK]   {vault.name}  {actual}")
+            else:
+                print(f"  [FAIL] {vault.name}  expected={expected} actual={actual}")
+                failures += 1
+        except OSError as exc:
+            print(f"  [FAIL] missing or unsafe vault copy: {vault}: {exc}")
+            failures += 1
+        finally:
+            if vault_fd is not None:
+                os.close(vault_fd)
+
+    print(f"Integrity check: {checked} checked, {failures} failed.")
+    return 1 if failures else 0
+
+def _sha256_fd(fd, chunk_size=1024*1024):
+    digest = hashlib.sha256()
+    os.lseek(fd, 0, os.SEEK_SET)
+    while True:
+        chunk = os.read(fd, chunk_size)
+        if not chunk:
+            break
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_all(fd, data):
+    offset = 0
+    while offset < len(data):
+        written = os.write(fd, data[offset:])
+        if written <= 0:
+            raise OSError("ledger write made no progress")
+        offset += written
+
+
+def add_evidence(src):
+    p=current_case()
+    if not p:
+        print('Create a case first: traceos case new "Case Name"')
+        return 2
+    src=Path(src).expanduser()
+    if any(ch in str(src) for ch in ("\t", "\r", "\n")):
+        print(
+            "[TraceOS] Unsupported source path: tab, CR and LF characters are not allowed.",
+            file=sys.stderr,
+        )
+        return 2
+
+    stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    mime=mimetypes.guess_type(src.name)[0] or "application/octet-stream"
+
+    evidence_fd=None
+    hashes_fd=None
+    dest_name=None
+    dest_fd=None
+    src_fd=None
+    try:
+        # Open both child directories from one validated case-directory FD so
+        # a same-user case-directory swap cannot split evidence and hashes.
+        evidence_fd, hashes_fd = CASE_STORE.open_required_dirs(
+            p, ("evidence", "hashes")
+        )
+
+        try:
+            src_fd=os.open(
+                src,
+                os.O_RDONLY
+                | getattr(os,"O_NONBLOCK",0)
+                | getattr(os,"O_CLOEXEC",0)
+                | getattr(os,"O_NOFOLLOW",0),
+            )
+        except OSError as exc:
+            print(f"[TraceOS] Not a readable regular file: {src}: {exc}",file=sys.stderr)
+            return 2
+
+        source_info=os.fstat(src_fd)
+        if not stat.S_ISREG(source_info.st_mode):
+            print(f"[TraceOS] Not a regular file: {src}",file=sys.stderr)
+            return 2
+        size=source_info.st_size
+
+        source_hash=_sha256_fd(src_fd)
+        # Hashing consumed the descriptor; rewind the same opened inode
+        # before copying so the acquired bytes match the recorded hash.
+        os.lseek(src_fd,0,os.SEEK_SET)
+
+        suffix=0
+        while True:
+            candidate_name=f"E{stamp}_{src.name}" if suffix == 0 else f"E{stamp}_{suffix}_{src.name}"
+            try:
+                dest_fd=os.open(
+                    candidate_name,
+                    os.O_RDWR
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os,"O_CLOEXEC",0)
+                    | getattr(os,"O_NOFOLLOW",0),
+                    0o400,
+                    dir_fd=evidence_fd,
+                )
+                dest_name=candidate_name
+                break
+            except FileExistsError:
+                suffix+=1
+
+        with os.fdopen(src_fd,"rb",closefd=True) as source_handle, os.fdopen(
+            dest_fd,"wb",closefd=True
+        ) as dest_handle:
+            src_fd=None
+            dest_fd=None
+            shutil.copyfileobj(source_handle,dest_handle,1024*1024)
+            dest_handle.flush()
+            os.fsync(dest_handle.fileno())
+
+            vault_hash=_sha256_fd(dest_handle.fileno())
+            if source_hash != vault_hash:
+                raise CaseError(
+                    "Evidence copy hash mismatch; source may have changed during acquisition."
+                )
+
+            # Keep the destination fd open through the permission change so
+            # a pathname rename/replacement cannot redirect chmod().
+            os.fchmod(dest_handle.fileno(),0o444)
+
+        ledger_fd=os.open(
+            "evidence.tsv",
+            os.O_WRONLY
+            | os.O_APPEND
+            | getattr(os,"O_NONBLOCK",0)
+            | getattr(os,"O_CLOEXEC",0)
+            | getattr(os,"O_NOFOLLOW",0),
+            dir_fd=hashes_fd,
+        )
+        try:
+            ledger_info = os.fstat(ledger_fd)
+            if not stat.S_ISREG(ledger_info.st_mode):
+                raise CaseError("Evidence ledger is not a regular file.")
+            line=f"{now()}\t{src}\t{p/'evidence'/dest_name}\t{source_hash}\t{size}\t{mime}\n"
+            encoded_line=line.encode("utf-8")
+            _write_all(ledger_fd, encoded_line)
+            os.fsync(ledger_fd)
+        finally:
+            os.close(ledger_fd)
+
+    except (OSError,ValueError,CaseError) as exc:
+        if dest_name is not None and evidence_fd is not None:
+            try:
+                os.unlink(dest_name,dir_fd=evidence_fd)
+            except OSError:
+                pass
+        print(f"[TraceOS] Evidence acquisition failed: {exc}",file=sys.stderr)
+        return 1
+    finally:
+        if src_fd is not None:
+            os.close(src_fd)
+        if dest_fd is not None:
+            os.close(dest_fd)
+        if evidence_fd is not None:
+            os.close(evidence_fd)
+        if hashes_fd is not None:
+            os.close(hashes_fd)
+
+    print(
+        f"Evidence added: {p/'evidence'/dest_name}\n"
+        f"SHA-256: {source_hash}\n"
+        f"Size: {size} bytes\n"
+        f"MIME: {mime}"
+    )
+    return 0
+
+def list_evidence():
+    p=current_case()
+    if not p: print("No current case."); return
+    m=p/"hashes"/"evidence.tsv"; rows=m.read_text(encoding="utf-8").splitlines()[1:] if m.exists() else []
+    print(f"\nEVIDENCE VAULT / {case_name(p)}\n")
+    for r in rows:
+        q=r.split("\t")
+        if len(q)==6: print(f" {q[0]}  {Path(q[2]).name}\n    {q[3]}  {q[4]} bytes  {q[5]}")
+MAX_IMAGE_SIZE = 100 * 1024 * 1024
+IMAGE_OUTPUT_LIMIT = 12000
+
+
+def _bounded_text(value: str, limit: int = IMAGE_OUTPUT_LIMIT) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + f"\n[TraceOS] Output truncated at {limit} characters."
+
+
+def _run_fd_tool(command, args, fd, timeout, path_first=False):
+    if not have(command):
+        return {
+            "state": "unavailable",
+            "command": command,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+        }
+    fd_path = f"/proc/self/fd/{fd}"
+    try:
+        argv = [command, fd_path, *args] if path_first else [command, *args, fd_path]
+        result = subprocess.run(
+            argv,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            shell=False,
+            pass_fds=(fd,),
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return {
+            "state": "timeout",
+            "command": command,
+            "exit_code": None,
+            "stdout": _bounded_text(stdout),
+            "stderr": _bounded_text(stderr or "Timed out."),
+        }
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "state": "failed",
+            "command": command,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+    return {
+        "state": "ok" if result.returncode == 0 else "failed",
+        "command": command,
+        "exit_code": result.returncode,
+        "stdout": _bounded_text(result.stdout or ""),
+        "stderr": _bounded_text(result.stderr or ""),
+    }
+
+
+def analyse_image(src):
+    path = Path(src).expanduser()
+    if any(ch in str(path) for ch in ("\t", "\r", "\n")):
+        result = {
+            "schema_version": 1,
+            "status": "invalid_path",
+            "source_path": str(path),
+            "error": "tab, CR and LF characters are not allowed",
+        }
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 2
+
+    fd = None
+    try:
+        fd = os.open(
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            result = {
+                "schema_version": 1,
+                "status": "not_a_regular_file",
+                "source_path": str(path),
+                "size": info.st_size,
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 2
+        if info.st_size > MAX_IMAGE_SIZE:
+            result = {
+                "schema_version": 1,
+                "status": "image_too_large",
+                "source_path": str(path),
+                "size": info.st_size,
+                "limit": MAX_IMAGE_SIZE,
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 2
+
+        source_hash_before = _sha256_fd(fd)
+        file_result = _run_fd_tool("file", ["-L", "-b", "--mime-type", "--"], fd, 5)
+        mime = file_result["stdout"].strip().splitlines()[-1] if file_result["stdout"].strip() else ""
+
+        result = {
+            "schema_version": 1,
+            "status": "failed",
+            "source_path": str(path),
+            "size": info.st_size,
+            "sha256_before": source_hash_before,
+            "mime": mime,
+            "file": file_result,
+        }
+
+        if file_result["state"] == "unavailable":
+            result["status"] = "file_tool_unavailable"
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1
+        if file_result["state"] != "ok":
+            result["status"] = "file_tool_failed"
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1
+        if not mime.startswith("image/"):
+            result["status"] = "not_an_image"
+            source_hash_after = _sha256_fd(fd)
+            result["sha256_after"] = source_hash_after
+            result["source_unchanged"] = source_hash_before == source_hash_after
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 2
+
+        result["dimensions"] = _run_fd_tool(
+            "identify",
+            ["-format", "%m %wx%h"],
+            fd,
+            10,
+        )
+        result["metadata"] = _run_fd_tool(
+            "exiftool",
+            ["-j", "-n", "--"],
+            fd,
+            10,
+        )
+        result["ocr"] = _run_fd_tool(
+            "tesseract",
+            ["stdout", "--psm", "6"],
+            fd,
+            20,
+            path_first=True,
+        )
+
+        source_hash_after = _sha256_fd(fd)
+        result["sha256_after"] = source_hash_after
+        result["source_unchanged"] = source_hash_before == source_hash_after
+        result["status"] = "ok" if result["source_unchanged"] else "source_changed"
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["source_unchanged"] else 1
+    except OSError as exc:
+        result = {
+            "schema_version": 1,
+            "status": "open_failed",
+            "source_path": str(path),
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 2
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def analyse(src):
+    p=Path(src).expanduser()
+    if not p.exists(): print(f"Not found: {p}",file=sys.stderr); return 2
+    digest=sha256_file(p) if p.is_file() else "directory"
+    print(f"\nTRACEOS LOCAL ANALYSIS\n─────────────────────\nPath: {p}\nSize: {p.stat().st_size if p.is_file() else 0} bytes\nModified: {dt.datetime.fromtimestamp(p.stat().st_mtime,dt.timezone.utc).isoformat()}\nSHA-256: {digest}")
+    if p.is_file() and have("file"):
+        r=run(["file","-b",str(p)])
+        if r and r.stdout.strip(): print(f"File: {r.stdout.strip()}")
+    if p.is_file() and have("exiftool"):
+        r=run(["exiftool","-s","-G1","-a",str(p)])
+        if r and r.stdout.strip(): print("\nMetadata\n"+r.stdout.strip())
+    return 0
+def report():
+    p=current_case()
+    if not p: print("No current case."); return 2
+    m=p/"hashes"/"evidence.tsv"; rows=[r.split("\t") for r in m.read_text(encoding="utf-8").splitlines()[1:] if r.strip()] if m.exists() else []
+    out=p/"reports"/f"TraceOS-report-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.md"
+    lines=["# TraceOS Investigation Report","",f"Case: {case_name(p)}",f"Generated: {now()}","","## Handling","TraceOS preserves source files and works from separate vault copies.","","## Evidence","","| Timestamp | Vault copy | SHA-256 | Size | MIME |","|---|---|---|---:|---|"]
+    for q in rows:
+        if len(q)==6: lines.append(f"| {q[0]} | {Path(q[2]).name} | {q[3]} | {q[4]} | {q[5]} |")
+    out.write_text("\n".join(lines)+"\n",encoding="utf-8"); print(f"Report written: {out}"); return 0
+def timeline():
+    p=current_case()
+    if not p: print("No current case."); return 2
+    m=p/"hashes"/"evidence.tsv"; events=[]
+    if m.exists():
+        for r in m.read_text(encoding="utf-8").splitlines()[1:]:
+            q=r.split("\t")
+            if len(q)==6: events.append((q[0],f"Evidence added: {Path(q[2]).name}"))
+    print(f"\nTRACEOS TIMELINE / {case_name(p)}\n")
+    for s,t in sorted(events): print(f" {s}  {t}")
+    if not events: print(" No timeline events recorded.")
+    return 0
+def network(a):
+    if not a or a[0]=="status":
+        print(f"NetworkManager: {network_mode()}"); r=run(["ip","-br","addr"],5)
+        if r: print(r.stdout.strip())
+        return 0
+    if a[0]=="nmap" and len(a)>1:
+        print("AUTHORIZED USE ONLY: scan systems you own or are explicitly authorized to test.")
+        r=run(["nmap",*a[1:]],300)
+        if not r:return 1
+        print(r.stdout)
+        if r.stderr.strip():print(r.stderr,file=sys.stderr)
+        return r.returncode
+    print("Usage: traceos network {status|nmap TARGET}"); return 2
+def osint(a):
+    tools=["sherlock","maigret","h8mail","blackbird","whois","dig"]
+    if not a:
+        print("\nTRACEOS OSINT WORKBENCH\n")
+        for i,t in enumerate(tools,1):print(f" {i}) {t}")
+        print("Selection: ",end="",flush=True)
+        c=sys.stdin.readline().strip()
+        if c=="0":return 0
+        try:a=[tools[int(c)-1]]
+        except (ValueError,IndexError):return 2
+        if a[0] in {"whois","dig"}:
+            print("Domain or IP: ",end="",flush=True)
+            target=sys.stdin.readline().strip()
+            if not target:return 2
+            a.append(target)
+    if a[0] not in tools or not have(a[0]):
+        print(f"Tool unavailable: {a[0]}")
+        return 1
+    if a[0] in {"whois","dig"}:
+        if len(a) < 2:
+            print(f"Usage: traceos osint {a[0]} DOMAIN_OR_IP", file=sys.stderr)
+            return 2
+        try:
+            lookup_key = "dns" if a[0] == "dig" else a[0]
+            a = [*build_basic_lookup_command(lookup_key, a[1]), *a[2:]]
+        except ValueError as exc:
+            print(f"Invalid {a[0]} target: {exc}", file=sys.stderr)
+            return 2
+    elif len(a)==1 and a[0] in {"sherlock","maigret"}:
+        print("Username: ",end="",flush=True)
+        u=sys.stdin.readline().strip()
+        if not u:return 2
+        a.append(u)
+    print("External lookups happen only because you launched this command.")
+    r=run(a,300)
+    if r:
+        print(r.stdout)
+        if r.stderr.strip():print(r.stderr,file=sys.stderr)
+        return r.returncode
+    return 1
+
+def demo():
+    previous=current_case()
+    p=new_case("TraceOS Demo Investigation")
+    sample=p/"working"/"demo-evidence.txt"; sample.write_text("Synthetic TraceOS demonstration evidence. No real personal data.\n",encoding="utf-8")
+    add_evidence(str(sample)); (p/"notes"/"demo-note.md").write_text("# Demo note\n\nSynthetic and safe to explore.\n",encoding="utf-8"); report()
+    print(f"Demo Lab ready: {p}")
+    if previous: print(f"Previous case remains untouched: {previous}")
+    return 0
+def doctor():
+    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","whois","dig","blueman-manager","ari"]
+    assets=["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]
+    configs=["/etc/xdg/autostart/traceos-welcome.desktop","/etc/lightdm/lightdm.conf.d/50-traceos.conf","/usr/local/bin/traceos-control","/usr/local/bin/traceos-shade"]
+    print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")
+    failed=False
+    for c in req:
+        ok=have(c); failed=failed or not ok
+        print(f" {'[OK]' if ok else '[FAIL]'} required  {c}")
+    for c in opt:print(f" {'[OK]' if have(c) else '[--]'} optional  {c}")
+    for p in assets:print(f" {'[OK]' if Path(p).exists() else '[--]'} asset  {p}")
+    for p in configs:print(f" {'[OK]' if Path(p).exists() else '[FAIL]'} config  {p}")
+    return 1 if failed else 0
+def ai():
+    if have("ari"):return subprocess.call(["ari"])
+    print("Trace AI uses the configured local model only. No external AI service is contacted by TraceOS."); return 0
+def update(args):
+    helper="/usr/local/bin/traceos-update"
+    if not Path(helper).exists():
+        print("[TraceOS] Updater helper is not installed.",file=sys.stderr); return 1
+    mode=args or ["check"]
+    if mode[0] not in {"check","update"} or len(mode)>1:
+        print("Usage: traceos update [check|update]",file=sys.stderr); return 2
+    return subprocess.call([helper,*mode])
+def main(a):
+    c,rest=(a[0],a[1:]) if a else ("status",[])
+    if c=="status":status();return 0
+    if c=="session":
+        if rest and rest[0] not in {"status","mode"}: print("Usage: traceos session {status|mode}"); return 2
+        print(session_mode()); return 0
+    if c=="welcome":status();print("Welcome to TraceOS. Open the Control Centre or start with a new case.");return 0
+    if c=="case":
+        x=rest[0] if rest else "list"
+        if x=="new":
+            args = rest[1:]
+            description = ""
+            if "--description" in args:
+                index = args.index("--description")
+                title = " ".join(args[:index]).strip()
+                description = " ".join(args[index + 1:]).strip()
+            else:
+                title = " ".join(args).strip()
+            if not title:
+                print('Usage: traceos case new "Case Name" [--description "Description"]')
+                return 2
+            try:
+                new_case(title, description)
+            except CaseCreatedButNotSelected as exc:
+                print(
+                    f"Case created but not selected: {exc.record.path} "
+                    f"(ID {exc.record.case_id}).\nReason: {exc.cause}",
+                    file=sys.stderr,
+                )
+                return 1
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 2
+            return 0
+        if x=="list":
+            try:
+                list_cases()
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 1
+            return 0
+        if x=="current":
+            try:
+                record = CASE_STORE.current()
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 1
+            print(record.path if record else "NONE")
+            return 0
+        if x=="read":
+            target = Path(rest[1]).expanduser() if len(rest)>1 else None
+            try:
+                record = CASE_STORE.current() if target is None else CASE_STORE.read(target)
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 1
+            if record is None:
+                print("No current case.")
+                return 0
+            print(f"Case path: {record.path}")
+            print(f"Case ID: {record.case_id or 'LEGACY'}")
+            print(f"Title: {record.title}")
+            print(f"Description: {record.description or '(none)'}")
+            print(f"Created UTC: {record.created_utc or 'UNKNOWN (legacy case)'}")
+            print(f"Schema version: {record.schema_version}")
+            print(f"Legacy: {'yes' if record.legacy else 'no'}")
+            return 0
+        if x=="use" and len(rest)>1:
+            try:
+                record = CASE_STORE.select(Path(rest[1]).expanduser())
+            except CaseError as exc:
+                print(f"TraceOS: {exc}", file=sys.stderr)
+                return 2
+            print(f"Selected case: {record.path}")
+            return 0
+        print('Usage: traceos case {new NAME [--description DESCRIPTION]|list|current|read [CASE_DIR]|use CASE_DIR}')
+        return 2
+    if c=="evidence":
+        if rest and rest[0]=="add" and len(rest)>1:return add_evidence(rest[1])
+        if rest and rest[0]=="verify":return verify_evidence()
+        list_evidence();return 0
+    if c=="image":return analyse_image(rest[0]) if rest else 2
+    if c=="analyse":return analyse(rest[0]) if rest else 2
+    if c=="tools":show_tools();return 0
+    if c=="network":return network(rest)
+    if c=="osint":return osint(rest)
+    if c=="report":return report()
+    if c=="timeline":return timeline()
+    if c=="demo":return demo()
+    if c=="doctor":return doctor()
+    if c=="ai":return ai()
+    if c=="update":return update(rest)
+    if c=="about":
+        print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\nOSINT workbench, network tools, reports, timeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
+        return 0
+    print("Usage: traceos {status|welcome|session|case|evidence|analyse|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
+if __name__=="__main__":raise SystemExit(main(sys.argv[1:]))

@@ -1,0 +1,126 @@
+#!/bin/sh
+set -eu
+
+cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+
+# The helper is intentionally VM-only so it cannot alter the display manager
+# on a physical TraceOS laptop/desktop. Keep the explicit page flag as a
+# deterministic fallback for older test harnesses.
+if ! systemd-detect-virt --quiet --vm 2>/dev/null; then
+    case " $cmdline " in
+        *" traceos-qemu-page="*) ;;
+        *) exit 0 ;;
+    esac
+fi
+
+log=/run/traceos-qemu-graphics.log
+{
+    echo "[TraceOS] QEMU graphics bootstrap: $(date -Is)"
+    echo "[TraceOS] virtualization: $(systemd-detect-virt 2>/dev/null || true)"
+    echo "[TraceOS] cmdline: $cmdline"
+    boot_username="$(printf "%s\n" "$cmdline" | tr " " "\n" | sed -n 's/^username=//p' | tail -n 1)"
+    echo "[TraceOS] BOOT_USERNAME=${boot_username:-unset}"
+
+    if ! systemctl is-active --quiet lightdm.service; then
+        echo "[TraceOS] lightdm is not active; starting it."
+        systemctl start lightdm.service || true
+    else
+        echo "[TraceOS] lightdm is already active; leaving the session alone."
+    fi
+
+    # Allow X, the user session and XFCE autostart entries to settle before
+    # collecting runtime state.
+    sleep 12
+
+    for _ in $(seq 1 90); do
+        if [ -s /tmp/traceos-control-centre.ready ]; then
+            echo "[TraceOS] CONTROL_CENTRE_READY"
+            break
+        fi
+        sleep 1
+    done
+
+    echo "[TraceOS] LightDM effective configuration:"
+    lightdm --show-config || true
+
+    echo "[TraceOS] session records:"
+    loginctl list-sessions --no-legend || true
+    for sid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+        echo "[TraceOS] session $sid details:"
+        loginctl show-session "$sid" -p Name -p Type -p Class -p State -p Desktop -p Remote -p Leader || true
+    done
+
+    # Find the actual graphical session user from the running XFCE process,
+    # which is more reliable than assuming the home directory name.
+    active_user="$(ps -eo user=,comm= | awk '$2=="xfce4-session"{print $1; exit}')"
+    echo "[TraceOS] LIVE_SESSION_USER=${active_user:-unknown}"
+
+    active_home=""
+    if [ -n "${active_user:-}" ]; then
+        active_home="$(getent passwd "$active_user" | cut -d: -f6 || true)"
+    fi
+    echo "[TraceOS] LIVE_SESSION_HOME=${active_home:-unknown}"
+
+    if [ -n "${active_user:-}" ]; then
+        echo "[TraceOS] LIVE_SESSION_PASSWD_ENTRY:"
+        getent passwd "$active_user" || true
+    fi
+
+    if [ -n "${active_user:-}" ]; then
+        echo "[TraceOS] TRACEOS_XFCE_SESSION_RUNNING"
+    else
+        echo "[TraceOS] TRACEOS_XFCE_SESSION_NOT_RUNNING"
+    fi
+
+    if pgrep -af '/usr/local/bin/traceos-control' >/dev/null 2>&1; then
+        echo "[TraceOS] CONTROL_CENTRE_PROCESS_RUNNING"
+        pgrep -af '/usr/local/bin/traceos-control' || true
+    else
+        echo "[TraceOS] CONTROL_CENTRE_PROCESS_NOT_RUNNING"
+    fi
+
+    echo "[TraceOS] Control Centre launcher/session diagnostics:"
+    found_logs=0
+    for home in /home/*; do
+        [ -d "$home" ] || continue
+        for f in "$home/.cache/traceos/control-centre-launch.log" "$home/.cache/traceos/session.log" "$home/.cache/traceos/welcome.log"; do
+            if [ -f "$f" ]; then
+                found_logs=1
+                echo "[TraceOS] --- $f ---"
+                cat "$f" || true
+            fi
+        done
+    done
+    for f in /root/.cache/traceos/control-centre-launch.log /root/.cache/traceos/session.log /root/.cache/traceos/welcome.log; do
+        if [ -f "$f" ]; then
+            found_logs=1
+            echo "[TraceOS] --- $f ---"
+            cat "$f" || true
+        fi
+    done
+    if [ "$found_logs" -eq 0 ]; then
+        echo "[TraceOS] No TraceOS launcher/session logs found under /home/* or /root."
+    fi
+
+    echo "[TraceOS] Control Centre readiness marker:"
+    if [ -s /tmp/traceos-control-centre.ready ]; then
+        cat /tmp/traceos-control-centre.ready || true
+    else
+        echo "[TraceOS] READY marker file is absent."
+    fi
+
+    echo "[TraceOS] lightdm status:"
+    systemctl --no-pager --full status lightdm.service || true
+    echo "[TraceOS] display manager state:"
+    systemctl --no-pager --no-legend list-units 'display-manager.service' || true
+    echo "[TraceOS] seats:"
+    loginctl list-seats || true
+    echo "[TraceOS] sessions:"
+    loginctl list-sessions || true
+} >"$log" 2>&1
+
+# The host-side smoke test only has the guest serial device as its reliable
+# diagnostic channel. Replay the complete guest-side diagnostics there.
+cat "$log" >/dev/ttyS0 2>/dev/null || true
+
+exit 0

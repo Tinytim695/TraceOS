@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+import base64,hashlib,json,os,pwd,re,stat,subprocess,tarfile,time,uuid
+from pathlib import Path
+SER="/dev/ttyS0"; MARK=Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ci-e2e/raw"); ART=Path("/home/traceos/traceos-ci-e2e")
+def valid_msfvenom_help(output):
+    return bool(
+        re.search(r"\bmsfvenom\b", output, re.IGNORECASE)
+        and re.search(r"(?im)^\s*usage\s*:", output)
+        and re.search(r"(?im)^\s*options\s*:", output)
+    )
+
+def serial(s):
+    print(s,flush=True)
+    try:
+        with open(SER,"w") as f:f.write(s+"\n")
+    except OSError:pass
+if subprocess.run(["systemd-detect-virt","--quiet","--vm"]).returncode: raise SystemExit(0)
+serial("TRACEOS_CI_E2E_PREFLIGHT=1")
+serial("TRACEOS_CI_E2E_FW_CFG_DIR=" + ("present" if Path("/sys/firmware/qemu_fw_cfg").exists() else "missing"))
+for _ in range(30):
+    if MARK.is_file():break
+    time.sleep(1)
+else:
+    serial("TRACEOS_CI_E2E_FW_CFG_MARKER=missing")
+    raise SystemExit(0)
+if MARK.read_text(errors="replace").strip()!="1":
+    serial("TRACEOS_CI_E2E_FW_CFG_MARKER=invalid")
+    raise SystemExit(0)
+serial("TRACEOS_CI_E2E_FW_CFG_MARKER=valid")
+ART.mkdir(parents=True,exist_ok=True)
+traceos_user=pwd.getpwnam("traceos")
+os.chown(ART,traceos_user.pw_uid,traceos_user.pw_gid)
+os.chmod(ART,0o700)
+run_nonce=str(uuid.uuid4())
+st=os.stat(ART)
+serial(
+    "TRACEOS_CI_E2E_ARTIFACT_DIR uid=" + str(st.st_uid) +
+    " gid=" + str(st.st_gid) +
+    " mode=" + oct(st.st_mode & 0o777)
+)
+serial("TRACEOS_CI_E2E_RUN_NONCE=" + run_nonce)
+serial("TRACEOS_CI_E2E_STARTED=1")
+results={}; probes=[]
+def tool_version(label, binary, *args, cwd=None):
+    serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
+    try:
+        p=subprocess.run(
+            ["runuser","-u","traceos","--","env","HOME=/home/traceos",
+             "XDG_CONFIG_HOME=/home/traceos/.config",binary,*args],
+            text=True,capture_output=True,timeout=30,cwd=cwd
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout=exc.stdout or ""
+        stderr=exc.stderr or ""
+        if isinstance(stdout,bytes): stdout=stdout.decode("utf-8","replace")
+        if isinstance(stderr,bytes): stderr=stderr.decode("utf-8","replace")
+        (ART/(label+".stdout")).write_text(stdout)
+        (ART/(label+".stderr")).write_text(stderr + "\n[TraceOS] tool version check timed out after 30s\n")
+        (ART/(label+".exit")).write_text("124\n")
+        results[label]=124
+        serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=124 timeout=30s")
+        return None
+    (ART/(label+".stdout")).write_text(p.stdout)
+    (ART/(label+".stderr")).write_text(p.stderr)
+    (ART/(label+".exit")).write_text(str(p.returncode)+"\n")
+    results[label]=p.returncode
+    serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=" + str(p.returncode))
+    return p
+
+def cmd(label,*args):
+    serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
+    try:
+        p=subprocess.run(
+            ["runuser","-u","traceos","--","env","HOME=/home/traceos","XDG_CONFIG_HOME=/home/traceos/.config","/usr/local/bin/traceos",*args],
+            text=True,capture_output=True,timeout=90
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout=exc.stdout or ""
+        stderr=exc.stderr or ""
+        if isinstance(stdout,bytes): stdout=stdout.decode("utf-8","replace")
+        if isinstance(stderr,bytes): stderr=stderr.decode("utf-8","replace")
+        (ART/(label+".stdout")).write_text(stdout)
+        (ART/(label+".stderr")).write_text(stderr + "\n[TraceOS] command timed out after 90s\n")
+        (ART/(label+".exit")).write_text("124\n")
+        results[label]=124
+        serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=124 timeout=90s")
+        return None
+    (ART/(label+".stdout")).write_text(p.stdout)
+    (ART/(label+".stderr")).write_text(p.stderr)
+    (ART/(label+".exit")).write_text(str(p.returncode)+"\n")
+    results[label]=p.returncode
+    serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=" + str(p.returncode))
+    return p
+whois_version = tool_version("whois-version", "/usr/bin/whois", "--version")
+dig_version = tool_version("dig-version", "/usr/bin/dig", "-v")
+
+ruby_version = tool_version("ruby-version", "/usr/bin/ruby", "--version")
+bundler_version = tool_version("bundler-version", "/usr/bin/bundle", "_2.6.7_", "--version")
+bundle_check = tool_version(
+    "msf-bundle-check",
+    "/usr/bin/bundle",
+    "_2.6.7_",
+    "check",
+    cwd="/opt/traceos-metasploit",
+)
+
+msfdb_entrypoint = Path("/usr/local/bin/msfdb")
+entrypoint_ok = False
+try:
+    entrypoint_text = msfdb_entrypoint.read_text(errors="replace")
+    (ART/"msfdb-entrypoint.txt").write_text(entrypoint_text)
+    entrypoint_ok = (
+        os.access(msfdb_entrypoint, os.X_OK)
+        and entrypoint_text.startswith("#!/bin/sh")
+        and 'exec bundle "_${MSF_BUNDLER}_" exec ruby ' in entrypoint_text
+    )
+except OSError as exc:
+    (ART/"msfdb-entrypoint.txt").write_text(f"ERROR={exc}\n")
+
+msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
+msfvenom_startup = tool_version("msfvenom-startup", "/usr/local/bin/msfvenom", "--help")
+msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help")
+enum4linux_startup = tool_version("enum4linux-ng-startup", "/usr/local/bin/enum4linux-ng", "--help")
+msfvenom_help_output = ""
+if msfvenom_startup:
+    msfvenom_help_output = msfvenom_startup.stdout + "\n" + msfvenom_startup.stderr
+# The pinned upstream revision catches HelpError and exits 1 after printing --help.
+msfvenom_help_ok = bool(
+    msfvenom_startup
+    and msfvenom_startup.returncode == 1
+    and valid_msfvenom_help(msfvenom_help_output)
+)
+whois_version_ok = bool(whois_version and whois_version.returncode == 0 and (whois_version.stdout.strip() or whois_version.stderr.strip()))
+dig_version_ok = bool(dig_version and dig_version.returncode == 0 and (dig_version.stdout.strip() or dig_version.stderr.strip()))
+
+def probe(label):
+    state=Path("/home/traceos/.config/traceos/current_case"); root=Path("/home/traceos/Cases").resolve(); cid=mid=""; regular=inside=False
+    try:
+        st=os.lstat(state); regular=stat.S_ISREG(st.st_mode) and not stat.S_ISLNK(st.st_mode)
+        selected=Path(state.read_text().strip()).resolve(strict=True); selected.relative_to(root); inside=True
+        cid=str(json.loads((selected/"case.json").read_text())["case_id"]); mid=cid
+    except Exception:pass
+    (ART/(label+"-state.txt")).write_text(f"state_regular={'yes' if regular else 'no'}\nselected_under_cases={'yes' if inside else 'no'}\ncase_id={cid or 'unknown'}\nmanifest_id={mid or 'unknown'}\n")
+    probes.append(cid)
+    serial("TRACEOS_CI_E2E_PROBE nonce=" + run_nonce + " label=" + label + " case_id=" + (cid or "unknown"))
+    return cid
+cmd("case-new","case","new","TraceOS CI Synthetic Case"); cid=probe("case-new")
+state=Path("/home/traceos/.config/traceos/current_case"); case_path=Path(state.read_text().strip()) if state.exists() else Path()
+if not cid or not case_path.is_dir():
+    (ART/"matrix.txt").write_text("STATUS=FAIL\nREASON=case_creation_failed\n"); serial("TRACEOS_CI_E2E_MATRIX STATUS=FAIL"); raise SystemExit(1)
+(ART/"case.json").write_bytes((case_path/"case.json").read_bytes()); (ART/"case-path.txt").write_text(str(case_path)+"\n"); (ART/"current-case-probe.txt").write_bytes((ART/"case-new-state.txt").read_bytes())
+source=ART/"source.bin"; source.write_bytes(b"TraceOS deterministic synthetic evidence payload v1.\n"); source_hash=hashlib.sha256(source.read_bytes()).hexdigest()
+(ART/"source.sha256").write_text(f"sha256={source_hash}\nsize={source.stat().st_size}\n")
+cmd("evidence-add","evidence","add",str(source)); probe("evidence-add")
+cmd("evidence-verify-pass","evidence","verify"); probe("evidence-verify-pass")
+ledger=case_path/"hashes/evidence.tsv"; evidence=case_path/"evidence"; vaults=[p for p in evidence.iterdir() if p.is_file()] if evidence.is_dir() else []
+ledger_ok=False; ledger_hash=""; vault_path=Path()
+try:
+    rows=ledger.read_text().splitlines()[1:]; fields=rows[0].split("\t") if len(rows)==1 else []
+    ledger_hash=fields[3] if len(fields)==6 else ""; ledger_vault=fields[2] if len(fields)==6 else ""
+    ledger_ok=len(rows)==1 and len(fields)==6 and ledger_hash==source_hash and Path(ledger_vault).resolve().parent==evidence.resolve()
+    if len(vaults)==1:vault_path=vaults[0]
+except Exception:rows=[];fields=[]
+(ART/"ledger-check.txt").write_text(f"rows={len(rows)}\nfields={len(fields)}\nrecorded_sha256={ledger_hash or 'unknown'}\nvault_path={str(vault_path) if vault_path else 'unknown'}\nhash_matches_source={'yes' if ledger_hash==source_hash else 'no'}\nvault_path_in_case={'yes' if ledger_ok else 'no'}\n")
+if ledger.is_file(): (ART/"evidence.tsv").write_bytes(ledger.read_bytes())
+vault_pre_hash=""; vault_pre_ok=False
+if len(vaults)==1:
+    vault_pre_hash=hashlib.sha256(vault_path.read_bytes()).hexdigest(); vault_pre_ok=vault_pre_hash==source_hash==ledger_hash
+    (ART/"vault-pre.txt").write_text(f"sha256={vault_pre_hash}\nsize={vault_path.stat().st_size}\nmode={oct(vault_path.stat().st_mode&0o777)}\nregular={'yes' if vault_path.is_file() else 'no'}\n")
+verify_pass_ok=results.get("evidence-verify-pass")==0 and "1 checked, 0 failed" in (ART/"evidence-verify-pass.stdout").read_text()
+if vault_path:
+    os.chmod(vault_path,0o600); vault_path.write_bytes(b"TraceOS CI synthetic tamper payload v2.\n")
+vault_post_hash=hashlib.sha256(vault_path.read_bytes()).hexdigest() if vault_path.exists() else ""
+if vault_path:(ART/"vault-post.txt").write_text(f"sha256={vault_post_hash}\nsize={vault_path.stat().st_size}\nmode={oct(vault_path.stat().st_mode&0o777)}\nregular={'yes' if vault_path.is_file() else 'no'}\n")
+cmd("evidence-verify-tamper","evidence","verify"); probe("evidence-verify-tamper")
+tamper_ok=bool(vault_path) and vault_post_hash not in {vault_pre_hash,ledger_hash}
+tamper_verify=results.get("evidence-verify-tamper",0)!=0 and "expected=" in (ART/"evidence-verify-tamper.stdout").read_text() and "missing or unsafe vault copy" not in (ART/"evidence-verify-tamper.stdout").read_text()
+cmd("report","report"); probe("report"); cmd("timeline","timeline"); probe("timeline")
+reports=list((case_path/"reports").glob("TraceOS-report-*.md")) if (case_path/"reports").is_dir() else []
+report_ok=len(reports)==1 and vault_path.name in reports[0].read_text() and ledger_hash in reports[0].read_text()
+if report_ok: (ART/"report.md").write_text(reports[0].read_text())
+timeline_ok=results.get("timeline")==0 and vault_path.name in (ART/"timeline.stdout").read_text()
+same_case=all(x==cid for x in probes)
+startup_ok = all([
+    ruby_version and ruby_version.returncode == 0 and (ruby_version.stdout.strip() or ruby_version.stderr.strip()),
+    bundler_version and bundler_version.returncode == 0 and "Bundler version 2.6.7" in (bundler_version.stdout + bundler_version.stderr),
+    bundle_check and bundle_check.returncode == 0,
+    entrypoint_ok,
+    msfconsole_startup and msfconsole_startup.returncode == 0 and (msfconsole_startup.stdout.strip() or msfconsole_startup.stderr.strip()),
+    msfvenom_help_ok,
+    msfdb_startup and msfdb_startup.returncode == 0 and (msfdb_startup.stdout.strip() or msfdb_startup.stderr.strip()),
+    enum4linux_startup and enum4linux_startup.returncode == 0 and (enum4linux_startup.stdout.strip() or enum4linux_startup.stderr.strip()),
+])
+status="PASS" if all([ledger_ok,vault_pre_ok,verify_pass_ok,tamper_ok,tamper_verify,report_ok,timeline_ok,same_case,whois_version_ok,dig_version_ok,startup_ok]) else "FAIL"
+(ART/"matrix.txt").write_text("\n".join([f"STATUS={status}",f"CASE_ID={cid}",f"LEDGER_OK={'yes' if ledger_ok else 'no'}",f"VAULT_PRE_OK={'yes' if vault_pre_ok else 'no'}",f"VERIFY_PASS_OK={'yes' if verify_pass_ok else 'no'}",f"TAMPER_SAME_FILE_OK={'yes' if tamper_ok else 'no'}",f"VERIFY_TAMPER_HASH_MISMATCH_OK={'yes' if tamper_verify else 'no'}",f"REPORT_OK={'yes' if report_ok else 'no'}",f"TIMELINE_OK={'yes' if timeline_ok else 'no'}",f"SAME_CASE_ID_THROUGHOUT={'yes' if same_case else 'no'}",f"WHOIS_VERSION_OK={'yes' if whois_version_ok else 'no'}",f"DIG_VERSION_OK={'yes' if dig_version_ok else 'no'}",f"MSFVENOM_HELP_OK={'yes' if msfvenom_help_ok else 'no'}",f"SOURCE_SHA256={source_hash}",f"VAULT_PRE_SHA256={vault_pre_hash or 'unknown'}",f"VAULT_POST_SHA256={vault_post_hash or 'unknown'}",f"LEDGER_RECORDED_SHA256={ledger_hash or 'unknown'}"])+"\n")
+allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.stdout','case-new.stderr','case-new.exit','current-case-probe.txt','evidence-add-state.txt','evidence-verify-pass-state.txt','evidence-verify-tamper-state.txt','report-state.txt','timeline-state.txt','source.sha256','ledger-check.txt','vault-pre.txt','vault-post.txt','evidence.tsv','report.md','evidence-add.stdout','evidence-add.stderr','evidence-add.exit','evidence-verify-pass.stdout','evidence-verify-pass.stderr','evidence-verify-pass.exit','evidence-verify-tamper.stdout','evidence-verify-tamper.stderr','evidence-verify-tamper.exit','report.stdout','report.stderr','report.exit','timeline.stdout','timeline.stderr','timeline.exit','whois-version.stdout','whois-version.stderr','whois-version.exit','dig-version.stdout','dig-version.stderr','dig-version.exit',
+'ruby-version.stdout','ruby-version.stderr','ruby-version.exit',
+'bundler-version.stdout','bundler-version.stderr','bundler-version.exit',
+'msf-bundle-check.stdout','msf-bundle-check.stderr','msf-bundle-check.exit',
+'msfconsole-startup.stdout','msfconsole-startup.stderr','msfconsole-startup.exit',
+'msfvenom-startup.stdout','msfvenom-startup.stderr','msfvenom-startup.exit',
+'msfdb-startup.stdout','msfdb-startup.stderr','msfdb-startup.exit',
+'enum4linux-ng-startup.stdout','enum4linux-ng-startup.stderr','enum4linux-ng-startup.exit',
+'msfdb-entrypoint.txt'}
+bundle=ART/"bundle.tar"
+with tarfile.open(bundle,"w") as tf:
+    for name in sorted(allow):
+        p=ART/name
+        if p.is_file():tf.add(p,arcname=name,recursive=False)
+data=bundle.read_bytes(); sha=hashlib.sha256(data).hexdigest(); serial(f"TRACEOS_CI_E2E_BUNDLE_BEGIN size={len(data)} sha256={sha}")
+try:
+    with open(SER,"wb") as f:f.write(base64.b64encode(data)+b"\nTRACEOS_CI_E2E_BUNDLE_END\n")
+except OSError:pass
+serial(f"TRACEOS_CI_E2E_MATRIX STATUS={status} CASE_ID={cid}"); serial("TRACEOS_CI_E2E_DONE=1"); raise SystemExit(0 if status=="PASS" else 1)

@@ -1,0 +1,18 @@
+#!/bin/sh
+set -u
+
+log="${XDG_CACHE_HOME:-$HOME/.cache}/traceos/session.log"
+mkdir -p "${log%/*}" 2>/dev/null || true
+exec >>"$log" 2>&1
+
+echo "[TraceOS] session wrapper started: $(date -Is)"
+echo "[TraceOS] user=$(id -un) uid=$(id -u)"
+echo "[TraceOS] home=$HOME"
+echo "[TraceOS] DESKTOP_SESSION=${DESKTOP_SESSION:-unset}"
+echo "[TraceOS] XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-unset}"
+echo "[TraceOS] DISPLAY=${DISPLAY:-unset}"
+
+# The XFCE XDG autostart entry is the single automatic owner of the Control
+# Centre. Keeping it out of this wrapper avoids competing launch paths while
+# retaining the launcher's flock for manual/redundant invocations.
+exec startxfce4

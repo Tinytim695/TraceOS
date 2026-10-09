@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+# Ensure the X session registry is current before LightDM resolves
+# autologin-session=traceos.
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+
+test -x /usr/local/bin/traceos-xfce-session
+test -f /usr/share/xsessions/traceos.desktop

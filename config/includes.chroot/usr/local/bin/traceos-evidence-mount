@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: traceos-evidence-mount /dev/<partition>"
+  echo
+  echo "Mounts a block-device partition read-only under /mnt/traceos-evidence."
+  echo "For ext2/3/4, journal replay is disabled."
+}
+
+device="${1:-}"
+if [[ -z "$device" || "$device" == "-h" || "$device" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ ! -b "$device" ]]; then
+  echo "[TraceOS] Refusing: not a block device: $device" >&2
+  exit 2
+fi
+
+root_source="$(findmnt -no SOURCE / || true)"
+if [[ "$device" == "$root_source" ]]; then
+  echo "[TraceOS] Refusing to mount the running root device as evidence." >&2
+  exit 2
+fi
+
+existing_mount="$(findmnt -no TARGET --source "$device" 2>/dev/null | head -n1 || true)"
+if [[ -n "$existing_mount" ]]; then
+  echo "[TraceOS] Refusing: device is already mounted at $existing_mount." >&2
+  echo "[TraceOS] Unmount it deliberately before treating it as evidence." >&2
+  exit 2
+fi
+
+fstype="$(blkid -o value -s TYPE "$device" 2>/dev/null || true)"
+label="$(basename "$device")"
+mountpoint="/mnt/traceos-evidence/$label"
+
+sudo mkdir -p "$mountpoint"
+sudo chmod 0755 "$mountpoint"
+
+options="ro,nosuid,nodev,noexec"
+case "$fstype" in
+  ext2|ext3|ext4) options="$options,noload" ;;
+esac
+
+echo "[TraceOS] Device: $device"
+echo "[TraceOS] Filesystem: ${fstype:-unknown}"
+echo "[TraceOS] Read-only options: $options"
+echo "[TraceOS] Mountpoint: $mountpoint"
+
+sudo mount -o "$options" "$device" "$mountpoint"
+findmnt "$mountpoint"
+echo "[TraceOS] Evidence mounted read-only. Use traceos-evidence-umount when finished."
