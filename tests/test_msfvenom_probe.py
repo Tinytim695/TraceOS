@@ -35,6 +35,12 @@ class MsfVenomProbeTests(unittest.TestCase):
             [arg.value for arg in assignment.value.args],
             ["msfvenom-startup", "/usr/local/bin/msfvenom", "--help"],
         )
+        # This must remain a help-only probe: never request payload creation.
+        probe_args = [arg.value for arg in assignment.value.args]
+        self.assertNotIn("--payload", probe_args)
+        self.assertNotIn("--out", probe_args)
+        self.assertNotIn("-p", probe_args)
+        self.assertNotIn("-o", probe_args)
 
     def test_guest_and_host_require_genuine_help_output(self):
         good = """MsfVenom - a Metasploit standalone payload generator.
