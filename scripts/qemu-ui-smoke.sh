@@ -27,17 +27,24 @@ extract_boot_config() {
 # minutes on the graphical boot. The BIOS El Torito path is the path used by
 # QEMU below, so it must carry the same live username as the GRUB path.
 extract_boot_config /isolinux/isolinux.cfg "$OUT/traceos-generated-isolinux.cfg"
-extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg" || true
+# A hybrid USB candidate must contain both generated GRUB files. Do not
+# silently skip a missing GRUB menu or its sourced variable context.
+extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg"
+extract_boot_config /boot/grub/config.cfg "$OUT/traceos-generated-grub-config.cfg"
+test -s "$OUT/traceos-generated-grub.cfg"
+test -s "$OUT/traceos-generated-grub-config.cfg"
 
 if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-isolinux.cfg"; then
     echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
     exit 1
 fi
 
-if [ -s "$OUT/traceos-generated-grub.cfg" ] && ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-grub.cfg"; then
-    echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
-    exit 1
-fi
+# Validate the actual generated payloads with a host-fixture-tested helper.
+# This also checks source /boot/grub/config.cfg, menu ordering, resolved paths,
+# required live arguments, amnesic behaviour and the failsafe nomodeset option.
+python3 scripts/validate-grub-config.py \
+    "$OUT/traceos-generated-grub.cfg" \
+    "$OUT/traceos-generated-grub-config.cfg"
 
 
 cleanup() {

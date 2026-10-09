@@ -42,6 +42,8 @@ jobs:
             shellcheck
 
       - name: "Static preflight: syntax, shebangs and manifests"
+        env:
+          TRACEOS_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         shell: bash
         run: |
           set -euo pipefail
