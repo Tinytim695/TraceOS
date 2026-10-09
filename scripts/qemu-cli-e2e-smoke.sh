@@ -39,6 +39,13 @@ def write_result(status, reason):
         f"STATUS={status}\nLAST_STAGE={last_stage}\nREASON={reason}\n")
     result_written = True
 
+def valid_msfvenom_help(output):
+    return bool(
+        re.search(r"\bmsfvenom\b", output, re.IGNORECASE)
+        and re.search(r"(?im)^\s*usage\s*:", output)
+        and re.search(r"(?im)^\s*options\s*:", output)
+    )
+
 try:
     for _ in range(600):
         s = serial.read_text(errors="replace") if serial.exists() else ""
@@ -250,6 +257,18 @@ try:
     audit("WHOIS_VERSION_OUTPUT", bool(whois_version_stdout.strip() or whois_version_stderr.strip()))
     audit("DIG_VERSION_EXIT", dig_version_exit == 0)
     audit("DIG_VERSION_OUTPUT", bool(dig_version_stdout.strip() or dig_version_stderr.strip()))
+
+    msfvenom_startup_stdout = (out / "msfvenom-startup.stdout").read_text(errors="replace") if (out / "msfvenom-startup.stdout").exists() else ""
+    msfvenom_startup_stderr = (out / "msfvenom-startup.stderr").read_text(errors="replace") if (out / "msfvenom-startup.stderr").exists() else ""
+    msfvenom_help_output = msfvenom_startup_stdout + "\n" + msfvenom_startup_stderr
+    audit(
+        "MSFVENOM_HELP_CONTENT",
+        exit_code("msfvenom-startup") == 0 and valid_msfvenom_help(msfvenom_help_output),
+    )
+    audit(
+        "MATRIX_MSFVENOM_HELP_OK",
+        matrix.exists() and "MSFVENOM_HELP_OK=yes" in matrix.read_text(errors="replace"),
+    )
 
     for label in (
         "ruby-version",
