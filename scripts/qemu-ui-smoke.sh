@@ -27,17 +27,80 @@ extract_boot_config() {
 # minutes on the graphical boot. The BIOS El Torito path is the path used by
 # QEMU below, so it must carry the same live username as the GRUB path.
 extract_boot_config /isolinux/isolinux.cfg "$OUT/traceos-generated-isolinux.cfg"
-extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg" || true
+# A hybrid USB candidate must contain a real GRUB config. Do not silently skip
+# this check: the generated EFI/GRUB boot path is part of the release contract.
+extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg"
 
 if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-isolinux.cfg"; then
     echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
     exit 1
 fi
 
-if [ -s "$OUT/traceos-generated-grub.cfg" ] && ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-grub.cfg"; then
+if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-grub.cfg"; then
     echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
     exit 1
 fi
+
+# Inspect the actual GRUB payload extracted from the built ISO, not merely the
+# source template. This catches unsupported live-build placeholders before a
+# USB candidate can be signed off.
+python3 - "$OUT/traceos-generated-grub.cfg" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+
+def entry_body(title: str) -> str:
+    pattern = re.compile(
+        r"(?ms)^menuentry\\s+[\"']" + re.escape(title) + r"[\"']\\s*\\{(.*?)^\\}"
+    )
+    match = pattern.search(text)
+    if not match:
+        raise SystemExit(f"[TraceOS] GRUB validation failed: missing menu entry {title!r}")
+    return match.group(1)
+
+def validate_live_entry(title: str, required: tuple[str, ...], *, failsafe: bool = False) -> None:
+    body = entry_body(title)
+    kernel_lines = re.findall(r"(?m)^\\s*linux\\s+(.+)$", body)
+    initrd_lines = re.findall(r"(?m)^\\s*initrd\\s+(.+)$", body)
+    if len(kernel_lines) != 1 or len(initrd_lines) != 1:
+        raise SystemExit(f"[TraceOS] GRUB validation failed: {title!r} must have one linux and one initrd line")
+    kernel = kernel_lines[0]
+    initrd = initrd_lines[0]
+    bad_tokens = ("@APPEND_", "@KERNEL_", "@INITRD_", "_FAILSAFE@", "findiso=${iso_path}_FAILSAFE@")
+    if any(token in kernel for token in bad_tokens) or "@" in kernel:
+        raise SystemExit(f"[TraceOS] GRUB validation failed: unresolved or malformed kernel args in {title!r}: {kernel}")
+    if not kernel.startswith("/live/vmlinuz") or "findiso=${iso_path}" not in kernel:
+        raise SystemExit(f"[TraceOS] GRUB validation failed: kernel or ISO locator is invalid in {title!r}: {kernel}")
+    if "@" in initrd or not initrd.startswith("/live/initrd.img"):
+        raise SystemExit(f"[TraceOS] GRUB validation failed: initrd path is invalid in {title!r}: {initrd}")
+    args = kernel.split()
+    if not all(token in args for token in required):
+        raise SystemExit(f"[TraceOS] GRUB validation failed: {title!r} lacks required args {required!r}: {kernel}")
+    if "persistence" in args:
+        raise SystemExit(f"[TraceOS] GRUB validation failed: amnesic entry enables persistence: {title!r}")
+    if failsafe and "nomodeset" not in args:
+        raise SystemExit("[TraceOS] GRUB validation failed: failsafe entry must include nomodeset")
+
+if not re.search(r"(?m)^set default=0\\s*$", text):
+    raise SystemExit("[TraceOS] GRUB validation failed: default menu index is not zero")
+first_entry = re.search(r"(?m)^menuentry\\s+[\"']([^\"']+)[\"']", text)
+if not first_entry or first_entry.group(1) != "TraceOS Amnesic (no persistent storage)":
+    raise SystemExit("[TraceOS] GRUB validation failed: default menu entry is not TraceOS Amnesic")
+
+validate_live_entry(
+    "TraceOS Amnesic (no persistent storage)",
+    ("boot=live", "username=traceos", "nopersistence"),
+)
+validate_live_entry(
+    "TraceOS Failsafe (Amnesic)",
+    ("boot=live", "username=traceos", "nopersistence", "nomodeset"),
+    failsafe=True,
+)
+print("[TraceOS] Generated GRUB default-amnesic and failsafe entries: PASS")
+PY
 
 
 cleanup() {
