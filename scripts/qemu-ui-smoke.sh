@@ -69,7 +69,7 @@ def validate_live_entry(title: str, required: tuple[str, ...], *, failsafe: bool
         raise SystemExit(f"[TraceOS] GRUB validation failed: {title!r} must have one linux and one initrd line")
     kernel = kernel_lines[0]
     initrd = initrd_lines[0]
-    bad_tokens = ("@APPEND_", "@KERNEL_", "@INITRD_", "_FAILSAFE@", "findiso=${iso_path}")
+    bad_tokens = ("@APPEND_", "@KERNEL_", "@INITRD_", "_FAILSAFE@", "findiso=${iso_path}_FAILSAFE@")
     if any(token in kernel for token in bad_tokens) or "@" in kernel:
         raise SystemExit(f"[TraceOS] GRUB validation failed: unresolved or malformed kernel args in {title!r}: {kernel}")
     if not kernel.startswith("/live/vmlinuz") or "findiso=${iso_path}" not in kernel:
