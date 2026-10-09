@@ -67,6 +67,11 @@ Options:
         self.assertIn('"MATRIX_MSFVENOM_HELP_OK"', host)
         self.assertIn('exit_code("msfvenom-startup") == 0', host)
 
+    def test_version_unknown_is_not_accepted_as_help(self):
+        for path in (GUEST, HOST):
+            with self.subTest(path=path):
+                checker = load_function(path, "valid_msfvenom_help")
+                self.assertFalse(checker("msfvenom: version unknown"))
 
 if __name__ == "__main__":
     unittest.main()
