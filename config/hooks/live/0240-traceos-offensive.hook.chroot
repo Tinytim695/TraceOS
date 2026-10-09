@@ -12,6 +12,8 @@ git clone --filter=blob:none --no-checkout https://github.com/rapid7/metasploit-
 cd "$MSF_DIR"
 git checkout --detach "$MSF_COMMIT"
 test "$(git rev-parse HEAD)" = "$MSF_COMMIT"
+# The repository is intentionally root-owned in the live image; trust only this pinned path.
+git config --system --add safe.directory "$MSF_DIR"
 grep -Fx "3.3.8" .ruby-version
 MSF_BUNDLER_VERSION=$(bundle "_${MSF_BUNDLER}_" --version)
 test "$MSF_BUNDLER_VERSION" = "Bundler version $MSF_BUNDLER"
