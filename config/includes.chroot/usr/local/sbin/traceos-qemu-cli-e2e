@@ -214,11 +214,11 @@ try:
 except OSError as exc:
     (ART/"msfdb-entrypoint.txt").write_text(f"ERROR={exc}\n")
 
-msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
+msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
 if msfconsole_startup is None:
     diagnose_metasp_timeout("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
-msfvenom_startup = tool_version("msfvenom-startup", "/usr/local/bin/msfvenom", "--help")
-msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help")
+msfvenom_startup = tool_version("msfvenom-startup", "/usr/local/bin/msfvenom", "--help", cwd="/opt/traceos-metasploit")
+msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help", cwd="/opt/traceos-metasploit")
 if msfdb_startup is None:
     diagnose_metasp_timeout("msfdb-startup", "/usr/local/bin/msfdb", "--help")
 enum4linux_startup = tool_version("enum4linux-ng-startup", "/usr/local/bin/enum4linux-ng", "--help")

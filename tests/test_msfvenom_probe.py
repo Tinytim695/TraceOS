@@ -91,5 +91,12 @@ Options:
         self.assertIn('"metasploit-diagnostics.txt"', guest)
         self.assertIn('"metasploit-diagnostics.txt"', host)
 
+    def test_metasploit_startup_probes_use_pinned_source_directory(self):
+        guest = GUEST.read_text(encoding="utf-8")
+        for label in ("msfconsole-startup", "msfvenom-startup", "msfdb-startup"):
+            line = next(line for line in guest.splitlines() if label in line and "tool_version(" in line)
+            self.assertIn('cwd="/opt/traceos-metasploit"', line)
+
+
 if __name__ == "__main__":
     unittest.main()
