@@ -1,7 +1,0 @@
-TraceOS bundles Impacket 0.13.1 from the PyPI distribution.
-
-Project: https://github.com/fortra/impacket
-Release: https://github.com/fortra/impacket/releases/tag/impacket_0_13_1
-License: Impacket's modified Apache Software License, plus component-specific third-party notices.
-
-The upstream LICENSE file and third-party notices are authoritative for redistribution and attribution. TraceOS does not modify the Impacket distribution.

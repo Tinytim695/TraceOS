@@ -1,9 +1,0 @@
-*.iso
-*.img
-*.sha256
-*.log
-.build/
-cache/
-chroot/
-binary/
-auto/

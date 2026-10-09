@@ -1,9 +1,0 @@
-TraceOS bundles OWASP ZAP 2.17.0 from the official upstream Linux release archive.
-
-Project: https://github.com/zaproxy/zaproxy
-Release: https://github.com/zaproxy/zaproxy/releases/tag/v2.17.0
-License: Apache License 2.0
-
-The bundled ZAP distribution contains the upstream license, notices, and
-third-party component information required for the distributed release.
-TraceOS does not modify the ZAP distribution.

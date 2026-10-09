@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=TraceOS Desktop Safety Defaults
-Comment=Disable automatic media mounting and thumbnails for forensic-friendly sessions
-Exec=/usr/local/bin/traceos-session-hardening
-Terminal=false
-OnlyShowIn=XFCE;
-X-GNOME-Autostart-enabled=true
