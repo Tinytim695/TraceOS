@@ -65,6 +65,7 @@ Options:
         host = HOST.read_text(encoding="utf-8")
         self.assertIn('"MSFVENOM_HELP_CONTENT"', host)
         self.assertIn('"MATRIX_MSFVENOM_HELP_OK"', host)
+        self.assertIn('exit_code("msfvenom-startup") == 0', host)
 
 
 if __name__ == "__main__":
