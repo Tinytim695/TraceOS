@@ -123,4 +123,12 @@ python3 -m unittest discover -s tests -p 'test_validate_toolchain.py' -v
 python3 -m unittest discover -s tests -p 'test_traceos_purple.py' -v
 python3 -m unittest discover -s tests -p 'test_generated_wrappers.py' -v
 
+echo "[TraceOS] Whitespace check for the PR diff"
+if [[ -n "${TRACEOS_PR_BASE_SHA:-}" ]]; then
+    git fetch --no-tags --depth=1 origin "$TRACEOS_PR_BASE_SHA"
+    git diff --check "$TRACEOS_PR_BASE_SHA" HEAD
+else
+    git diff --check
+fi
+
 echo "[TraceOS] Static preflight PASSED"
