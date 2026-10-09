@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hashlib,json,os,pwd,re,stat,subprocess,tarfile,time,uuid
+import base64,hashlib,json,os,pwd,re,signal,stat,subprocess,tarfile,time,uuid
 from pathlib import Path
 SER="/dev/ttyS0"; MARK=Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ci-e2e/raw"); ART=Path("/home/traceos/traceos-ci-e2e")
 def valid_msfvenom_help(output):
@@ -40,32 +40,129 @@ serial(
 )
 serial("TRACEOS_CI_E2E_RUN_NONCE=" + run_nonce)
 serial("TRACEOS_CI_E2E_STARTED=1")
+DIAG=ART/"metasploit-diagnostics.txt"
+DIAG.write_text("TraceOS Metasploit CLI diagnostics\nNormal probes retain a strict 30-second timeout.\n")
+WATCHDOG=Path("/tmp/traceos-ruby-watchdog-" + run_nonce + ".rb")
+watchdog_source = '''if ENV["TRACEOS_RUBY_WATCHDOG"] == "1" && !defined?($traceos_ruby_watchdog_started)
+  $traceos_ruby_watchdog_started = true
+  Thread.new do
+    sleep 24
+    warn "[TraceOS Ruby watchdog] pid=#{Process.pid} cwd=#{Dir.pwd}"
+    Thread.list.each_with_index do |thread, index|
+      warn "[TraceOS Ruby watchdog] thread=#{index} status=#{thread.status.inspect}"
+      (thread.backtrace || []).each { |line| warn "  #{line}" }
+    end
+  end
+end
+'''
+fd=os.open(str(WATCHDOG),os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,"O_NOFOLLOW",0),0o644)
+with os.fdopen(fd,"w") as watchdog_file:
+    watchdog_file.write(watchdog_source)
+with DIAG.open("a") as d:
+    d.write("RUNNER uid=%s gid=%s cwd=%s\n" % (os.getuid(),os.getgid(),os.getcwd()))
+    safe_env = {}
+    for key in ("BUNDLE_GEMFILE","BUNDLE_WITH","BUNDLE_WITHOUT","BUNDLE_PATH","BUNDLE_FROZEN","GEM_HOME","GEM_PATH","RUBYOPT","RUBYLIB"):
+        if key in os.environ:
+            safe_env[key] = os.environ[key]
+    d.write("RUNNER_SAFE_ENV=%r\n" % safe_env)
 results={}; probes=[]
-def tool_version(label, binary, *args, cwd=None):
-    serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
+
+def record_diag(text):
+    with DIAG.open("a") as d:
+        d.write(text.rstrip() + "\n")
+
+def process_group_snapshot(label, p, cwd, phase):
+    header = "PROCESS_TREE label=%s phase=%s cwd=%s pgid=%s" % (label,phase,cwd or os.getcwd(),p.pid)
     try:
-        p=subprocess.run(
-            ["runuser","-u","traceos","--","env","HOME=/home/traceos",
-             "XDG_CONFIG_HOME=/home/traceos/.config",binary,*args],
-            text=True,capture_output=True,timeout=30,cwd=cwd
+        snap=subprocess.run(
+            ["ps","-eo","pid,ppid,pgid,etime,stat,args"],
+            text=True,capture_output=True,timeout=5,check=False
         )
-    except subprocess.TimeoutExpired as exc:
-        stdout=exc.stdout or ""
-        stderr=exc.stderr or ""
-        if isinstance(stdout,bytes): stdout=stdout.decode("utf-8","replace")
-        if isinstance(stderr,bytes): stderr=stderr.decode("utf-8","replace")
-        (ART/(label+".stdout")).write_text(stdout)
-        (ART/(label+".stderr")).write_text(stderr + "\n[TraceOS] tool version check timed out after 30s\n")
+        rows=[]
+        lines=snap.stdout.splitlines()
+        for line in lines[1:]:
+            fields=line.split(None,5)
+            if len(fields)>=3 and fields[2]==str(p.pid):
+                rows.append(line)
+        record_diag(header + "\n" + (snap.stdout.splitlines()[0] if snap.stdout else "ps unavailable") + "\n" + ("\n".join(rows) if rows else "[no processes in probe process group found]"))
+    except Exception as exc:
+        record_diag(header + "\nPROCESS_TREE_ERROR=%r" % (exc,))
+
+def stop_process_group(p):
+    try:
+        os.killpg(p.pid,signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        return p.communicate(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid,signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return p.communicate()
+
+def tool_version(label, binary, *args, cwd=None):
+    command=["runuser","-u","traceos","--","env","HOME=/home/traceos",
+             "XDG_CONFIG_HOME=/home/traceos/.config",binary,*args]
+    started=time.monotonic()
+    serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
+    record_diag("NORMAL_PROBE label=%s cwd=%s argv=%r" % (label,cwd or os.getcwd(),[binary,*args]))
+    p=subprocess.Popen(command,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                        cwd=cwd,start_new_session=True)
+    timed_out=False
+    try:
+        stdout,stderr=p.communicate(timeout=25)
+    except subprocess.TimeoutExpired:
+        process_group_snapshot(label,p,cwd,"25s")
+        try:
+            stdout,stderr=p.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            timed_out=True
+            stdout,stderr=stop_process_group(p)
+    elapsed=time.monotonic()-started
+    (ART/(label+".stdout")).write_text(stdout or "")
+    if timed_out:
+        (ART/(label+".stderr")).write_text((stderr or "") + "\n[TraceOS] tool check timed out after 30s; process group terminated\n")
         (ART/(label+".exit")).write_text("124\n")
         results[label]=124
-        serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=124 timeout=30s")
+        record_diag("NORMAL_RESULT label=%s elapsed_seconds=%.2f classification=HARNESS_TIMEOUT rc=124" % (label,elapsed))
+        serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=124 timeout=30s elapsed=%.2f" % elapsed)
         return None
-    (ART/(label+".stdout")).write_text(p.stdout)
-    (ART/(label+".stderr")).write_text(p.stderr)
+    (ART/(label+".stderr")).write_text(stderr or "")
     (ART/(label+".exit")).write_text(str(p.returncode)+"\n")
     results[label]=p.returncode
-    serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=" + str(p.returncode))
-    return p
+    record_diag("NORMAL_RESULT label=%s elapsed_seconds=%.2f classification=APPLICATION_EXIT rc=%s" % (label,elapsed,p.returncode))
+    serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label + " rc=" + str(p.returncode) + " elapsed=%.2f" % elapsed)
+    return subprocess.CompletedProcess(command,p.returncode,stdout,stderr)
+
+def diagnose_metasp_timeout(label,binary,*args):
+    record_diag("\nDIAGNOSTIC_RERUN label=%s purpose=25-second-Ruby-backtrace-and-cwd-comparison" % label)
+    record_diag("WATCHDOG=%s fires after 24 seconds in each Ruby process" % WATCHDOG)
+    for cwd in ("/home/traceos","/opt/traceos-metasploit"):
+        command=["runuser","-u","traceos","--","env","HOME=/home/traceos",
+                 "XDG_CONFIG_HOME=/home/traceos/.config",
+                 "TRACEOS_RUBY_WATCHDOG=1","RUBYOPT=-r"+str(WATCHDOG),
+                 binary,*args]
+        started=time.monotonic()
+        record_diag("DIAGNOSTIC_BEGIN label=%s cwd=%s argv=%r network=disabled-by-QEMU" % (label,cwd,[binary,*args]))
+        p=subprocess.Popen(command,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                           cwd=cwd,start_new_session=True)
+        timed_out=False
+        try:
+            stdout,stderr=p.communicate(timeout=25)
+        except subprocess.TimeoutExpired:
+            process_group_snapshot(label+"-diag",p,cwd,"25s")
+            try:
+                stdout,stderr=p.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                timed_out=True
+                stdout,stderr=stop_process_group(p)
+        elapsed=time.monotonic()-started
+        record_diag("DIAGNOSTIC_RESULT label=%s cwd=%s elapsed_seconds=%.2f classification=%s rc=%s\nSTDOUT_BEGIN\n%s\nSTDOUT_END\nSTDERR_BEGIN\n%s\nSTDERR_END" %
+                    (label,cwd,elapsed,"HARNESS_TIMEOUT" if timed_out else "APPLICATION_EXIT",
+                     124 if timed_out else p.returncode,(stdout or "")[-12000:],(stderr or "")[-24000:]))
+    record_diag("DIAGNOSTIC_END label=%s" % label)
 
 def cmd(label,*args):
     serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
@@ -118,8 +215,12 @@ except OSError as exc:
     (ART/"msfdb-entrypoint.txt").write_text(f"ERROR={exc}\n")
 
 msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
+if msfconsole_startup is None:
+    diagnose_metasp_timeout("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
 msfvenom_startup = tool_version("msfvenom-startup", "/usr/local/bin/msfvenom", "--help")
 msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help")
+if msfdb_startup is None:
+    diagnose_metasp_timeout("msfdb-startup", "/usr/local/bin/msfdb", "--help")
 enum4linux_startup = tool_version("enum4linux-ng-startup", "/usr/local/bin/enum4linux-ng", "--help")
 msfvenom_help_output = ""
 if msfvenom_startup:
@@ -201,7 +302,7 @@ allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.s
 'msfvenom-startup.stdout','msfvenom-startup.stderr','msfvenom-startup.exit',
 'msfdb-startup.stdout','msfdb-startup.stderr','msfdb-startup.exit',
 'enum4linux-ng-startup.stdout','enum4linux-ng-startup.stderr','enum4linux-ng-startup.exit',
-'msfdb-entrypoint.txt'}
+'msfdb-entrypoint.txt','metasploit-diagnostics.txt'}
 bundle=ART/"bundle.tar"
 with tarfile.open(bundle,"w") as tf:
     for name in sorted(allow):
@@ -211,4 +312,8 @@ data=bundle.read_bytes(); sha=hashlib.sha256(data).hexdigest(); serial(f"TRACEOS
 try:
     with open(SER,"wb") as f:f.write(base64.b64encode(data)+b"\nTRACEOS_CI_E2E_BUNDLE_END\n")
 except OSError:pass
+try:
+    WATCHDOG.unlink()
+except OSError:
+    pass
 serial(f"TRACEOS_CI_E2E_MATRIX STATUS={status} CASE_ID={cid}"); serial("TRACEOS_CI_E2E_DONE=1"); raise SystemExit(0 if status=="PASS" else 1)

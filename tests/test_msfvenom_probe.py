@@ -65,6 +65,7 @@ Options:
         host = HOST.read_text(encoding="utf-8")
         self.assertIn("msfvenom_startup.returncode == 1", guest)
         self.assertIn('exit_code("msfvenom-startup") == 1', host)
+        self.assertIn('expected_exit = 1 if label == "msfvenom-startup" else 0', host)
 
     def test_host_requires_successful_help_exit_and_content(self):
         host = HOST.read_text(encoding="utf-8")
@@ -78,6 +79,17 @@ Options:
                 checker = load_function(path, "valid_msfvenom_help")
                 self.assertFalse(checker("msfvenom: version unknown"))
 
+
+    def test_timeout_probe_diagnostics_are_safe_and_bounded(self):
+        guest = GUEST.read_text(encoding="utf-8")
+        host = HOST.read_text(encoding="utf-8")
+        self.assertIn("start_new_session=True", guest)
+        self.assertIn("os.killpg(p.pid,signal.SIGTERM)", guest)
+        self.assertIn("os.killpg(p.pid,signal.SIGKILL)", guest)
+        self.assertIn("Thread.list.each_with_index", guest)
+        self.assertIn('for cwd in ("/home/traceos","/opt/traceos-metasploit"):', guest)
+        self.assertIn('"metasploit-diagnostics.txt"', guest)
+        self.assertIn('"metasploit-diagnostics.txt"', host)
 
 if __name__ == "__main__":
     unittest.main()

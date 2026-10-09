@@ -114,7 +114,7 @@ try:
         "msfvenom-startup.stdout", "msfvenom-startup.stderr", "msfvenom-startup.exit",
         "msfdb-startup.stdout", "msfdb-startup.stderr", "msfdb-startup.exit",
         "enum4linux-ng-startup.stdout", "enum4linux-ng-startup.stderr", "enum4linux-ng-startup.exit",
-        "msfdb-entrypoint.txt"}
+        "msfdb-entrypoint.txt", "metasploit-diagnostics.txt"}
 
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tf:
         names = tf.getnames()
@@ -283,7 +283,8 @@ try:
         exit_value = exit_code(label)
         stdout = (out / f"{label}.stdout").read_text(errors="replace") if (out / f"{label}.stdout").exists() else ""
         stderr = (out / f"{label}.stderr").read_text(errors="replace") if (out / f"{label}.stderr").exists() else ""
-        audit(f"{label.upper().replace('-', '_')}_EXIT", exit_value == 0)
+        expected_exit = 1 if label == "msfvenom-startup" else 0
+        audit(f"{label.upper().replace('-', '_')}_EXIT", exit_value == expected_exit)
         audit(f"{label.upper().replace('-', '_')}_OUTPUT", bool(stdout.strip() or stderr.strip()))
 
     entrypoint_text = (out / "msfdb-entrypoint.txt").read_text(errors="replace") if (out / "msfdb-entrypoint.txt").exists() else ""
@@ -308,7 +309,7 @@ try:
         "msfvenom-startup.stdout", "msfvenom-startup.stderr", "msfvenom-startup.exit",
         "msfdb-startup.stdout", "msfdb-startup.stderr", "msfdb-startup.exit",
         "enum4linux-ng-startup.stdout", "enum4linux-ng-startup.stderr", "enum4linux-ng-startup.exit",
-        "msfdb-entrypoint.txt"
+        "msfdb-entrypoint.txt", "metasploit-diagnostics.txt"
     }
     present_members = {p.name for p in out.iterdir() if p.is_file() and p.name != "result.txt"}
     audit("REQUIRED_BUNDLE_MEMBERS", required_success_members.issubset(present_members))
