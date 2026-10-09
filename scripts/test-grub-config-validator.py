@@ -58,12 +58,8 @@ def main() -> int:
     expect_pass("valid generated GRUB entries", VALID_GRUB)
 
     broken_failsafe = VALID_GRUB.replace(
-        "findiso=${iso_path} nopersistence nomodeset",
-        "findiso=${iso_path}_FAILSAFE@ nopersistence nomodeset",
-    ).replace(
-        "linux /live/vmlinuz-test boot=live",
-        "linux /live/vmlinuz-test @boot=live",
-        1,
+        "linux /live/vmlinuz-test boot=live components username=traceos hostname=traceos console=ttyS0,115200n8 findiso=${iso_path} nopersistence nomodeset",
+        "linux /live/vmlinuz-test @boot=live components username=traceos hostname=traceos console=ttyS0,115200n8 findiso=${iso_path}_FAILSAFE@ nopersistence",
     )
     expect_fail("historical malformed failsafe line", broken_failsafe)
 
