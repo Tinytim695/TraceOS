@@ -73,5 +73,18 @@ Options:
                 checker = load_function(path, "valid_msfvenom_help")
                 self.assertFalse(checker("msfvenom: version unknown"))
 
+    def test_probe_is_help_only_and_cannot_generate_payload(self):
+        tree = ast.parse(GUEST.read_text(encoding="utf-8"), filename=str(GUEST))
+        assignment = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "msfvenom_startup"
+                    for target in node.targets)
+        )
+        argv = [arg.value for arg in assignment.value.args]
+        self.assertEqual(argv, ["msfvenom-startup", "/usr/local/bin/msfvenom", "--help"])
+        self.assertNotIn("--payload", argv)
+        self.assertNotIn("--out", argv)
+
 if __name__ == "__main__":
     unittest.main()
