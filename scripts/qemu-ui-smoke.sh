@@ -54,7 +54,7 @@ text = path.read_text(encoding="utf-8")
 
 def entry_body(title: str) -> str:
     pattern = re.compile(
-        r"(?ms)^menuentry\\s+[\"']" + re.escape(title) + r"[\"']\\s*\\{(.*?)^\\}"
+        r"""(?ms)^menuentry\s+["']""" + re.escape(title) + r"""["']\s*\{(.*?)^\}"""
     )
     match = pattern.search(text)
     if not match:
@@ -63,13 +63,13 @@ def entry_body(title: str) -> str:
 
 def validate_live_entry(title: str, required: tuple[str, ...], *, failsafe: bool = False) -> None:
     body = entry_body(title)
-    kernel_lines = re.findall(r"(?m)^\\s*linux\\s+(.+)$", body)
-    initrd_lines = re.findall(r"(?m)^\\s*initrd\\s+(.+)$", body)
+    kernel_lines = re.findall(r"(?m)^\s*linux\s+(.+)$", body)
+    initrd_lines = re.findall(r"(?m)^\s*initrd\s+(.+)$", body)
     if len(kernel_lines) != 1 or len(initrd_lines) != 1:
         raise SystemExit(f"[TraceOS] GRUB validation failed: {title!r} must have one linux and one initrd line")
     kernel = kernel_lines[0]
     initrd = initrd_lines[0]
-    bad_tokens = ("@APPEND_", "@KERNEL_", "@INITRD_", "_FAILSAFE@", "findiso=${iso_path}_FAILSAFE@")
+    bad_tokens = ("@APPEND_", "@KERNEL_", "@INITRD_", "_FAILSAFE@", "findiso=${iso_path}")
     if any(token in kernel for token in bad_tokens) or "@" in kernel:
         raise SystemExit(f"[TraceOS] GRUB validation failed: unresolved or malformed kernel args in {title!r}: {kernel}")
     if not kernel.startswith("/live/vmlinuz") or "findiso=${iso_path}" not in kernel:
@@ -84,9 +84,9 @@ def validate_live_entry(title: str, required: tuple[str, ...], *, failsafe: bool
     if failsafe and "nomodeset" not in args:
         raise SystemExit("[TraceOS] GRUB validation failed: failsafe entry must include nomodeset")
 
-if not re.search(r"(?m)^set default=0\\s*$", text):
+if not re.search(r"(?m)^set default=0\s*$", text):
     raise SystemExit("[TraceOS] GRUB validation failed: default menu index is not zero")
-first_entry = re.search(r"(?m)^menuentry\\s+[\"']([^\"']+)[\"']", text)
+first_entry = re.search(r"""(?m)^menuentry\s+["']([^"']+)["']""", text)
 if not first_entry or first_entry.group(1) != "TraceOS Amnesic (no persistent storage)":
     raise SystemExit("[TraceOS] GRUB validation failed: default menu entry is not TraceOS Amnesic")
 
