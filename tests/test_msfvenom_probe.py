@@ -85,6 +85,8 @@ Options:
         self.assertEqual(argv, ["msfvenom-startup", "/usr/local/bin/msfvenom", "--help"])
         self.assertNotIn("--payload", argv)
         self.assertNotIn("--out", argv)
+        self.assertNotIn("-p", argv)
+        self.assertNotIn("-o", argv)
 
 if __name__ == "__main__":
     unittest.main()
