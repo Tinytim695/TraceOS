@@ -253,7 +253,18 @@ def _read_ledger_rows_from_fd(hashes_fd, missing_ok=True):
         with os.fdopen(ledger_fd, "r", encoding="utf-8") as handle:
             ledger_fd = None
             lines = handle.read().splitlines()
-        return lines[1:] if lines else []
+        expected_header = "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime"
+        if not lines:
+            raise OSError("Evidence ledger is empty; expected the six-field header.")
+        if lines[0] != expected_header:
+            raise OSError("Evidence ledger header is missing or malformed.")
+        rows = lines[1:]
+        for row_number, row in enumerate(rows, start=2):
+            if len(row.split("\t")) != 6:
+                raise OSError(
+                    f"Evidence ledger row {row_number} is malformed; expected six fields."
+                )
+        return rows
     finally:
         if ledger_fd is not None:
             os.close(ledger_fd)
@@ -706,11 +717,10 @@ def report():
         ]
         for row in rows:
             fields = row.split("\t")
-            if len(fields) == 6:
-                lines.append(
-                    f"| {fields[0]} | {Path(fields[2]).name} | "
-                    f"{fields[3]} | {fields[4]} | {fields[5]} |"
-                )
+            lines.append(
+                f"| {fields[0]} | {Path(fields[2]).name} | "
+                f"{fields[3]} | {fields[4]} | {fields[5]} |"
+            )
         stamp = _report_stamp()
         filename = _publish_report(
             reports_fd, stamp, "\n".join(lines) + "\n"
@@ -740,8 +750,7 @@ def timeline():
     events = []
     for row in rows:
         fields = row.split("\t")
-        if len(fields) == 6:
-            events.append((fields[0], f"Evidence added: {Path(fields[2]).name}"))
+        events.append((fields[0], f"Evidence added: {Path(fields[2]).name}"))
     print(f"\nTRACEOS TIMELINE / {case_name(p)}\n")
     for stamp, title in sorted(events):
         print(f" {stamp}  {title}")
