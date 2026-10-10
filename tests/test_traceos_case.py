@@ -348,13 +348,37 @@ class CaseStoreTests(unittest.TestCase):
             self.assertEqual(cli.add_evidence(str(source)), 1)
 
         ledger = self.store.current().path / "hashes" / "evidence.tsv"
-        self.assertGreater(len(ledger.read_bytes()), len(
+        header = (
             b"timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n"
-        ))
+        )
+        self.assertEqual(ledger.read_bytes(), header)
+        self.assertEqual(cli.verify_evidence(), 0)
         self.assertEqual(
             list((self.store.current().path / "evidence").iterdir()),
             [],
         )
+
+    def test_report_does_not_follow_existing_symlink(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_report_symlink_test")
+        record = self.store.create("Report Symlink")
+        stamp = "20300101T000000Z"
+        reports = record.path / "reports"
+        outside = self.home / "outside-report.md"
+        sentinel = "outside report must remain untouched\n"
+        outside.write_text(sentinel, encoding="utf-8")
+        symlink = reports / f"TraceOS-report-{stamp}.md"
+        symlink.symlink_to(outside)
+
+        with mock.patch.object(cli, "_report_stamp", return_value=stamp):
+            self.assertEqual(cli.report(), 0)
+
+        self.assertTrue(symlink.is_symlink())
+        self.assertEqual(outside.read_text(encoding="utf-8"), sentinel)
+        published = reports / f"TraceOS-report-{stamp}-2.md"
+        self.assertTrue(published.is_file())
+        self.assertFalse(published.is_symlink())
+        self.assertIn("# TraceOS Investigation Report", published.read_text(encoding="utf-8"))
+        self.assertEqual(published.stat().st_mode & 0o777, 0o600)
 
     def test_verify_evidence_accepts_real_vault_copy_and_detects_tampering(self):
         cli = self._load_cli_for_evidence_test("traceos_cli_verify_test")
