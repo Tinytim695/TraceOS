@@ -46,6 +46,10 @@ def valid_msfvenom_help(output):
         and re.search(r"(?im)^\s*options\s*:", output)
     )
 
+def valid_msfconsole_version(output):
+    return bool(re.search(r"(?im)^\s*framework version:\s*\S+", output))
+
+
 try:
     for _ in range(600):
         s = serial.read_text(errors="replace") if serial.exists() else ""
@@ -110,7 +114,7 @@ try:
         "ruby-version.stdout", "ruby-version.stderr", "ruby-version.exit",
         "bundler-version.stdout", "bundler-version.stderr", "bundler-version.exit",
         "msf-bundle-check.stdout", "msf-bundle-check.stderr", "msf-bundle-check.exit",
-        "msfconsole-startup.stdout", "msfconsole-startup.stderr", "msfconsole-startup.exit",
+        "msfconsole-startup.stdout", "msfconsole-startup.stderr", "msfconsole-startup.exit",\n        "msfconsole-startup-first-attempt.stdout", "msfconsole-startup-first-attempt.stderr", "msfconsole-startup-first-attempt.exit",
         "msfvenom-startup.stdout", "msfvenom-startup.stderr", "msfvenom-startup.exit",
         "msfdb-startup.stdout", "msfdb-startup.stderr", "msfdb-startup.exit",
         "enum4linux-ng-startup.stdout", "enum4linux-ng-startup.stderr", "enum4linux-ng-startup.exit",
@@ -285,7 +289,29 @@ try:
         stderr = (out / f"{label}.stderr").read_text(errors="replace") if (out / f"{label}.stderr").exists() else ""
         expected_exit = 1 if label == "msfvenom-startup" else 0
         audit(f"{label.upper().replace('-', '_')}_EXIT", exit_value == expected_exit)
-        audit(f"{label.upper().replace('-', '_')}_OUTPUT", bool(stdout.strip() or stderr.strip()))
+        output_ok = bool(stdout.strip() or stderr.strip())
+        if label == "msfconsole-startup":
+            output_ok = valid_msfconsole_version(stdout + "\n" + stderr)
+        audit(f"{label.upper().replace('-', '_')}_OUTPUT", output_ok)
+
+    first_attempt_paths = [
+        out / "msfconsole-startup-first-attempt.stdout",
+        out / "msfconsole-startup-first-attempt.stderr",
+        out / "msfconsole-startup-first-attempt.exit",
+    ]
+    if any(path.exists() for path in first_attempt_paths):
+        retained = all(path.is_file() for path in first_attempt_paths)
+        retained = retained and (first_attempt_paths[2].read_text(errors="replace").strip() == "124")
+        audit("MSFCONSOLE_FIRST_TIMEOUT_RETAINED", retained)
+        final_console_output = (
+            (out / "msfconsole-startup.stdout").read_text(errors="replace")
+            + "\n"
+            + (out / "msfconsole-startup.stderr").read_text(errors="replace")
+        )
+        audit(
+            "MSFCONSOLE_TIMEOUT_RECOVERY",
+            exit_code("msfconsole-startup") == 0 and valid_msfconsole_version(final_console_output),
+        )
 
     entrypoint_text = (out / "msfdb-entrypoint.txt").read_text(errors="replace") if (out / "msfdb-entrypoint.txt").exists() else ""
     audit("MSFDB_ENTRYPOINT", entrypoint_text.startswith("#!/bin/sh") and 'exec bundle "_${MSF_BUNDLER}_" exec ruby ' in entrypoint_text)

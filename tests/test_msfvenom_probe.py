@@ -99,6 +99,33 @@ Options:
             line = next(line for line in guest.splitlines() if label in line and "tool_version(" in line)
             self.assertIn('cwd="/opt/traceos-metasploit"', line)
 
+    def test_msfconsole_version_output_must_be_genuine(self):
+        good = "Framework Version: 6.5.6-dev-c6e99d0826\n"
+        bad_outputs = [
+            "",
+            "msfconsole: command failed\n",
+            "Framework Version: \n",
+            "version unknown\n",
+        ]
+        for path in (GUEST, HOST):
+            with self.subTest(path=path):
+                checker = load_function(path, "valid_msfconsole_version")
+                self.assertTrue(checker(good))
+                for output in bad_outputs:
+                    with self.subTest(output=output):
+                        self.assertFalse(checker(output))
+
+    def test_msfconsole_timeout_recovery_retains_original_failure(self):
+        guest = GUEST.read_text(encoding="utf-8")
+        host = HOST.read_text(encoding="utf-8")
+        self.assertIn('if first_exit == "124":', guest)
+        self.assertIn('msfconsole-startup-first-attempt.{suffix}', guest)
+        self.assertIn('RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s', guest)
+        self.assertIn('valid_msfconsole_version(retry_output)', guest)
+        self.assertIn('"msfconsole-startup-first-attempt.exit"', host)
+        self.assertIn('"MSFCONSOLE_FIRST_TIMEOUT_RETAINED"', host)
+        self.assertIn('valid_msfconsole_version(stdout + "\\n" + stderr)', host)
+
 
 if __name__ == "__main__":
     unittest.main()

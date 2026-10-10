@@ -9,6 +9,10 @@ def valid_msfvenom_help(output):
         and re.search(r"(?im)^\s*options\s*:", output)
     )
 
+def valid_msfconsole_version(output):
+    return bool(re.search(r"(?im)^\s*framework version:\s*\S+", output))
+
+
 def serial(s):
     print(s,flush=True)
     try:
@@ -298,7 +302,42 @@ except OSError as exc:
 
 msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
 if msfconsole_startup is None:
-    diagnose_metasp_timeout("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
+    try:
+        first_exit = (ART / "msfconsole-startup.exit").read_text().strip()
+    except OSError:
+        first_exit = ""
+
+    if first_exit == "124":
+        # Preserve the original failed probe before a fresh attempt overwrites the
+        # canonical result files. The initial timeout remains visible in the bundle.
+        for suffix in ("stdout", "stderr", "exit"):
+            original = ART / f"msfconsole-startup.{suffix}"
+            if original.is_file():
+                shutil.copy2(original, ART / f"msfconsole-startup-first-attempt.{suffix}")
+
+        diagnose_metasp_timeout("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
+        record_diag("RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s")
+        retry = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
+        retry_output = (retry.stdout + "\n" + retry.stderr) if retry is not None else ""
+        recovered = bool(
+            retry is not None
+            and retry.returncode == 0
+            and valid_msfconsole_version(retry_output)
+        )
+        record_diag(
+            "RECOVERY_RETRY_RESULT label=msfconsole-startup classification=%s rc=%s" %
+            ("RECOVERED_APPLICATION_EXIT" if recovered else "RECOVERY_FAILED",
+             retry.returncode if retry is not None else "unknown")
+        )
+        serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=" + ("PASS" if recovered else "FAIL"))
+        msfconsole_startup = retry if recovered else None
+    elif first_exit == "125":
+        # Do not spawn another diagnostic process if cleanup itself was not safe.
+        record_diag("RECOVERY_SKIPPED label=msfconsole-startup reason=initial_cleanup_incomplete")
+        serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=SKIPPED")
+    else:
+        record_diag("RECOVERY_SKIPPED label=msfconsole-startup reason=not_a_confirmed_timeout initial_exit=" + (first_exit or "unknown"))
+        serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=SKIPPED")
 msfvenom_startup = tool_version("msfvenom-startup", "/usr/local/bin/msfvenom", "--help", cwd="/opt/traceos-metasploit")
 msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help", cwd="/opt/traceos-metasploit")
 if msfdb_startup is None:
@@ -369,7 +408,8 @@ startup_ok = all([
     bundler_version and bundler_version.returncode == 0 and "Bundler version 2.6.7" in (bundler_version.stdout + bundler_version.stderr),
     bundle_check and bundle_check.returncode == 0,
     entrypoint_ok,
-    msfconsole_startup and msfconsole_startup.returncode == 0 and (msfconsole_startup.stdout.strip() or msfconsole_startup.stderr.strip()),
+    msfconsole_startup and msfconsole_startup.returncode == 0
+    and valid_msfconsole_version(msfconsole_startup.stdout + "\n" + msfconsole_startup.stderr),
     msfvenom_help_ok,
     msfdb_startup and msfdb_startup.returncode == 0 and (msfdb_startup.stdout.strip() or msfdb_startup.stderr.strip()),
     enum4linux_startup and enum4linux_startup.returncode == 0 and (enum4linux_startup.stdout.strip() or enum4linux_startup.stderr.strip()),
@@ -380,7 +420,7 @@ allow={'matrix.txt','case.json','case-path.txt','case-new-state.txt','case-new.s
 'ruby-version.stdout','ruby-version.stderr','ruby-version.exit',
 'bundler-version.stdout','bundler-version.stderr','bundler-version.exit',
 'msf-bundle-check.stdout','msf-bundle-check.stderr','msf-bundle-check.exit',
-'msfconsole-startup.stdout','msfconsole-startup.stderr','msfconsole-startup.exit',
+'msfconsole-startup.stdout','msfconsole-startup.stderr','msfconsole-startup.exit',\n'msfconsole-startup-first-attempt.stdout','msfconsole-startup-first-attempt.stderr','msfconsole-startup-first-attempt.exit',
 'msfvenom-startup.stdout','msfvenom-startup.stderr','msfvenom-startup.exit',
 'msfdb-startup.stdout','msfdb-startup.stderr','msfdb-startup.exit',
 'enum4linux-ng-startup.stdout','enum4linux-ng-startup.stderr','enum4linux-ng-startup.exit',
