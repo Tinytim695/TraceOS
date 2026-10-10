@@ -348,13 +348,77 @@ class CaseStoreTests(unittest.TestCase):
             self.assertEqual(cli.add_evidence(str(source)), 1)
 
         ledger = self.store.current().path / "hashes" / "evidence.tsv"
-        self.assertGreater(len(ledger.read_bytes()), len(
+        header = (
             b"timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n"
-        ))
+        )
+        self.assertEqual(ledger.read_bytes(), header)
+        self.assertEqual(cli.verify_evidence(), 0)
         self.assertEqual(
             list((self.store.current().path / "evidence").iterdir()),
             [],
         )
+
+    def test_report_and_timeline_reject_headerless_ledger(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_headerless_ledger_test")
+        record = self.store.create("Headerless Ledger")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        ledger.write_text("2026-10-10T12:00:00Z\tsource\tvault\n", encoding="utf-8")
+        reports = record.path / "reports"
+        before = list(reports.iterdir())
+        self.assertEqual(cli.report(), 1)
+        self.assertEqual(cli.timeline(), 1)
+        self.assertEqual(list(reports.iterdir()), before)
+
+    def test_report_and_timeline_reject_malformed_ledger_row(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_malformed_ledger_test")
+        record = self.store.create("Malformed Ledger")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        ledger.write_text(
+            "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n"
+            "2026-10-10T12:00:00Z\ttoo-few-fields\n",
+            encoding="utf-8",
+        )
+        reports = record.path / "reports"
+        before = list(reports.iterdir())
+        self.assertEqual(cli.report(), 1)
+        self.assertEqual(cli.timeline(), 1)
+        self.assertEqual(list(reports.iterdir()), before)
+
+    def test_header_only_ledger_is_valid_and_produces_empty_report(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_header_only_ledger_test")
+        record = self.store.create("Header Only Ledger")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        ledger.write_text(
+            "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(cli.report(), 0)
+        self.assertEqual(cli.timeline(), 0)
+        reports = list((record.path / "reports").glob("TraceOS-report-*.md"))
+        self.assertEqual(len(reports), 1)
+        self.assertIn("## Evidence", reports[0].read_text(encoding="utf-8"))
+
+    def test_report_does_not_follow_existing_symlink(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_report_symlink_test")
+        record = self.store.create("Report Symlink")
+        stamp = "20300101T000000Z"
+        reports = record.path / "reports"
+        outside = self.home / "outside-report.md"
+        sentinel = "outside report must remain untouched\n"
+        outside.write_text(sentinel, encoding="utf-8")
+        symlink = reports / f"TraceOS-report-{stamp}.md"
+        symlink.symlink_to(outside)
+
+        with mock.patch.object(cli, "_report_stamp", return_value=stamp):
+            self.assertEqual(cli.report(), 0)
+
+        self.assertTrue(symlink.is_symlink())
+        self.assertEqual(outside.read_text(encoding="utf-8"), sentinel)
+        published = reports / f"TraceOS-report-{stamp}-2.md"
+        self.assertTrue(published.is_file())
+        self.assertFalse(published.is_symlink())
+        self.assertIn("# TraceOS Investigation Report", published.read_text(encoding="utf-8"))
+        self.assertEqual(published.stat().st_mode & 0o777, 0o600)
 
     def test_verify_evidence_accepts_real_vault_copy_and_detects_tampering(self):
         cli = self._load_cli_for_evidence_test("traceos_cli_verify_test")

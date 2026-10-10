@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import datetime as dt, hashlib, json, mimetypes, os, shutil, stat, subprocess, sys
+import fcntl
+import uuid
 from pathlib import Path
 
 # Use the installed library path in the ISO, but also resolve the sibling
@@ -121,89 +123,92 @@ def show_tools():
     print("\nTRACEOS TOOLBOX\n───────────────")
     for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
 def verify_evidence():
-    p=current_case()
+    p = current_case()
     if not p:
-        print("No current case."); return 2
+        print("No current case.")
+        return 2
+
     evidence_fd = None
     hashes_fd = None
     try:
         evidence_fd, hashes_fd = CASE_STORE.open_required_dirs(
             p, ("evidence", "hashes")
         )
-        ledger_fd = os.open(
-            "evidence.tsv",
-            os.O_RDONLY
-            | getattr(os, "O_NONBLOCK", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=hashes_fd,
-        )
-        try:
-            ledger_info = os.fstat(ledger_fd)
-            if not stat.S_ISREG(ledger_info.st_mode):
-                print("Evidence ledger is not a regular file.", file=sys.stderr)
-                return 1
-            with os.fdopen(ledger_fd, "r", encoding="utf-8") as handle:
-                ledger_fd = None
-                rows = handle.read().splitlines()[1:]
-        finally:
-            if ledger_fd is not None:
-                os.close(ledger_fd)
+        rows = _read_ledger_rows_from_fd(hashes_fd, missing_ok=False)
     except (OSError, CaseError, UnicodeError) as exc:
         print(f"Unable to read evidence ledger: {exc}", file=sys.stderr)
+        if evidence_fd is not None:
+            os.close(evidence_fd)
+        if hashes_fd is not None:
+            os.close(hashes_fd)
         return 1
 
-    checked=0; failures=0
-    for r in rows:
-        q=r.split("\t")
-        if len(q)!=6:
-            print("  [FAIL] malformed evidence ledger row")
-            failures+=1
-            continue
-        vault=Path(q[2]).expanduser()
-        expected=q[3]
-        try:
-            relative = vault.relative_to(p / "evidence")
-        except ValueError:
-            relative = None
-        if (
-            relative is None
-            or len(relative.parts) != 1
-            or relative.name in {"", ".", ".."}
-        ):
-            print(f"  [FAIL] missing or out-of-case vault copy: {vault}")
-            failures+=1
-            continue
-
-        vault_fd = None
-        try:
-            vault_fd = os.open(
-                relative.name,
-                os.O_RDONLY
-                | getattr(os, "O_NONBLOCK", 0)
-                | getattr(os, "O_CLOEXEC", 0)
-                | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=evidence_fd,
-            )
-            info = os.fstat(vault_fd)
-            if not stat.S_ISREG(info.st_mode):
-                raise OSError("vault entry is not a regular file")
-            actual = _sha256_fd(vault_fd)
-            checked += 1
-            if actual == expected:
-                print(f"  [OK]   {vault.name}  {actual}")
-            else:
-                print(f"  [FAIL] {vault.name}  expected={expected} actual={actual}")
+    checked = 0
+    failures = 0
+    try:
+        for row in rows:
+            fields = row.split("\t")
+            if len(fields) != 6:
+                print("  [FAIL] malformed evidence ledger row")
                 failures += 1
-        except OSError as exc:
-            print(f"  [FAIL] missing or unsafe vault copy: {vault}: {exc}")
-            failures += 1
-        finally:
-            if vault_fd is not None:
-                os.close(vault_fd)
+                continue
+
+            vault = Path(fields[2]).expanduser()
+            expected = fields[3]
+            try:
+                relative = vault.relative_to(p / "evidence")
+            except ValueError:
+                relative = None
+            if (
+                relative is None
+                or len(relative.parts) != 1
+                or relative.name in {"", ".", ".."}
+            ):
+                print(f"  [FAIL] missing or out-of-case vault copy: {vault}")
+                failures += 1
+                continue
+
+            vault_fd = None
+            try:
+                vault_fd = os.open(
+                    relative.name,
+                    os.O_RDONLY
+                    | getattr(os, "O_NONBLOCK", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=evidence_fd,
+                )
+                info = os.fstat(vault_fd)
+                if not stat.S_ISREG(info.st_mode):
+                    raise OSError("vault entry is not a regular file")
+                actual = _sha256_fd(vault_fd)
+                checked += 1
+                if actual == expected:
+                    print(f"  [OK]   {vault.name}  {actual}")
+                else:
+                    print(
+                        f"  [FAIL] {vault.name}  "
+                        f"expected={expected} actual={actual}"
+                    )
+                    failures += 1
+            except OSError as exc:
+                print(
+                    f"  [FAIL] missing or unsafe vault copy: {vault}: {exc}"
+                )
+                failures += 1
+            finally:
+                if vault_fd is not None:
+                    os.close(vault_fd)
+
+    finally:
+        if evidence_fd is not None:
+            os.close(evidence_fd)
+        if hashes_fd is not None:
+            os.close(hashes_fd)
 
     print(f"Integrity check: {checked} checked, {failures} failed.")
     return 1 if failures else 0
+
 
 def _sha256_fd(fd, chunk_size=1024*1024):
     digest = hashlib.sha256()
@@ -223,6 +228,114 @@ def _write_all(fd, data):
         if written <= 0:
             raise OSError("ledger write made no progress")
         offset += written
+
+
+def _read_ledger_rows_from_fd(hashes_fd, missing_ok=True):
+    """Read evidence rows from an already validated hashes directory FD."""
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        ledger_fd = os.open("evidence.tsv", flags, dir_fd=hashes_fd)
+    except FileNotFoundError:
+        if missing_ok:
+            return []
+        raise
+
+    try:
+        info = os.fstat(ledger_fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError("Evidence ledger is not a regular file.")
+        fcntl.flock(ledger_fd, fcntl.LOCK_SH)
+        with os.fdopen(ledger_fd, "r", encoding="utf-8") as handle:
+            ledger_fd = None
+            lines = handle.read().splitlines()
+        expected_header = "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime"
+        if not lines:
+            raise OSError("Evidence ledger is empty; expected the six-field header.")
+        if lines[0] != expected_header:
+            raise OSError("Evidence ledger header is missing or malformed.")
+        rows = lines[1:]
+        for row_number, row in enumerate(rows, start=2):
+            if len(row.split("\t")) != 6:
+                raise OSError(
+                    f"Evidence ledger row {row_number} is malformed; expected six fields."
+                )
+        return rows
+    finally:
+        if ledger_fd is not None:
+            os.close(ledger_fd)
+
+
+def _read_evidence_ledger_rows(case_path, missing_ok=True):
+    """Read evidence rows via CaseStore's validated hashes directory."""
+    hashes_fd = CASE_STORE.open_required_dir(case_path, "hashes")
+    try:
+        return _read_ledger_rows_from_fd(hashes_fd, missing_ok=missing_ok)
+    finally:
+        os.close(hashes_fd)
+
+
+def _report_stamp():
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _publish_report(reports_fd, stamp, content):
+    """Publish a private report without following or replacing an existing path."""
+    temp_name = f".traceos-report-{uuid.uuid4().hex}.tmp"
+    temp_fd = None
+    temp_exists = False
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        temp_fd = os.open(temp_name, flags, 0o600, dir_fd=reports_fd)
+        temp_exists = True
+        with os.fdopen(temp_fd, "wb") as handle:
+            temp_fd = None
+            handle.write(content.encode("utf-8"))
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o600)
+            os.fsync(handle.fileno())
+
+        suffix = 1
+        while True:
+            name = (
+                f"TraceOS-report-{stamp}.md"
+                if suffix == 1
+                else f"TraceOS-report-{stamp}-{suffix}.md"
+            )
+            try:
+                os.link(
+                    temp_name,
+                    name,
+                    src_dir_fd=reports_fd,
+                    dst_dir_fd=reports_fd,
+                    follow_symlinks=False,
+                )
+                break
+            except FileExistsError:
+                suffix += 1
+
+        os.unlink(temp_name, dir_fd=reports_fd)
+        temp_exists = False
+        os.fsync(reports_fd)
+        return name
+    finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
+        if temp_exists:
+            try:
+                os.unlink(temp_name, dir_fd=reports_fd)
+            except OSError:
+                pass
 
 
 def add_evidence(src):
@@ -309,6 +422,9 @@ def add_evidence(src):
                 raise CaseError(
                     "Evidence copy hash mismatch; source may have changed during acquisition."
                 )
+            # The ledger records the bytes actually acquired, not an earlier
+            # stat result that may have become stale during acquisition.
+            size = os.fstat(dest_handle.fileno()).st_size
 
             # Keep the destination fd open through the permission change so
             # a pathname rename/replacement cannot redirect chmod().
@@ -327,10 +443,26 @@ def add_evidence(src):
             ledger_info = os.fstat(ledger_fd)
             if not stat.S_ISREG(ledger_info.st_mode):
                 raise CaseError("Evidence ledger is not a regular file.")
+            fcntl.flock(ledger_fd, fcntl.LOCK_EX)
+            ledger_start_size = os.fstat(ledger_fd).st_size
             line=f"{now()}\t{src}\t{p/'evidence'/dest_name}\t{source_hash}\t{size}\t{mime}\n"
             encoded_line=line.encode("utf-8")
-            _write_all(ledger_fd, encoded_line)
-            os.fsync(ledger_fd)
+            try:
+                _write_all(ledger_fd, encoded_line)
+                os.fsync(ledger_fd)
+            except OSError as write_exc:
+                try:
+                    os.ftruncate(ledger_fd, ledger_start_size)
+                    os.fsync(ledger_fd)
+                except OSError as rollback_exc:
+                    raise CaseError(
+                        "Evidence ledger append failed and its previous length "
+                        "could not be restored; the ledger requires repair: "
+                        f"{rollback_exc}"
+                    ) from write_exc
+                raise
+            finally:
+                fcntl.flock(ledger_fd, fcntl.LOCK_UN)
         finally:
             os.close(ledger_fd)
 
@@ -363,7 +495,11 @@ def add_evidence(src):
 def list_evidence():
     p=current_case()
     if not p: print("No current case."); return
-    m=p/"hashes"/"evidence.tsv"; rows=m.read_text(encoding="utf-8").splitlines()[1:] if m.exists() else []
+    try:
+        rows = _read_evidence_ledger_rows(p, missing_ok=True)
+    except (OSError, CaseError, UnicodeError) as exc:
+        print(f"Unable to read evidence ledger: {exc}", file=sys.stderr)
+        return 1
     print(f"\nEVIDENCE VAULT / {case_name(p)}\n")
     for r in rows:
         q=r.split("\t")
@@ -552,25 +688,74 @@ def analyse(src):
         if r and r.stdout.strip(): print("\nMetadata\n"+r.stdout.strip())
     return 0
 def report():
-    p=current_case()
-    if not p: print("No current case."); return 2
-    m=p/"hashes"/"evidence.tsv"; rows=[r.split("\t") for r in m.read_text(encoding="utf-8").splitlines()[1:] if r.strip()] if m.exists() else []
-    out=p/"reports"/f"TraceOS-report-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.md"
-    lines=["# TraceOS Investigation Report","",f"Case: {case_name(p)}",f"Generated: {now()}","","## Handling","TraceOS preserves source files and works from separate vault copies.","","## Evidence","","| Timestamp | Vault copy | SHA-256 | Size | MIME |","|---|---|---|---:|---|"]
-    for q in rows:
-        if len(q)==6: lines.append(f"| {q[0]} | {Path(q[2]).name} | {q[3]} | {q[4]} | {q[5]} |")
-    out.write_text("\n".join(lines)+"\n",encoding="utf-8"); print(f"Report written: {out}"); return 0
+    p = current_case()
+    if not p:
+        print("No current case.")
+        return 2
+
+    reports_fd = None
+    hashes_fd = None
+    try:
+        record = CASE_STORE.read(p)
+        reports_fd, hashes_fd = CASE_STORE.open_required_dirs(
+            p, ("reports", "hashes")
+        )
+        rows = _read_ledger_rows_from_fd(hashes_fd, missing_ok=True)
+        lines = [
+            "# TraceOS Investigation Report",
+            "",
+            f"Case: {record.title}",
+            f"Generated: {now()}",
+            "",
+            "## Handling",
+            "TraceOS preserves source files and works from separate vault copies.",
+            "",
+            "## Evidence",
+            "",
+            "| Timestamp | Vault copy | SHA-256 | Size | MIME |",
+            "|---|---|---|---:|---|",
+        ]
+        for row in rows:
+            fields = row.split("\t")
+            lines.append(
+                f"| {fields[0]} | {Path(fields[2]).name} | "
+                f"{fields[3]} | {fields[4]} | {fields[5]} |"
+            )
+        stamp = _report_stamp()
+        filename = _publish_report(
+            reports_fd, stamp, "\n".join(lines) + "\n"
+        )
+        print(f"Report written: {p / 'reports' / filename}")
+        return 0
+    except (OSError, CaseError, UnicodeError) as exc:
+        print(f"[TraceOS] Report generation failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if reports_fd is not None:
+            os.close(reports_fd)
+        if hashes_fd is not None:
+            os.close(hashes_fd)
+
+
 def timeline():
-    p=current_case()
-    if not p: print("No current case."); return 2
-    m=p/"hashes"/"evidence.tsv"; events=[]
-    if m.exists():
-        for r in m.read_text(encoding="utf-8").splitlines()[1:]:
-            q=r.split("\t")
-            if len(q)==6: events.append((q[0],f"Evidence added: {Path(q[2]).name}"))
+    p = current_case()
+    if not p:
+        print("No current case.")
+        return 2
+    try:
+        rows = _read_evidence_ledger_rows(p, missing_ok=True)
+    except (OSError, CaseError, UnicodeError) as exc:
+        print(f"Unable to read evidence ledger: {exc}", file=sys.stderr)
+        return 1
+    events = []
+    for row in rows:
+        fields = row.split("\t")
+        events.append((fields[0], f"Evidence added: {Path(fields[2]).name}"))
     print(f"\nTRACEOS TIMELINE / {case_name(p)}\n")
-    for s,t in sorted(events): print(f" {s}  {t}")
-    if not events: print(" No timeline events recorded.")
+    for stamp, title in sorted(events):
+        print(f" {stamp}  {title}")
+    if not events:
+        print(" No timeline events recorded.")
     return 0
 def network(a):
     if not a or a[0]=="status":
