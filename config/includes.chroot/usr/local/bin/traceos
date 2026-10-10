@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import datetime as dt, hashlib, json, mimetypes, os, shutil, stat, subprocess, sys
 import fcntl
+import uuid
 from pathlib import Path
 
 # Use the installed library path in the ISO, but also resolve the sibling
