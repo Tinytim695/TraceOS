@@ -13,6 +13,20 @@ def valid_msfconsole_version(output):
     return bool(re.search(r"(?im)^\s*framework version:\s*\S+", output))
 
 
+def preserve_first_attempt_files(artifact_dir):
+    """Preserve all original probe outputs before retry overwrites canonical files."""
+    artifact_dir = Path(artifact_dir)
+    for suffix in ("stdout", "stderr", "exit"):
+        original = artifact_dir / f"msfconsole-startup.{suffix}"
+        if not original.is_file():
+            raise FileNotFoundError(
+                f"missing first-attempt probe artifact: {original.name}"
+            )
+        shutil.copy2(
+            original,
+            artifact_dir / f"msfconsole-startup-first-attempt.{suffix}",
+        )
+
 def serial(s):
     print(s,flush=True)
     try:
@@ -326,12 +340,8 @@ if msfconsole_startup is None:
         first_exit = ""
 
     if first_exit == "124":
-        # Preserve the original failed probe before a fresh attempt overwrites the
-        # canonical result files. The initial timeout remains visible in the bundle.
-        for suffix in ("stdout", "stderr", "exit"):
-            original = ART / f"msfconsole-startup.{suffix}"
-            if original.is_file():
-                shutil.copy2(original, ART / f"msfconsole-startup-first-attempt.{suffix}")
+        # Fail closed if any original timeout artifact cannot be preserved.
+        preserve_first_attempt_files(ART)
 
         diagnostics_clean = diagnose_metasp_timeout(
             "msfconsole-startup", "/usr/local/bin/msfconsole", "--version"
