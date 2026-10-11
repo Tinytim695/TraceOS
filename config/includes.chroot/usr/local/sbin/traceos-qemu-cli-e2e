@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64,hashlib,json,os,pwd,re,signal,stat,subprocess,tarfile,time,uuid
+import base64,hashlib,json,os,pwd,re,shutil,signal,stat,subprocess,tarfile,time,uuid
 from pathlib import Path
 SER="/dev/ttyS0"; MARK=Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ci-e2e/raw"); ART=Path("/home/traceos/traceos-ci-e2e")
 def valid_msfvenom_help(output):
@@ -199,14 +199,23 @@ def tool_version(label, binary, *args, cwd=None):
     )
     (ART / (label + ".stdout")).write_text(stdout or "")
     if timed_out:
+        if cleanup_status not in ("complete",):
+            (ART / (label + ".stderr")).write_text(
+                (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup incomplete: "
+                + cleanup_status + "\n"
+            )
+            (ART / (label + ".exit")).write_text("125\n")
+            results[label] = 125
+            serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label
+                   + " rc=125 timeout=30s cleanup_incomplete=" + cleanup_status)
+            return None
         (ART / (label + ".stderr")).write_text(
-            (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup_status="
-            + cleanup_status + "\n"
+            (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup_status=complete\n"
         )
         (ART / (label + ".exit")).write_text("124\n")
         results[label] = 124
         serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label
-               + " rc=124 timeout=30s elapsed=%.2f cleanup=%s" % (elapsed, cleanup_status))
+               + " rc=124 timeout=30s elapsed=%.2f cleanup=complete" % elapsed)
         return None
     if cleanup_status not in ("not_needed", "complete"):
         (ART / (label + ".stderr")).write_text(
@@ -245,10 +254,19 @@ def diagnose_metasp_timeout(label,binary,*args):
             timed_out=True
             stdout,stderr=stop_process_group(p)
         elapsed=time.monotonic()-started
-        record_diag("DIAGNOSTIC_RESULT label=%s cwd=%s elapsed_seconds=%.2f classification=%s rc=%s\nSTDOUT_BEGIN\n%s\nSTDOUT_END\nSTDERR_BEGIN\n%s\nSTDERR_END" %
+        cleanup=cleanup_details.get(p.pid, {"status":"not_needed"})
+        cleanup_status=cleanup["status"]
+        record_diag("DIAGNOSTIC_RESULT label=%s cwd=%s elapsed_seconds=%.2f classification=%s rc=%s cleanup_status=%s\nSTDOUT_BEGIN\n%s\nSTDOUT_END\nSTDERR_BEGIN\n%s\nSTDERR_END" %
                     (label,cwd,elapsed,"HARNESS_TIMEOUT" if timed_out else "APPLICATION_EXIT",
-                     124 if timed_out else p.returncode,(stdout or "")[-12000:],(stderr or "")[-24000:]))
-    record_diag("DIAGNOSTIC_END label=%s" % label)
+                     124 if timed_out and cleanup_status == "complete" else (125 if timed_out else p.returncode),
+                     cleanup_status,(stdout or "")[-12000:],(stderr or "")[-24000:]))
+        if cleanup_status not in ("not_needed", "complete"):
+            record_diag("DIAGNOSTIC_ABORT label=%s cwd=%s reason=cleanup_incomplete status=%s" %
+                        (label,cwd,cleanup_status))
+            record_diag("DIAGNOSTIC_END label=%s status=FAILED" % label)
+            return False
+    record_diag("DIAGNOSTIC_END label=%s status=complete" % label)
+    return True
 
 def cmd(label,*args):
     serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
@@ -315,22 +333,29 @@ if msfconsole_startup is None:
             if original.is_file():
                 shutil.copy2(original, ART / f"msfconsole-startup-first-attempt.{suffix}")
 
-        diagnose_metasp_timeout("msfconsole-startup", "/usr/local/bin/msfconsole", "--version")
-        record_diag("RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s")
-        retry = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
-        retry_output = (retry.stdout + "\n" + retry.stderr) if retry is not None else ""
-        recovered = bool(
-            retry is not None
-            and retry.returncode == 0
-            and valid_msfconsole_version(retry_output)
+        diagnostics_clean = diagnose_metasp_timeout(
+            "msfconsole-startup", "/usr/local/bin/msfconsole", "--version"
         )
-        record_diag(
-            "RECOVERY_RETRY_RESULT label=msfconsole-startup classification=%s rc=%s" %
-            ("RECOVERED_APPLICATION_EXIT" if recovered else "RECOVERY_FAILED",
-             retry.returncode if retry is not None else "unknown")
-        )
-        serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=" + ("PASS" if recovered else "FAIL"))
-        msfconsole_startup = retry if recovered else None
+        if diagnostics_clean:
+            record_diag("RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s")
+            retry = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
+            retry_output = (retry.stdout + "\n" + retry.stderr) if retry is not None else ""
+            recovered = bool(
+                retry is not None
+                and retry.returncode == 0
+                and valid_msfconsole_version(retry_output)
+            )
+            record_diag(
+                "RECOVERY_RETRY_RESULT label=msfconsole-startup classification=%s rc=%s" %
+                ("RECOVERED_APPLICATION_EXIT" if recovered else "RECOVERY_FAILED",
+                 retry.returncode if retry is not None else "unknown")
+            )
+            serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=" + ("PASS" if recovered else "FAIL"))
+            msfconsole_startup = retry if recovered else None
+        else:
+            record_diag("RECOVERY_RETRY_SKIPPED label=msfconsole-startup reason=diagnostic_cleanup_incomplete")
+            serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=FAIL")
+            msfconsole_startup = None
     elif first_exit == "125":
         # Do not spawn another diagnostic process if cleanup itself was not safe.
         record_diag("RECOVERY_SKIPPED label=msfconsole-startup reason=initial_cleanup_incomplete")
