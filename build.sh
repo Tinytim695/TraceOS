@@ -73,25 +73,23 @@ run_live_build_attempts() {
   done
 }
 
-if [[ "${TRACEOS_BUILD_UNDER_TEST:-0}" == "1" ]]; then
-  return 0 2>/dev/null || exit 0
+if [[ "${TRACEOS_BUILD_UNDER_TEST:-0}" != "1" ]]; then
+  cd "$ROOT"
+
+  # Keep the bundled Blackbird lock in one authoritative source file.
+  install -D config/third-party/blackbird-requirements.txt \
+    config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
+
+  command -v lb >/dev/null 2>&1 || {
+    echo "live-build is required. Install it with: sudo apt install live-build"
+    exit 1
+  }
+
+  prepare_live_build
+
+  echo "[TraceOS] Building ISO..."
+  run_live_build_attempts
+
+  echo "[TraceOS] Build complete."
+  ls -lh live-image-amd64.hybrid.iso
 fi
-
-cd "$ROOT"
-
-# Keep the bundled Blackbird lock in one authoritative source file.
-install -D config/third-party/blackbird-requirements.txt \
-  config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
-
-command -v lb >/dev/null 2>&1 || {
-  echo "live-build is required. Install it with: sudo apt install live-build"
-  exit 1
-}
-
-prepare_live_build
-
-echo "[TraceOS] Building ISO..."
-run_live_build_attempts
-
-echo "[TraceOS] Build complete."
-ls -lh live-image-amd64.hybrid.iso
