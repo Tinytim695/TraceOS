@@ -122,8 +122,11 @@ class EngagementPlaybookTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_playbook("red-external-recon", "https://example.test")
         recon = build_playbook("red-external-recon", "example.test")
-        self.assertEqual(recon[0]["argv"][:3], ["subfinder", "-d", "example.test"])
+        self.assertEqual(recon[0]["argv"][:4], ["amass", "enum", "-d", "example.test"])
+        self.assertEqual(recon[1]["argv"][:3], ["subfinder", "-d", "example.test"])
         self.assertEqual(recon[-1]["argv"][-1], "https://example.test")
+        web = build_playbook("red-web", "https://example.test")
+        self.assertEqual(web[2]["argv"][:4], ["katana", "-u", "https://example.test", "-d"])
         ports = build_playbook("red-port-scan", "10.0.0.5")
         self.assertEqual(
             ports[1]["argv"],

@@ -5,6 +5,9 @@ OSINT|maigret|username investigation|external
 OSINT|h8mail|email OSINT|external
 OSINT|blackbird|username/email discovery|external
 OSINT|subfinder|passive subdomain discovery|external/passive
+OSINT|amass|attack-surface mapping|external/passive
+OSINT|urlfinder|historical and source URL discovery|external/passive
+RED|katana|bounded web crawl|authorized
 OSINT|whois|registration lookup|external
 OSINT|dig|DNS lookup|external
 RED|nmap|network/service discovery|authorized

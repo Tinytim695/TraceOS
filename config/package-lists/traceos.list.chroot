@@ -151,6 +151,18 @@ ike-scan
 masscan
 pocl-opencl-icd
 
+# Operator tooling that a working assessment machine already has.
+# Proxy, forensics and traffic inspection. No service-flood packages.
+proxychains4
+mitmproxy
+binwalk
+foremost
+steghide
+bulk-extractor
+socat
+ncat
+testdisk
+
 # Blue Team host audit
 lynis
 rkhunter

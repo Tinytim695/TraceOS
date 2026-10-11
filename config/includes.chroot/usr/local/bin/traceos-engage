@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import selectors
 import shlex
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 
 TRACEOS_LIB = "/usr/local/lib/traceos"
 if TRACEOS_LIB not in sys.path:
@@ -66,24 +69,99 @@ def _plan(steps: list[dict], target: str) -> None:
     )
 
 
-def _run_steps(steps: list[dict], preserve_last: bool = False) -> int:
+def _case_log(playbook_id: str):
+    try:
+        case = STORE.current()
+    except CaseError as exc:
+        die(f"Cannot determine active case: {exc}")
+    if case is None:
+        die("No active case. Create or select a case first.")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe = "".join(character if character.isalnum() or character == "-" else "-" for character in playbook_id)
+    name = f"engagement-{stamp}-{safe}.log"
+    try:
+        notes_fd = STORE.open_required_dir(case.path, "notes")
+    except CaseError as exc:
+        die(f"Cannot open case notes: {exc}")
+    fd = None
+    try:
+        fd = os.open(
+            name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=notes_fd,
+        )
+    except OSError as exc:
+        os.close(notes_fd)
+        die(f"Cannot create the engagement record: {exc}")
+    return notes_fd, fd, str(case.path / "notes" / name)
+
+
+def _write_log(fd: int, text: str) -> None:
+    payload = text.encode("utf-8", errors="replace")
+    written = 0
+    while written < len(payload):
+        count = os.write(fd, payload[written:])
+        if count <= 0:
+            break
+        written += count
+
+
+def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | None = None) -> int:
     last = 0
     for step in steps:
-        print(f"[TraceOS] START {step['name']}")
+        header = f"[TraceOS] START {step['name']}\n"
+        print(header, end="")
+        if log_fd is not None:
+            _write_log(log_fd, header)
         try:
-            completed = subprocess.run(
+            completed = subprocess.Popen(
                 step["argv"],
-                timeout=step["timeout"],
-                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
             )
-        except subprocess.TimeoutExpired:
-            print(f"[TraceOS] TIMEOUT {step['name']}", file=sys.stderr)
-            return 124
         except OSError as exc:
-            print(f"[TraceOS] FAILED {step['name']}: {exc}", file=sys.stderr)
+            message = f"[TraceOS] FAILED {step['name']}: {exc}\n"
+            print(message, end="", file=sys.stderr)
+            if log_fd is not None:
+                _write_log(log_fd, message)
             return 127
-        last = completed.returncode
-        print(f"[TraceOS] EXIT {step['name']} {last}")
+        deadline = time.monotonic() + step["timeout"]
+        selector = selectors.DefaultSelector()
+        try:
+            assert completed.stdout is not None
+            selector.register(completed.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(step["argv"], step["timeout"])
+                if not selector.select(remaining):
+                    raise subprocess.TimeoutExpired(step["argv"], step["timeout"])
+                try:
+                    line = completed.stdout.readline()
+                except UnicodeDecodeError as exc:
+                    line = f"[TraceOS] skipped an undecodable line: {exc}\n"
+                if line == "":
+                    break
+                print(line, end="")
+                if log_fd is not None:
+                    _write_log(log_fd, line)
+            last = completed.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            completed.kill()
+            completed.wait(timeout=5)
+            message = f"[TraceOS] TIMEOUT {step['name']}\n"
+            print(message, end="", file=sys.stderr)
+            if log_fd is not None:
+                _write_log(log_fd, message)
+            return 124
+        finally:
+            selector.close()
+        footer = f"[TraceOS] EXIT {step['name']} {last}\n"
+        print(footer, end="")
+        if log_fd is not None:
+            _write_log(log_fd, footer)
         if last < 0 or last >= 126:
             return last
     return last if preserve_last else 0
@@ -135,7 +213,7 @@ def main(argv: list[str]) -> int:
         steps = build_playbook("purple-canary", canary_path=canary)
         _print_steps(steps)
         _plan(steps, "case-local-canary")
-        status = _run_steps(steps, preserve_last=True)
+        status = _run_recorded("purple-canary", steps, preserve_last=True)
         if status == 0:
             outcome = "detected"
         elif status == 1:
@@ -167,7 +245,21 @@ def main(argv: list[str]) -> int:
         _plan(steps, target or "local")
     except subprocess.CalledProcessError:
         die("Purple plan was not recorded. Select a case, then run the engagement again.")
-    return _run_steps(steps)
+    return _run_recorded(playbook_id, steps)
+
+
+def _run_recorded(playbook_id: str, steps: list[dict], preserve_last: bool = False) -> int:
+    notes_fd, log_fd, path = _case_log(playbook_id)
+    print(f"[TraceOS] Case record: {path}")
+    try:
+        _write_log(log_fd, f"[TraceOS] Case record: {path}\n")
+        return _run_steps(steps, preserve_last=preserve_last, log_fd=log_fd)
+    finally:
+        try:
+            os.fsync(log_fd)
+        finally:
+            os.close(log_fd)
+            os.close(notes_fd)
 
 
 if __name__ == "__main__":

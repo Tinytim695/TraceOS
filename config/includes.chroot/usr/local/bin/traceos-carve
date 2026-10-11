@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+    echo "[TraceOS] Usage: traceos-carve FILE" >&2
+    exit 2
+fi
+
+out="$(mktemp -d /tmp/traceos-foremost.XXXXXX)"
+foremost -i "$1" -o "$out"
+printf '[TraceOS] Recovered files: %s\n' "$out"

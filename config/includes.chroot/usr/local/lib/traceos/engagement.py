@@ -139,8 +139,10 @@ PLAYBOOKS: dict[str, dict] = {
         "technique": "T1595",
         "expected": "DNS query logs and web proxy or access logs for the domain",
         "steps": [
+            {"name": "Amass", "timeout": 240, "argv": ["amass", "enum", "-d", "{domain}", "-silent", "-timeout", "3"]},
             {"name": "Subfinder", "timeout": 180, "argv": ["subfinder", "-d", "{domain}", "-silent"]},
             {"name": "dnsx", "timeout": 120, "argv": ["dnsx", "-silent", "-d", "{domain}"]},
+            {"name": "URLFinder", "timeout": 180, "argv": ["urlfinder", "-d", "{domain}", "-silent", "-disable-update-check"]},
             {"name": "Naabu", "timeout": 180, "argv": ["naabu", "-host", "{domain}", "-top-ports", "100"]},
             {"name": "httpx", "timeout": 180, "argv": ["httpx", "-silent", "-u", "https://{domain}"]},
         ],
@@ -165,6 +167,7 @@ PLAYBOOKS: dict[str, dict] = {
         "steps": [
             {"name": "WhatWeb", "timeout": 120, "argv": ["whatweb", "{url}"]},
             {"name": "WAFW00F", "timeout": 120, "argv": ["wafw00f", "{url}"]},
+            {"name": "Katana", "timeout": 150, "argv": ["katana", "-u", "{url}", "-d", "2", "-crawl-duration", "90s", "-timeout", "5", "-silent"]},
             {
                 "name": "Nuclei",
                 "timeout": 300,

@@ -101,7 +101,7 @@ fi
 echo "[TraceOS] OSINT"
 for cmd in sherlock maigret h8mail holehe blackbird phoneinfoga ghunt theHarvester dnsrecon dnstwist subfinder whois dig; do check_cmd "$cmd"; done
 echo "[TraceOS] INFRASTRUCTURE RECON"
-for cmd in dnsx httpx naabu; do check_cmd "$cmd"; done
+for cmd in dnsx httpx naabu katana urlfinder amass; do check_cmd "$cmd"; done
 echo "[TraceOS] WEB APPLICATION ASSESSMENT"
 for cmd in nmap ffuf gobuster sqlmap whatweb wafw00f nuclei zap nikto dalfox testssl.sh sslscan; do check_cmd "$cmd"; done
 echo "[TraceOS] BLOCK 6A OFFENSIVE OPERATIONS"
@@ -113,9 +113,9 @@ for cmd in tcpdump tshark wireshark yara; do check_cmd "$cmd"; done
 for cmd in fls mmls tsk_recover; do check_cmd "$cmd"; done
 for cmd in plaso-log2timeline plaso-psort; do check_cmd "$cmd"; done
 for cmd in suricata suricata-update; do check_cmd "$cmd"; done
-for cmd in vol sigma lynis rkhunter chkrootkit auditctl; do check_cmd "$cmd"; done
+for cmd in vol sigma lynis rkhunter chkrootkit auditctl binwalk foremost steghide bulk_extractor; do check_cmd "$cmd"; done
 echo "[TraceOS] ENTERPRISE / ACTIVE DIRECTORY"
-for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno nbtscan onesixtyone ike-scan hydra masscan; do check_cmd "$cmd"; done
+for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno nbtscan onesixtyone ike-scan hydra masscan proxychains4 mitmproxy socat ncat; do check_cmd "$cmd"; done
 for cmd in GetNPUsers.py GetUserSPNs.py GetADUsers.py; do check_cmd "$cmd"; done
 echo "[TraceOS] PURPLE"
 check_cmd traceos-purple
