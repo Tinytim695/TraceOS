@@ -143,7 +143,7 @@ Options:
         host = HOST.read_text(encoding="utf-8")
         self.assertIn('if first_exit == "124":', guest)
         self.assertIn('msfconsole-startup-first-attempt.{suffix}', guest)
-        self.assertIn('RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s', guest)
+        self.assertIn('RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=60s', guest)
         self.assertIn('valid_msfconsole_version(retry_output)', guest)
         self.assertIn('"msfconsole-startup-first-attempt.exit"', host)
         self.assertIn('"MSFCONSOLE_FIRST_TIMEOUT_RETAINED"', host)
@@ -250,10 +250,48 @@ Options:
                 members.append(entry)
         return members
 
+    def test_zombie_child_is_not_a_live_process_group_member(self):
+        functions = load_functions(
+            GUEST,
+            [
+                "process_group_exists",
+                "process_group_member_states",
+                "process_group_has_live_member",
+            ],
+        )
+        states = functions["process_group_member_states"]
+        live = functions["process_group_has_live_member"]
+        proc = subprocess.Popen(
+            [
+                "python3",
+                "-c",
+                "import os, time\n"
+                "pid = os.fork()\n"
+                "if pid == 0:\n"
+                "    os._exit(0)\n"
+                "time.sleep(30)\n",
+            ],
+            start_new_session=True,
+        )
+        try:
+            time.sleep(0.3)
+            pgid = os.getpgid(proc.pid)
+            self.assertIn("Z", states(pgid))
+            self.assertTrue(live(pgid))
+            os.kill(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=2)
+            time.sleep(0.2)
+            self.assertFalse(live(pgid))
+            self.assertFalse(functions["process_group_exists"](pgid))
+        finally:
+            if proc.poll() is None:
+                os.kill(proc.pid, signal.SIGKILL)
+                proc.wait(timeout=2)
+
     def test_stop_process_group_terminates_real_children(self):
         functions = load_functions(
             GUEST,
-            ["process_group_exists", "stop_process_group"],
+            ["process_group_exists", "process_group_member_states", "process_group_has_live_member", "stop_process_group"],
         )
         functions["cleanup_details"].clear()
         stop = functions["stop_process_group"]
@@ -284,7 +322,7 @@ Options:
     def test_stop_process_group_kills_sigterm_resistant_leader(self):
         functions = load_functions(
             GUEST,
-            ["process_group_exists", "stop_process_group"],
+            ["process_group_exists", "process_group_member_states", "process_group_has_live_member", "stop_process_group"],
         )
         functions["cleanup_details"].clear()
         stop = functions["stop_process_group"]

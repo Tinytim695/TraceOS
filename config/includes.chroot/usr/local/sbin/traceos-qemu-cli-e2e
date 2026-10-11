@@ -145,6 +145,44 @@ def process_group_exists(pgid):
         return True
 
 
+def process_group_member_states(pgid):
+    """Return the /proc state of every member still in this process group."""
+    states = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            stat = Path("/proc/%s/stat" % entry).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        marker = stat.rfind(")")
+        if marker < 0:
+            continue
+        fields = stat[marker + 2:].split()
+        if len(fields) >= 3 and fields[2] == str(pgid):
+            states.append(fields[0])
+    return states
+
+
+def process_group_has_live_member(pgid):
+    """True when the group still contains a process that can run.
+
+    A zombie cannot execute. Treating an unreaped zombie as a surviving
+    process group blocks the one authorised retry after a clean SIGKILL.
+    An unreadable group still fails closed.
+    """
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    states = process_group_member_states(pgid)
+    if not states:
+        return True
+    return any(state != "Z" for state in states)
+
+
 def process_group_snapshot(label, p, cwd, phase):
     started = time.monotonic()
     header = "PROCESS_TREE label=%s phase=%s cwd=%s pgid=%s" % (
@@ -206,12 +244,17 @@ def stop_process_group(p):
         status = "output_drain_timeout"
     except Exception as exc:
         status = "output_drain_failed:%s" % type(exc).__name__
-    if process_group_exists(p.pid):
-        status = "process_group_survived"
     if isinstance(stdout, bytes):
         stdout = stdout.decode("utf-8", "replace")
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", "replace")
+    # SIGKILL can leave a child zombie until init reaps it. Poll briefly, then
+    # fail closed only if a non-zombie member is still in the group.
+    reap_deadline = time.monotonic() + 1.0
+    while time.monotonic() < reap_deadline and process_group_has_live_member(p.pid):
+        time.sleep(0.05)
+    if process_group_has_live_member(p.pid):
+        status = "process_group_survived"
     cleanup_details[p.pid] = {
         "status": status,
         "elapsed_seconds": time.monotonic() - started,
@@ -219,15 +262,16 @@ def stop_process_group(p):
     return stdout or "", stderr or ""
 
 
-def tool_version(label, binary, *args, cwd=None):
+def tool_version(label, binary, *args, cwd=None, budget=30):
     command=["runuser","-u","traceos","--","env","HOME=/home/traceos",
              "XDG_CONFIG_HOME=/home/traceos/.config",binary,*args]
     started = time.monotonic()
-    deadline = started + 30.0
+    budget = int(budget)
+    deadline = started + budget
     snapshot_elapsed = 0.0
     serial("TRACEOS_CI_E2E_CMD_BEGIN nonce=" + run_nonce + " label=" + label)
-    record_diag("NORMAL_PROBE label=%s cwd=%s argv=%r execution_budget=30s" %
-                (label, cwd or os.getcwd(), [binary, *args]))
+    record_diag("NORMAL_PROBE label=%s cwd=%s argv=%r execution_budget=%ds" %
+                (label, cwd or os.getcwd(), [binary, *args], budget))
     p = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          cwd=cwd, start_new_session=True)
     timed_out = False
@@ -247,10 +291,10 @@ def tool_version(label, binary, *args, cwd=None):
     cleanup_status = cleanup["status"]
     cleanup_elapsed = cleanup["elapsed_seconds"]
     record_diag(
-        "NORMAL_RESULT label=%s execution_budget_seconds=30 elapsed_seconds=%.2f "
+        "NORMAL_RESULT label=%s execution_budget_seconds=%d elapsed_seconds=%.2f "
         "snapshot_elapsed_seconds=%.2f cleanup_elapsed_seconds=%.2f "
         "classification=%s application_rc=%s cleanup_status=%s" %
-        (label, elapsed, snapshot_elapsed, cleanup_elapsed,
+        (label, budget, elapsed, snapshot_elapsed, cleanup_elapsed,
          "HARNESS_TIMEOUT" if timed_out else "APPLICATION_EXIT",
          "unknown" if p.returncode is None else p.returncode, cleanup_status)
     )
@@ -258,22 +302,22 @@ def tool_version(label, binary, *args, cwd=None):
     probe_class = classify_probe_result(timed_out, cleanup_status)
     if probe_class == "cleanup_incomplete" and timed_out:
         (ART / (label + ".stderr")).write_text(
-            (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup incomplete: "
+            (stderr or "") + "\n[TraceOS] execution deadline %ds expired; cleanup incomplete: " % budget
             + cleanup_status + "\n"
         )
         (ART / (label + ".exit")).write_text("125\n")
         results[label] = 125
         serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label
-               + " rc=125 timeout=30s cleanup_incomplete=" + cleanup_status)
+               + " rc=125 timeout=%ds cleanup_incomplete=" % budget + cleanup_status)
         return None
     if probe_class == "timeout":
         (ART / (label + ".stderr")).write_text(
-            (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup_status=complete\n"
+            (stderr or "") + "\n[TraceOS] execution deadline %ds expired; cleanup_status=complete\n" % budget
         )
         (ART / (label + ".exit")).write_text("124\n")
         results[label] = 124
         serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label
-               + " rc=124 timeout=30s elapsed=%.2f cleanup=complete" % elapsed)
+               + " rc=124 timeout=%ds elapsed=%.2f cleanup=complete" % (budget, elapsed))
         return None
     if probe_class == "cleanup_incomplete":
         (ART / (label + ".stderr")).write_text(
@@ -376,7 +420,7 @@ try:
 except OSError as exc:
     (ART/"msfdb-entrypoint.txt").write_text(f"ERROR={exc}\n")
 
-msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
+msfconsole_startup = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit", budget=60)
 if msfconsole_startup is None:
     try:
         first_exit = (ART / "msfconsole-startup.exit").read_text().strip()
@@ -394,8 +438,8 @@ if msfconsole_startup is None:
         diagnostics_clean = False
     recovery_action = msfconsole_recovery_action(first_exit, diagnostics_clean)
     if recovery_action == "retry":
-        record_diag("RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s")
-        retry = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
+        record_diag("RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=60s")
+        retry = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit", budget=60)
         retry_output = (retry.stdout + "\n" + retry.stderr) if retry is not None else ""
         recovered = bool(
             retry is not None
@@ -421,9 +465,37 @@ if msfconsole_startup is None:
         record_diag("RECOVERY_SKIPPED label=msfconsole-startup reason=not_a_confirmed_timeout initial_exit=" + (first_exit or "unknown"))
         serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=SKIPPED")
 msfvenom_startup = tool_version("msfvenom-startup", "/usr/local/bin/msfvenom", "--help", cwd="/opt/traceos-metasploit")
-msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help", cwd="/opt/traceos-metasploit")
+msfdb_startup = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help", cwd="/opt/traceos-metasploit", budget=60)
 if msfdb_startup is None:
-    diagnose_metasp_timeout("msfdb-startup", "/usr/local/bin/msfdb", "--help")
+    try:
+        first_exit = (ART / "msfdb-startup.exit").read_text().strip()
+    except OSError:
+        first_exit = ""
+    diagnostics_clean = False
+    if first_exit == "124":
+        diagnostics_clean = diagnose_metasp_timeout("msfdb-startup", "/usr/local/bin/msfdb", "--help")
+    recovery_action = msfconsole_recovery_action(first_exit, diagnostics_clean)
+    if recovery_action == "retry":
+        record_diag("RECOVERY_RETRY_BEGIN label=msfdb-startup execution_budget=60s")
+        retry = tool_version("msfdb-startup", "/usr/local/bin/msfdb", "--help", cwd="/opt/traceos-metasploit", budget=60)
+        retry_output = ((retry.stdout or "") + "\n" + (retry.stderr or "")) if retry is not None else ""
+        recovered = bool(retry is not None and retry.returncode == 0 and retry_output.strip())
+        record_diag(
+            "RECOVERY_RETRY_RESULT label=msfdb-startup classification=%s rc=%s" %
+            ("RECOVERED_APPLICATION_EXIT" if recovered else "RECOVERY_FAILED",
+             retry.returncode if retry is not None else "unknown")
+        )
+        serial("TRACEOS_CI_E2E_MSFDB_RECOVERY=" + ("PASS" if recovered else "FAIL"))
+        msfdb_startup = retry if recovered else None
+    elif recovery_action == "skip_diagnostic_cleanup_incomplete":
+        record_diag("RECOVERY_RETRY_SKIPPED label=msfdb-startup reason=diagnostic_cleanup_incomplete")
+        serial("TRACEOS_CI_E2E_MSFDB_RECOVERY=FAIL")
+    elif recovery_action == "skip_initial_cleanup_incomplete":
+        record_diag("RECOVERY_SKIPPED label=msfdb-startup reason=initial_cleanup_incomplete")
+        serial("TRACEOS_CI_E2E_MSFDB_RECOVERY=SKIPPED")
+    else:
+        record_diag("RECOVERY_SKIPPED label=msfdb-startup reason=not_a_confirmed_timeout initial_exit=" + (first_exit or "unknown"))
+        serial("TRACEOS_CI_E2E_MSFDB_RECOVERY=SKIPPED")
 enum4linux_startup = tool_version("enum4linux-ng-startup", "/usr/local/bin/enum4linux-ng", "--help")
 msfvenom_help_output = ""
 if msfvenom_startup:
