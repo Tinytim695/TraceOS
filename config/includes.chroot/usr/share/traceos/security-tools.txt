@@ -50,4 +50,3 @@ BLUE|chkrootkit|local rootkit scan|local
 BLUE|auditctl|Linux audit status|local
 PURPLE|traceos-purple|exercise/detection ledger|case
 PURPLE|traceos-engage|scoped red, blue and purple playbooks|authorized/local
-
