@@ -34,7 +34,7 @@ configure_live_build() {
 }
 
 echo "[TraceOS] Cleaning previous build state..."
-sudo lb clean --purge || true
+sudo lb clean --purge
 
 echo "[TraceOS] Configuring Debian live image..."
 configure_live_build
