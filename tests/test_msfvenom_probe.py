@@ -1,5 +1,7 @@
 import ast
 import re
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,7 +17,7 @@ def load_function(path, name):
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == name
     )
     isolated = ast.Module(body=[node], type_ignores=[])
-    namespace = {"re": re}
+    namespace = {"re": re, "Path": Path, "shutil": shutil}
     exec(compile(ast.fix_missing_locations(isolated), str(path), "exec"), namespace)
     return namespace[name]
 
@@ -125,6 +127,42 @@ Options:
         self.assertIn('"msfconsole-startup-first-attempt.exit"', host)
         self.assertIn('"MSFCONSOLE_FIRST_TIMEOUT_RETAINED"', host)
         self.assertIn('valid_msfconsole_version(stdout + "\\n" + stderr)', host)
+
+
+    def test_timeout_preservation_executes_and_copies_all_original_files(self):
+        preserve = load_function(GUEST, "preserve_first_attempt_files")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            expected = {
+                "stdout": b"first attempt stdout\\n",
+                "stderr": b"first attempt stderr\\n",
+                "exit": b"124\\n",
+            }
+            for suffix, payload in expected.items():
+                (root / f"msfconsole-startup.{suffix}").write_bytes(payload)
+
+            preserve(root)
+
+            for suffix, payload in expected.items():
+                retained = root / f"msfconsole-startup-first-attempt.{suffix}"
+                self.assertEqual(retained.read_bytes(), payload)
+
+    def test_timeout_preservation_fails_closed_when_artifact_missing(self):
+        preserve = load_function(GUEST, "preserve_first_attempt_files")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "msfconsole-startup.stdout").write_text("original\\n")
+            (root / "msfconsole-startup.stderr").write_text("original\\n")
+            with self.assertRaises(FileNotFoundError):
+                preserve(root)
+
+    def test_cleanup_failure_is_not_classified_as_retryable_timeout(self):
+        guest = GUEST.read_text(encoding="utf-8")
+        self.assertIn('if cleanup_status not in ("complete",):', guest)
+        self.assertIn('results[label] = 125', guest)
+        self.assertIn('if diagnostics_clean:', guest)
+        self.assertIn('reason=diagnostic_cleanup_incomplete', guest)
+
 
 
 if __name__ == "__main__":
