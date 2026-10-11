@@ -21,28 +21,172 @@ bundle "_${MSF_BUNDLER}_" config set --local deployment true
 bundle "_${MSF_BUNDLER}_" config set --local without "development test coverage"
 bundle "_${MSF_BUNDLER}_" install --jobs 4 --retry 3
 
+# msfconsole rebuilds its Bootsnap load-path and bytecode cache in the live
+# user's home. That home is empty on every boot, so startup walks thousands of
+# gem files on squashfs and takes about 30 seconds under QEMU. Point Bootsnap
+# at a cache built once in this hook, and do not let a live user rewrite it.
+python3 - <<'PY'
+from pathlib import Path
+path = Path("/opt/traceos-metasploit/config/boot.rb")
+text = path.read_text(encoding="utf-8")
+replacements = [
+(
+"""  cache_metadata_path = File.join(bootsnap_config[:cache_dir], "metadata.yaml")
+  if File.exist?(cache_metadata_path)
+    cache_metadata = YAML.safe_load(File.binread(cache_metadata_path))
+    if cache_metadata != expected_cache_metadata
+      FileUtils.rm_rf(bootsnap_config[:cache_dir], secure: true)
+    end
+  end
+
+  FileUtils.mkdir_p(bootsnap_config[:cache_dir])
+  File.binwrite(cache_metadata_path, expected_cache_metadata.to_yaml)
+""",
+"""  cache_metadata_path = File.join(bootsnap_config[:cache_dir], "metadata.yaml")
+  if File.exist?(cache_metadata_path)
+    cache_metadata = YAML.safe_load(File.binread(cache_metadata_path))
+    if cache_metadata == expected_cache_metadata && bootsnap_config[:readonly]
+      return nil
+    end
+    if cache_metadata != expected_cache_metadata
+      if bootsnap_config[:readonly]
+        raise "TraceOS prebuilt bootsnap cache does not match this framework"
+      end
+      FileUtils.rm_rf(bootsnap_config[:cache_dir], secure: true)
+    end
+  elsif bootsnap_config[:readonly]
+    raise "TraceOS prebuilt bootsnap cache is missing metadata"
+  end
+
+  FileUtils.mkdir_p(bootsnap_config[:cache_dir])
+  File.binwrite(cache_metadata_path, expected_cache_metadata.to_yaml)
+"""
+),
+(
+"""  cache_dir = ::File.join(Msf::Config.config_directory, "bootsnap_cache")
+  bootsnap_config = {
+    cache_dir: cache_dir,
+    ignore_directories: [],
+    development_mode: development_mode,
+    load_path_cache: true, # Optimize the LOAD_PATH with a cache
+    compile_cache_iseq: true, # If coverage reports are inaccurate, disable this (ISeq caching bypasses Coverage tracing).
+    compile_cache_yaml: false, # Don't compile YAML into a cache
+    readonly: false, # Update caches - https://github.com/Shopify/bootsnap/commit/b51397f96c33aa421fd5c29484fb9574df9eb451
+  }
+""",
+"""  cache_dir = ENV["TRACEOS_MSF_BOOTSNAP_DIR"]
+  cache_dir = ::File.join(Msf::Config.config_directory, "bootsnap_cache") if cache_dir.nil? || cache_dir.empty?
+  readonly = ENV["TRACEOS_MSF_BOOTSNAP_READONLY"] == "1"
+  bootsnap_config = {
+    cache_dir: cache_dir,
+    ignore_directories: [],
+    development_mode: development_mode,
+    load_path_cache: true, # Optimize the LOAD_PATH with a cache
+    compile_cache_iseq: true, # If coverage reports are inaccurate, disable this (ISeq caching bypasses Coverage tracing).
+    compile_cache_yaml: false, # Don't compile YAML into a cache
+    readonly: readonly,
+  }
+"""
+),
+(
+"""rescue => e
+  $stderr.puts "Warning: Failed bootsnap cache setup - #{e.class} #{e} #{e.backtrace}"
+  begin
+    FileUtils.rm_rf(cache_dir, secure: true)
+  rescue
+    $stderr.puts 'Warning: Failed deleting bootsnap cache'
+  end
+end
+""",
+"""rescue => e
+  $stderr.puts "Warning: Failed bootsnap cache setup - #{e.class} #{e} #{e.backtrace}"
+  unless ENV["TRACEOS_MSF_BOOTSNAP_READONLY"] == "1"
+    begin
+      FileUtils.rm_rf(cache_dir, secure: true)
+    rescue
+      $stderr.puts 'Warning: Failed deleting bootsnap cache'
+    end
+  end
+end
+"""
+),
+]
+for old, new in replacements:
+    if old not in text:
+        raise SystemExit("TraceOS could not patch Metasploit config/boot.rb")
+    text = text.replace(old, new, 1)
+path.write_text(text, encoding="utf-8")
+PY
+
 cat > /usr/local/bin/msfconsole <<'EOF'
 #!/bin/sh
 set -eu
-MSF_BUNDLER="2.6.7"
+export MSF_BUNDLER="2.6.7"
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
-exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfconsole "$@"
+export TRACEOS_MSF_BOOTSNAP_DIR=/var/lib/traceos/msf-bootsnap
+export TRACEOS_MSF_BOOTSNAP_READONLY=1
+exec /usr/bin/ruby -e 'gem "bundler", ENV.fetch("MSF_BUNDLER"); require "bundler/setup"; load ARGV.shift' -- /opt/traceos-metasploit/msfconsole "$@"
 EOF
 cat > /usr/local/bin/msfvenom <<'EOF'
 #!/bin/sh
 set -eu
-MSF_BUNDLER="2.6.7"
+export MSF_BUNDLER="2.6.7"
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
-exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfvenom "$@"
+export TRACEOS_MSF_BOOTSNAP_DIR=/var/lib/traceos/msf-bootsnap
+export TRACEOS_MSF_BOOTSNAP_READONLY=1
+exec /usr/bin/ruby -e 'gem "bundler", ENV.fetch("MSF_BUNDLER"); require "bundler/setup"; load ARGV.shift' -- /opt/traceos-metasploit/msfvenom "$@"
 EOF
 cat > /usr/local/bin/msfdb <<'EOF'
 #!/bin/sh
 set -eu
-MSF_BUNDLER="2.6.7"
+export MSF_BUNDLER="2.6.7"
 export BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile
-exec bundle "_${MSF_BUNDLER}_" exec ruby /opt/traceos-metasploit/msfdb "$@"
+export TRACEOS_MSF_BOOTSNAP_DIR=/var/lib/traceos/msf-bootsnap
+export TRACEOS_MSF_BOOTSNAP_READONLY=1
+exec /usr/bin/ruby -e 'gem "bundler", ENV.fetch("MSF_BUNDLER"); require "bundler/setup"; load ARGV.shift' -- /opt/traceos-metasploit/msfdb "$@"
 EOF
 chmod 0755 /usr/local/bin/msfconsole /usr/local/bin/msfvenom /usr/local/bin/msfdb
+
+echo "[TraceOS] Building the Metasploit Bootsnap cache"
+bootsnap_dir=/var/lib/traceos/msf-bootsnap
+rm -rf "$bootsnap_dir"
+mkdir -p "$bootsnap_dir"
+warm_home=$(mktemp -d /tmp/traceos-msf-warm.XXXXXX)
+warm_log=$(mktemp /tmp/traceos-msf-warm-log.XXXXXX)
+(
+    cd "$MSF_DIR"
+    export HOME="$warm_home"
+    export BUNDLE_GEMFILE="$MSF_DIR/Gemfile"
+    export TRACEOS_MSF_BOOTSNAP_DIR="$bootsnap_dir"
+    unset TRACEOS_MSF_BOOTSNAP_READONLY
+    timeout 180 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfconsole" --version
+    timeout 180 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfdb" --help
+    set +e
+    timeout 180 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfvenom" --help >"$warm_log" 2>&1
+    venom_status=$?
+    set -e
+    if [ "$venom_status" -ne 1 ]; then
+        echo "[TraceOS] msfvenom --help warm-up failed: ${venom_status}" >&2
+        cat "$warm_log" >&2
+        exit 1
+    fi
+    export TRACEOS_MSF_BOOTSNAP_READONLY=1
+    started=$(date +%s)
+    set +e
+    timeout 45 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfconsole" --version >"$warm_log" 2>&1
+    proof_status=$?
+    set -e
+    finished=$(date +%s)
+    echo "[TraceOS] cached msfconsole --version took $((finished - started))s"
+    if [ "$proof_status" -ne 0 ] || grep -q "Failed bootsnap cache setup" "$warm_log" || ! grep -q "Framework Version:" "$warm_log"; then
+        echo "[TraceOS] prebuilt Bootsnap cache did not serve msfconsole --version (status ${proof_status})" >&2
+        cat "$warm_log" >&2
+        exit 1
+    fi
+)
+test -s "$bootsnap_dir/metadata.yaml"
+chmod -R a+rX "$bootsnap_dir"
+rm -rf "$warm_home" "$warm_log"
 
 E4L_COMMIT="f34e7bb"
 E4L_VERSION="1.3.10"

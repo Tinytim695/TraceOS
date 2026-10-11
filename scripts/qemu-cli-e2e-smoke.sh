@@ -315,7 +315,7 @@ try:
         )
 
     entrypoint_text = (out / "msfdb-entrypoint.txt").read_text(errors="replace") if (out / "msfdb-entrypoint.txt").exists() else ""
-    audit("MSFDB_ENTRYPOINT", entrypoint_text.startswith("#!/bin/sh") and 'exec bundle "_${MSF_BUNDLER}_" exec ruby ' in entrypoint_text)
+    audit("MSFDB_ENTRYPOINT", entrypoint_text.startswith("#!/bin/sh") and 'MSF_BUNDLER="2.6.7"' in entrypoint_text and "BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile" in entrypoint_text and "TRACEOS_MSF_BOOTSNAP_READONLY=1" in entrypoint_text and "/opt/traceos-metasploit/msfdb" in entrypoint_text and 'gem "bundler", ENV.fetch("MSF_BUNDLER")' in entrypoint_text)
 
 
     required_success_members = {
