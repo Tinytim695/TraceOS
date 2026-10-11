@@ -149,43 +149,55 @@ chmod 0755 /usr/local/bin/msfconsole /usr/local/bin/msfvenom /usr/local/bin/msfd
 
 echo "[TraceOS] Building the Metasploit Bootsnap cache"
 bootsnap_dir=/var/lib/traceos/msf-bootsnap
-rm -rf "$bootsnap_dir"
-mkdir -p "$bootsnap_dir"
-warm_home=$(mktemp -d /tmp/traceos-msf-warm.XXXXXX)
+warm_home=/var/lib/traceos/msf-warm-home
 warm_log=$(mktemp /tmp/traceos-msf-warm-log.XXXXXX)
-(
-    cd "$MSF_DIR"
-    export HOME="$warm_home"
-    export BUNDLE_GEMFILE="$MSF_DIR/Gemfile"
-    export TRACEOS_MSF_BOOTSNAP_DIR="$bootsnap_dir"
-    unset TRACEOS_MSF_BOOTSNAP_READONLY
-    timeout 180 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfconsole" --version
-    timeout 180 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfdb" --help
-    set +e
-    timeout 180 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfvenom" --help >"$warm_log" 2>&1
-    venom_status=$?
-    set -e
-    if [ "$venom_status" -ne 1 ]; then
-        echo "[TraceOS] msfvenom --help warm-up failed: ${venom_status}" >&2
-        cat "$warm_log" >&2
-        exit 1
-    fi
-    export TRACEOS_MSF_BOOTSNAP_READONLY=1
-    started=$(date +%s)
-    set +e
-    timeout 45 bundle "_${MSF_BUNDLER}_" exec ruby "$MSF_DIR/msfconsole" --version >"$warm_log" 2>&1
-    proof_status=$?
-    set -e
-    finished=$(date +%s)
-    echo "[TraceOS] cached msfconsole --version took $((finished - started))s"
-    if [ "$proof_status" -ne 0 ] || grep -q "Failed bootsnap cache setup" "$warm_log" || ! grep -q "Framework Version:" "$warm_log"; then
-        echo "[TraceOS] prebuilt Bootsnap cache did not serve msfconsole --version (status ${proof_status})" >&2
-        cat "$warm_log" >&2
-        exit 1
-    fi
-)
+rm -rf "$bootsnap_dir" "$warm_home"
+mkdir -p "$bootsnap_dir" "$warm_home"
+if ! id traceos-msf-warm >/dev/null 2>&1; then
+    useradd --system --home-dir "$warm_home" --shell /bin/sh traceos-msf-warm
+fi
+chown -R traceos-msf-warm:traceos-msf-warm "$bootsnap_dir" "$warm_home"
+# timeout(1) cannot call a shell function. msfdb also aborts before --help when uid is 0.
+warm_cmd=$(mktemp /tmp/traceos-msf-run-warm.XXXXXX)
+cat > "$warm_cmd" <<EOF
+#!/bin/sh
+set -eu
+cd "$MSF_DIR"
+exec bundle "_${MSF_BUNDLER}_" exec ruby "\$@"
+EOF
+chmod 0755 "$warm_cmd"
+timeout 180 runuser -u traceos-msf-warm -- env HOME="$warm_home" BUNDLE_GEMFILE="$MSF_DIR/Gemfile" TRACEOS_MSF_BOOTSNAP_DIR="$bootsnap_dir" TRACEOS_MSF_BOOTSNAP_READONLY= "$warm_cmd" "$MSF_DIR/msfconsole" --version
+timeout 180 runuser -u traceos-msf-warm -- env HOME="$warm_home" BUNDLE_GEMFILE="$MSF_DIR/Gemfile" TRACEOS_MSF_BOOTSNAP_DIR="$bootsnap_dir" TRACEOS_MSF_BOOTSNAP_READONLY= "$warm_cmd" "$MSF_DIR/msfdb" --help
+set +e
+timeout 180 runuser -u traceos-msf-warm -- env HOME="$warm_home" BUNDLE_GEMFILE="$MSF_DIR/Gemfile" TRACEOS_MSF_BOOTSNAP_DIR="$bootsnap_dir" TRACEOS_MSF_BOOTSNAP_READONLY= "$warm_cmd" "$MSF_DIR/msfvenom" --help >"$warm_log" 2>&1
+venom_status=$?
+set -e
+if [ "$venom_status" -ne 1 ]; then
+    echo "[TraceOS] msfvenom --help warm-up failed: ${venom_status}" >&2
+    cat "$warm_log" >&2
+    exit 1
+fi
+started=$(date +%s)
+set +e
+timeout 45 runuser -u traceos-msf-warm -- env HOME="$warm_home" BUNDLE_GEMFILE="$MSF_DIR/Gemfile" TRACEOS_MSF_BOOTSNAP_DIR="$bootsnap_dir" TRACEOS_MSF_BOOTSNAP_READONLY=1 "$warm_cmd" "$MSF_DIR/msfconsole" --version >"$warm_log" 2>&1
+proof_status=$?
+set -e
+finished=$(date +%s)
+echo "[TraceOS] cached msfconsole --version took $((finished - started))s"
+if [ "$proof_status" -ne 0 ] || grep -q "Failed bootsnap cache setup" "$warm_log" || ! grep -q "Framework Version:" "$warm_log"; then
+    echo "[TraceOS] prebuilt Bootsnap cache did not serve msfconsole --version (status ${proof_status})" >&2
+    cat "$warm_log" >&2
+    exit 1
+fi
+rm -f "$warm_cmd"
 test -s "$bootsnap_dir/metadata.yaml"
+chown -R root:root "$bootsnap_dir"
 chmod -R a+rX "$bootsnap_dir"
+userdel traceos-msf-warm
+if id traceos-msf-warm >/dev/null 2>&1; then
+    echo "[TraceOS] Metasploit warm-up user was left in the image" >&2
+    exit 1
+fi
 rm -rf "$warm_home" "$warm_log"
 
 E4L_COMMIT="f34e7bb"
