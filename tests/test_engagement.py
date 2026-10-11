@@ -26,21 +26,38 @@ class EngagementPlaybookTests(unittest.TestCase):
 
     def test_no_playbook_contains_a_flood_tool(self):
         for playbook_id, spec in PLAYBOOKS.items():
-            target = "https://example.test" if spec["mode"] == "url" else "example.test"
+            if spec["mode"] == "url":
+                target = "https://example.test"
+            elif spec["mode"] == "email":
+                target = "alice@example.test"
+            elif spec["mode"] == "phone":
+                target = "+15555550100"
+            elif spec["mode"] == "person":
+                target = "alice"
+            else:
+                target = "example.test"
             users = passwords = ""
             service = "ssh"
-            if spec["mode"] == "auth":
+            if spec["mode"] in {"auth", "crack"}:
                 with tempfile.TemporaryDirectory() as directory:
                     users_path = Path(directory) / "users.txt"
                     passwords_path = Path(directory) / "passwords.txt"
                     users_path.write_text("alice\n", encoding="utf-8")
                     passwords_path.write_text("synthetic\n", encoding="utf-8")
                     steps = build_playbook(
-                        playbook_id, "10.0.0.5", str(users_path), str(passwords_path), service
+                        playbook_id,
+                        "10.0.0.5",
+                        str(users_path),
+                        str(passwords_path),
+                        "0" if spec["mode"] == "crack" else service,
                     )
-                    hydra = steps[0]["argv"]
-                    self.assertEqual(hydra[:4], ["hydra", "-t", "4", "-f"])
-                    self.assertIn("ssh://10.0.0.5", hydra)
+                    if spec["mode"] == "auth":
+                        hydra = steps[0]["argv"]
+                        self.assertEqual(hydra[:4], ["hydra", "-t", "4", "-f"])
+                        self.assertIn("ssh://10.0.0.5", hydra)
+                    else:
+                        self.assertEqual(steps[0]["argv"][0], "john")
+                        self.assertEqual(steps[1]["argv"][:3], ["hashcat", "-m", "0"])
             else:
                 steps = build_playbook(
                     playbook_id,
@@ -50,6 +67,9 @@ class EngagementPlaybookTests(unittest.TestCase):
                 )
             for step in steps:
                 self.assertNotIn(Path(step["argv"][0]).name, FORBIDDEN_COMMANDS)
+                if step["argv"][0] == "masscan":
+                    self.assertIn("--rate", step["argv"])
+                    self.assertIn("1000", step["argv"])
 
     def test_credential_audit_rejects_ranges_links_and_unknown_services(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,6 +94,27 @@ class EngagementPlaybookTests(unittest.TestCase):
         recon = build_playbook("red-external-recon", "example.test")
         self.assertEqual(recon[0]["argv"][:3], ["subfinder", "-d", "example.test"])
         self.assertEqual(recon[-1]["argv"][-1], "https://example.test")
+        ports = build_playbook("red-port-scan", "10.0.0.5")
+        self.assertEqual(
+            ports[1]["argv"],
+            ["masscan", "10.0.0.5", "-p", "1-1024", "--rate", "1000", "--wait", "2"],
+        )
+
+    def test_people_osint_commands_match_the_installed_tools(self):
+        username = build_playbook("osint-username", "alice")
+        self.assertEqual(username[0]["argv"][:2], ["sherlock", "alice"])
+        self.assertEqual(username[1]["argv"], ["maigret", "alice"])
+        self.assertEqual(username[2]["argv"], ["blackbird", "--username", "alice"])
+        email = build_playbook("osint-email", "alice@example.test")
+        self.assertEqual(email[0]["argv"], ["holehe", "alice@example.test"])
+        self.assertEqual(email[1]["argv"], ["h8mail", "-t", "alice@example.test"])
+        self.assertEqual(email[2]["argv"], ["blackbird", "--email", "alice@example.test"])
+        phone = build_playbook("osint-phone", "+15555550100")
+        self.assertEqual(phone[0]["argv"], ["phoneinfoga", "scan", "-n", "+15555550100"])
+        with self.assertRaises(ValueError):
+            build_playbook("osint-email", "alice")
+        with self.assertRaises(ValueError):
+            build_playbook("osint-phone", "alice")
 
     def test_local_blue_and_purple_need_no_network_target(self):
         blue = build_playbook("blue-detection")

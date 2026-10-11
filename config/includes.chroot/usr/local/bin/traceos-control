@@ -118,7 +118,10 @@ def build_osint_command(name: str, target: str, extra: str = "") -> list[str]:
     if name == "Blackbird":
         if not target_args:
             raise ValueError("Enter Blackbird arguments first.")
-        return ["blackbird", *target_args, *extras]
+        if value.startswith("-"):
+            return ["blackbird", *target_args, *extras]
+        flag = "--email" if "@" in value else "--username"
+        return ["blackbird", flag, value, *extras]
     command = OSINT_TOOL_COMMANDS[name]
     if name in {"Sherlock", "Maigret"}:
         return [command, value, *extras]
@@ -1974,7 +1977,7 @@ class TraceOSApp:
 
         hint = tk.Label(
             self.content,
-            text="Username: Sherlock/Maigret • Email: h8mail/Holehe/GHunt • Phone: PhoneInfoga • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • WHOIS/DNS: domain or IP",
+            text="Username: Sherlock/Maigret/Blackbird • Email: Holehe/h8mail/Blackbird • Phone: PhoneInfoga • GHunt needs one local login before an email search • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • WHOIS/DNS: domain or IP",
             bg=BG, fg=MUTED, font=("Sans", 8)
         )
         hint.pack(anchor="w", padx=30, pady=(0, 4))
@@ -2033,6 +2036,17 @@ class TraceOSApp:
                 )
                 self._trace_diag("OSINT_TOOL_UNAVAILABLE", tool=name, command=args[0])
                 return
+
+            if name == "GHunt":
+                creds = Path.home() / ".malfrats" / "ghunt"
+                if not creds.exists():
+                    messagebox.showinfo(
+                        "GHunt",
+                        "GHunt cannot search until you complete one local login. A terminal will open for that. The login stays on this machine.",
+                        parent=self.root,
+                    )
+                    self.open_terminal(["ghunt", "login"], "TraceOS GHunt login")
+                    return
 
             self.run_job(args, f"{name} investigation")
 
@@ -2166,7 +2180,7 @@ class TraceOSApp:
         ).pack(anchor="w", padx=15, pady=(10, 1))
         tk.Label(
             notice,
-            text="Nuclei excludes dos, fuzz and intrusive tags. Credential audits are four attempts at one service and need your own account and password files. Select a case first so the exercise is written to the purple ledger.",
+            text="Masscan is capped at 1000 packets per second. Password cracking reads files you supply and does not touch the network. Nuclei excludes denial-of-service tags. Username, email and phone OSINT only query public sources. Select a case first so the exercise is written to the purple ledger.",
             bg=CARD, fg=MUTED, wraplength=820, justify="left", font=("Sans", 9)
         ).pack(anchor="w", padx=15, pady=(0, 10))
 
@@ -2183,9 +2197,8 @@ class TraceOSApp:
         target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
         target = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
-        tk.Label(controls, text="SERVICE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
-            row=2, column=0, sticky="w", padx=12, pady=(0, 4)
-        )
+        service_label = tk.Label(controls, text="SERVICE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        service_label.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 4))
         service = ttk.Combobox(
             controls, state="readonly",
             values=("ssh", "ftp", "smb", "rdp", "http-get", "https-get", "ldap2", "mssql"),
@@ -2193,14 +2206,12 @@ class TraceOSApp:
         )
         service.current(0)
         service.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 10))
-        tk.Label(controls, text="USERS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
-            row=2, column=1, sticky="w", padx=8, pady=(0, 4)
-        )
+        users_label = tk.Label(controls, text="USERS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        users_label.grid(row=2, column=1, sticky="w", padx=8, pady=(0, 4))
         users = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         users.grid(row=3, column=1, sticky="ew", padx=8, pady=(0, 10))
-        tk.Label(controls, text="PASSWORDS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
-            row=4, column=0, sticky="w", padx=12, pady=(0, 4)
-        )
+        passwords_label = tk.Label(controls, text="PASSWORDS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        passwords_label.grid(row=4, column=0, sticky="w", padx=12, pady=(0, 4))
         passwords = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         passwords.grid(row=5, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
         controls.grid_columnconfigure(0, weight=2)
@@ -2218,12 +2229,29 @@ class TraceOSApp:
                 text=f"{spec['technique']}  •  {spec['expected']}\nSteps: {names}"
             )
             local = spec["mode"] == "local"
-            target.configure(state="disabled" if local else "normal")
-            auth = spec["mode"] == "auth"
-            service.configure(state="readonly" if auth else "disabled")
-            users.configure(state="normal" if auth else "disabled")
-            passwords.configure(state="normal" if auth else "disabled")
-            target_label.configure(text="NO TARGET" if local else "AUTHORIZED TARGET")
+            files = spec["mode"] in {"auth", "crack"}
+            target.configure(state="disabled" if local or spec["mode"] == "crack" else "normal")
+            service.configure(state="normal" if spec["mode"] == "crack" else ("readonly" if files else "disabled"))
+            users.configure(state="normal" if files else "disabled")
+            passwords.configure(state="normal" if files else "disabled")
+            if spec["mode"] == "person":
+                target_label.configure(text="USERNAME")
+            elif spec["mode"] == "email":
+                target_label.configure(text="EMAIL")
+            elif spec["mode"] == "phone":
+                target_label.configure(text="PHONE NUMBER")
+            elif local or spec["mode"] == "crack":
+                target_label.configure(text="NO NETWORK TARGET")
+            else:
+                target_label.configure(text="AUTHORIZED TARGET")
+            if spec["mode"] == "crack":
+                service_label.configure(text="HASHCAT MODE")
+                users_label.configure(text="HASH FILE")
+                passwords_label.configure(text="WORDLIST")
+            else:
+                service_label.configure(text="SERVICE")
+                users_label.configure(text="USERS FILE")
+                passwords_label.configure(text="PASSWORDS FILE")
 
         choice.bind("<<ComboboxSelected>>", refresh_detail)
         refresh_detail()

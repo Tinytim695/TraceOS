@@ -1284,6 +1284,8 @@ class CaseStoreTests(unittest.TestCase):
                 "",
                 ["blackbird", "--username", "alice smith"],
             ),
+            ("Blackbird", "alice", "", ["blackbird", "--username", "alice"]),
+            ("Blackbird", "alice@example.test", "", ["blackbird", "--email", "alice@example.test"]),
             ("Holehe", "alice@example.test", "", ["holehe", "alice@example.test"]),
             ("GHunt", "alice@example.test", "", ["ghunt", "email", "alice@example.test"]),
             ("PhoneInfoga", "+15555550100", "", ["phoneinfoga", "scan", "-n", "+15555550100"]),

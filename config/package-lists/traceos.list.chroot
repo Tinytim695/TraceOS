@@ -148,6 +148,8 @@ hydra
 nbtscan
 onesixtyone
 ike-scan
+masscan
+pocl-opencl-icd
 
 # Blue Team host audit
 lynis

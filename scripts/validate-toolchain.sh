@@ -115,7 +115,7 @@ for cmd in plaso-log2timeline plaso-psort; do check_cmd "$cmd"; done
 for cmd in suricata suricata-update; do check_cmd "$cmd"; done
 for cmd in vol sigma lynis rkhunter chkrootkit auditctl; do check_cmd "$cmd"; done
 echo "[TraceOS] ENTERPRISE / ACTIVE DIRECTORY"
-for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno nbtscan onesixtyone ike-scan hydra; do check_cmd "$cmd"; done
+for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno nbtscan onesixtyone ike-scan hydra masscan; do check_cmd "$cmd"; done
 for cmd in GetNPUsers.py GetUserSPNs.py GetADUsers.py; do check_cmd "$cmd"; done
 echo "[TraceOS] PURPLE"
 check_cmd traceos-purple

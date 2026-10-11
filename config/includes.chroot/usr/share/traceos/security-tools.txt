@@ -44,6 +44,7 @@ RED|nbtscan|NetBIOS enumeration|authorized/internal
 RED|onesixtyone|single-community SNMP name check|authorized/internal
 RED|ike-scan|IPsec handshake probe|authorized/internal
 RED|hydra|scoped authentication audit, four tasks, one service|authorized
+RED|masscan|rate-capped port scan, 1000 packets per second|authorized
 BLUE|lynis|host hardening audit|local
 BLUE|rkhunter|rootkit and file-change checks|local
 BLUE|chkrootkit|local rootkit scan|local

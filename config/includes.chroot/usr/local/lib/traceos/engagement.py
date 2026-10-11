@@ -17,7 +17,6 @@ FORBIDDEN_COMMANDS = frozenset(
     {
         "hping",
         "hping3",
-        "masscan",
         "zmap",
         "slowhttptest",
         "slowloris",
@@ -123,6 +122,17 @@ PLAYBOOKS: dict[str, dict] = {
             {"name": "httpx", "timeout": 180, "argv": ["httpx", "-silent", "-u", "https://{domain}"]},
         ],
     },
+    "red-port-scan": {
+        "title": "Rate-capped port scan",
+        "team": "red",
+        "mode": "host",
+        "technique": "T1046",
+        "expected": "firewall or host logs for a bounded port scan",
+        "steps": [
+            {"name": "Nmap", "timeout": 180, "argv": ["nmap", "-sT", "-F", "-T3", "--", "{host}"]},
+            {"name": "Masscan", "timeout": 180, "argv": ["masscan", "{host}", "-p", "1-1024", "--rate", "1000", "--wait", "2"]},
+        ],
+    },
     "red-web": {
         "title": "Web application assessment",
         "team": "red",
@@ -180,6 +190,51 @@ PLAYBOOKS: dict[str, dict] = {
                 "timeout": 300,
                 "argv": ["hydra", "-t", "4", "-f", "-I", "-L", "{users}", "-P", "{passwords}", "{service}://{host}"],
             },
+        ],
+    },
+    "red-password-crack": {
+        "title": "Local password crack",
+        "team": "red",
+        "mode": "crack",
+        "technique": "T1110",
+        "expected": "no network traffic; cracked results stay in this VM",
+        "steps": [
+            {"name": "John", "timeout": 300, "argv": ["john", "--wordlist={wordlist}", "{hashes}"]},
+            {"name": "Hashcat", "timeout": 300, "argv": ["hashcat", "-m", "{mode}", "--status", "--potfile-disable", "{hashes}", "{wordlist}"]},
+        ],
+    },
+    "osint-username": {
+        "title": "Username OSINT",
+        "team": "osint",
+        "mode": "person",
+        "technique": "T1589",
+        "expected": "public profile hits only; no account is logged into",
+        "steps": [
+            {"name": "Sherlock", "timeout": 180, "argv": ["sherlock", "{person}", "--print-found", "--timeout", "15"]},
+            {"name": "Maigret", "timeout": 240, "argv": ["maigret", "{person}"]},
+            {"name": "Blackbird", "timeout": 180, "argv": ["blackbird", "--username", "{person}"]},
+        ],
+    },
+    "osint-email": {
+        "title": "Email OSINT",
+        "team": "osint",
+        "mode": "email",
+        "technique": "T1589",
+        "expected": "public account-existence and breach-lookup output",
+        "steps": [
+            {"name": "Holehe", "timeout": 180, "argv": ["holehe", "{email}"]},
+            {"name": "h8mail", "timeout": 180, "argv": ["h8mail", "-t", "{email}"]},
+            {"name": "Blackbird", "timeout": 180, "argv": ["blackbird", "--email", "{email}"]},
+        ],
+    },
+    "osint-phone": {
+        "title": "Phone OSINT",
+        "team": "osint",
+        "mode": "phone",
+        "technique": "T1589",
+        "expected": "public phone-number metadata only",
+        "steps": [
+            {"name": "PhoneInfoga", "timeout": 180, "argv": ["phoneinfoga", "scan", "-n", "{phone}"]},
         ],
     },
     "blue-detection": {
@@ -263,12 +318,42 @@ def build_playbook(
         slots["{service}"] = chosen
         slots["{users}"] = _regular_file(users_file)
         slots["{passwords}"] = _regular_file(passwords_file)
+    elif mode == "person":
+        person = target.strip()
+        if (
+            not person
+            or person.startswith("-")
+            or any(character.isspace() for character in person)
+            or any(character in person for character in "@/\\")
+        ):
+            raise ValueError("Enter one username.")
+        slots["{person}"] = person
+    elif mode == "email":
+        email = target.strip()
+        if "@" not in email or email.startswith("-") or any(character.isspace() for character in email):
+            raise ValueError("Enter one email address.")
+        slots["{email}"] = email
+    elif mode == "phone":
+        phone = target.strip()
+        digits = phone[1:] if phone.startswith("+") else phone
+        if not digits.isdigit() or not 7 <= len(digits) <= 15:
+            raise ValueError("Enter one phone number.")
+        slots["{phone}"] = phone
+    elif mode == "crack":
+        slots["{hashes}"] = _regular_file(users_file)
+        slots["{wordlist}"] = _regular_file(passwords_file)
+        hash_mode = (service or "0").strip()
+        if not hash_mode.isdigit():
+            raise ValueError("Enter a numeric hashcat mode, such as 0.")
+        slots["{mode}"] = hash_mode
     elif mode != "local":
         raise ValueError(f"Unknown engagement mode: {mode}")
 
     steps = []
     for step in spec["steps"]:
         argv = _render(list(step["argv"]), slots)
+        if step["name"] == "Masscan" and "--rate" not in argv:
+            raise ValueError("Masscan must include an explicit packet rate.")
         if playbook_id == "red-web" and step["name"] == "Nuclei":
             if "dos,fuzz,intrusive" not in argv:
                 raise ValueError("Nuclei must exclude denial-of-service and intrusive tags.")
