@@ -279,6 +279,27 @@ def _read_evidence_ledger_rows(case_path, missing_ok=True):
         os.close(hashes_fd)
 
 
+def _validate_ledger_case_rows(rows, case_path):
+    """Reject ledger references outside this case without opening referenced files."""
+    evidence_root = Path(case_path) / "evidence"
+    for row_number, row in enumerate(rows, start=2):
+        fields = row.split("\\t")
+        if len(fields) != 6:
+            raise OSError(f"Evidence ledger row {row_number} is malformed.")
+        vault = Path(fields[2]).expanduser()
+        try:
+            relative = vault.relative_to(evidence_root)
+        except ValueError as exc:
+            raise OSError(
+                f"Evidence ledger row {row_number} references a vault outside this case."
+            ) from exc
+        if len(relative.parts) != 1 or relative.name in {"", ".", ".."}:
+            raise OSError(
+                f"Evidence ledger row {row_number} has an invalid vault reference."
+            )
+    return rows
+
+
 def _report_stamp():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
@@ -496,7 +517,9 @@ def list_evidence():
     p=current_case()
     if not p: print("No current case."); return
     try:
-        rows = _read_evidence_ledger_rows(p, missing_ok=True)
+        record = CASE_STORE.read(p)
+        rows = _read_evidence_ledger_rows(p, missing_ok=bool(record.legacy))
+        _validate_ledger_case_rows(rows, p)
     except (OSError, CaseError, UnicodeError) as exc:
         print(f"Unable to read evidence ledger: {exc}", file=sys.stderr)
         return 1
@@ -700,7 +723,10 @@ def report():
         reports_fd, hashes_fd = CASE_STORE.open_required_dirs(
             p, ("reports", "hashes")
         )
-        rows = _read_ledger_rows_from_fd(hashes_fd, missing_ok=True)
+        rows = _read_ledger_rows_from_fd(
+            hashes_fd, missing_ok=bool(record.legacy)
+        )
+        _validate_ledger_case_rows(rows, p)
         lines = [
             "# TraceOS Investigation Report",
             "",
