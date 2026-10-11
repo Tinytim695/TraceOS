@@ -28,6 +28,29 @@ FORBIDDEN_COMMANDS = frozenset(
 AUTH_SERVICES = frozenset(
     {"ssh", "ftp", "smb", "rdp", "http-get", "https-get", "ldap2", "mssql"}
 )
+BUNDLED_WORDLIST_DIR = "/usr/share/traceos/wordlists"
+DEFAULT_CRACK_WORDLIST = f"{BUNDLED_WORDLIST_DIR}/rockyou.txt"
+
+
+def resolve_wordlist(value: str) -> str:
+    """Use the packaged RockYou list unless the operator names another local file."""
+    text = value.strip()
+    if text in {"", "rockyou", "default"}:
+        return DEFAULT_CRACK_WORDLIST
+    prefix = BUNDLED_WORDLIST_DIR + "/"
+    if text.startswith(prefix):
+        name = text[len(prefix):]
+        if (
+            not name
+            or "/" in name
+            or name.startswith(".")
+            or not all(character.isalnum() or character in "._-" for character in name)
+        ):
+            raise ValueError("Choose a wordlist from /usr/share/traceos/wordlists.")
+        return text
+    return _regular_file(text)
+
+
 MAX_SECRET_FILE_BYTES = 50 * 1024 * 1024
 CANARY_TEXT = "TraceOS-PURPLE-CANARY\n"
 CANARY_NAME = "purple-canary.txt"
@@ -341,7 +364,7 @@ def build_playbook(
         slots["{phone}"] = phone
     elif mode == "crack":
         slots["{hashes}"] = _regular_file(users_file)
-        slots["{wordlist}"] = _regular_file(passwords_file)
+        slots["{wordlist}"] = resolve_wordlist(passwords_file)
         hash_mode = (service or "0").strip()
         if not hash_mode.isdigit():
             raise ValueError("Enter a numeric hashcat mode, such as 0.")

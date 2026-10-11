@@ -2180,7 +2180,7 @@ class TraceOSApp:
         ).pack(anchor="w", padx=15, pady=(10, 1))
         tk.Label(
             notice,
-            text="Masscan is capped at 1000 packets per second. Password cracking reads files you supply and does not touch the network. Nuclei excludes denial-of-service tags. Username, email and phone OSINT only query public sources. Select a case first so the exercise is written to the purple ledger.",
+            text="Masscan is capped at 1000 packets per second. Password cracking uses the wordlists already stored in /usr/share/traceos/wordlists, starting with rockyou.txt, and does not download one. Nuclei excludes denial-of-service tags. Select a case first so the exercise is written to the purple ledger.",
             bg=CARD, fg=MUTED, wraplength=820, justify="left", font=("Sans", 9)
         ).pack(anchor="w", padx=15, pady=(0, 10))
 
@@ -2248,6 +2248,8 @@ class TraceOSApp:
                 service_label.configure(text="HASHCAT MODE")
                 users_label.configure(text="HASH FILE")
                 passwords_label.configure(text="WORDLIST")
+                if not passwords.get().strip():
+                    passwords.insert(0, "/usr/share/traceos/wordlists/rockyou.txt")
             else:
                 service_label.configure(text="SERVICE")
                 users_label.configure(text="USERS FILE")

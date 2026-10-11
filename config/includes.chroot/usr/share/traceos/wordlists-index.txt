@@ -1,0 +1,23 @@
+TraceOS offline wordlists
+Source: SecLists commit 04a690dde43143a3b2a6733317c0916e21d85cde
+Location: /usr/share/traceos/wordlists
+These files are installed while the image is built. John and Hashcat do not download them.
+
+rockyou.txt                                default password crack list
+10k-most-common.txt                        short common-password list
+xato-net-10-million-passwords-100000.txt   top 100000 from the Xato set
+Pwdb_top-100000.txt                        top 100000 from Pwdb
+darkweb2017_top-10000.txt                  2017 frequency list
+probable-v2_top-12000.txt                  probable passwords
+2025-199_most_used_passwords.txt           recent short list
+top-20-common-SSH-passwords.txt            small SSH password list
+top-usernames-shortlist.txt                usernames
+cirt-default-usernames.txt                 default product usernames
+sap-default-usernames.txt                  SAP default usernames
+subdomains-top1million-5000.txt            DNS discovery
+subdomains-top1million-20000.txt           DNS discovery
+seclists-web-common.txt                    web path discovery
+raft-medium-directories.txt                directory discovery
+raft-medium-words.txt                      web word discovery
+john-password.lst                          link to John's packaged list, when John is installed
+dirb-common.txt                            link to the dirb common list

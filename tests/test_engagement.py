@@ -71,6 +71,36 @@ class EngagementPlaybookTests(unittest.TestCase):
                     self.assertIn("--rate", step["argv"])
                     self.assertIn("1000", step["argv"])
 
+    def test_password_crack_defaults_to_the_packaged_rockyou_list(self):
+        with tempfile.TemporaryDirectory() as directory:
+            hashes = Path(directory) / "hashes.txt"
+            hashes.write_text("synthetic\n", encoding="utf-8")
+            steps = build_playbook("red-password-crack", "", str(hashes), "", "0")
+            self.assertEqual(
+                steps[0]["argv"],
+                ["john", "--wordlist=/usr/share/traceos/wordlists/rockyou.txt", str(hashes)],
+            )
+            self.assertEqual(steps[1]["argv"][-1], "/usr/share/traceos/wordlists/rockyou.txt")
+            bundled = build_playbook(
+                "red-password-crack",
+                "",
+                str(hashes),
+                "/usr/share/traceos/wordlists/10k-most-common.txt",
+                "1000",
+            )
+            self.assertIn(
+                "--wordlist=/usr/share/traceos/wordlists/10k-most-common.txt",
+                bundled[0]["argv"],
+            )
+            with self.assertRaises(ValueError):
+                build_playbook(
+                    "red-password-crack",
+                    "",
+                    str(hashes),
+                    "/usr/share/traceos/wordlists/../../etc/passwd",
+                    "0",
+                )
+
     def test_credential_audit_rejects_ranges_links_and_unknown_services(self):
         with tempfile.TemporaryDirectory() as directory:
             users = Path(directory) / "users.txt"

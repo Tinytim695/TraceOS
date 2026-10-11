@@ -67,7 +67,7 @@ Expected session result:
 TraceOS session: amnesic (no persistent storage)
 ```
 
-Then check the Control Centre, Terminal, Files, Network, Investigation Centre, Web Testing, Assessment, Engagement, Defence, Image OSINT, and the evidence-handling helpers. Use only synthetic data and targets you own or are explicitly authorized to test. Engagement is the red, blue and purple exercise page. It has no denial-of-service playbook.
+Then check the Control Centre, Terminal, Files, Network, Investigation Centre, Web Testing, Assessment, Engagement, Defence, Image OSINT, and the evidence-handling helpers. Use only synthetic data and targets you own or are explicitly authorized to test. Engagement is the red, blue and purple exercise page. It has no denial-of-service playbook. Password cracking uses the wordlists already in `/usr/share/traceos/wordlists`, with `rockyou.txt` as the default.
 
 ## Important forensic note
 

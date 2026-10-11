@@ -120,4 +120,12 @@ for cmd in GetNPUsers.py GetUserSPNs.py GetADUsers.py; do check_cmd "$cmd"; done
 echo "[TraceOS] PURPLE"
 check_cmd traceos-purple
 check_cmd traceos-engage
+echo "[TraceOS] OFFLINE WORDLISTS"
+for wordlist in rockyou.txt 10k-most-common.txt xato-net-10-million-passwords-100000.txt seclists-web-common.txt subdomains-top1million-5000.txt; do
+  if [[ ! -s "$ROOT/usr/share/traceos/wordlists/$wordlist" ]]; then
+    printf '[MISSING] wordlist %s\n' "$wordlist" >&2
+    exit 1
+  fi
+  printf '[OK] wordlist %s\n' "$wordlist"
+done
 echo "[TraceOS] All required OSINT/Recon/Web/Red/Blue/DFIR/Enterprise/Purple command surfaces are packaged."

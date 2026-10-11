@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+COMMIT="04a690dde43143a3b2a6733317c0916e21d85cde"
+BASE="https://raw.githubusercontent.com/danielmiessler/SecLists/${COMMIT}"
+DIR="/usr/share/traceos/wordlists"
+MANIFEST="/usr/share/traceos/wordlists-manifest.txt"
+
+mkdir -p "$DIR"
+test -f "$MANIFEST"
+
+echo "[TraceOS] Installing pinned SecLists wordlists at $COMMIT"
+while read -r sha dest remote; do
+    case "$sha" in
+        ""|\#*) continue ;;
+    esac
+    case "$dest" in
+        *[!A-Za-z0-9._-]*)
+            echo "[TraceOS] Refusing unsafe wordlist name: $dest" >&2
+            exit 1
+            ;;
+    esac
+    tmp="$DIR/$dest.partial"
+    rm -f "$tmp"
+    echo "[TraceOS] Fetching $dest"
+    curl -fsSL --retry 5 --retry-delay 2 --max-time 180 "$BASE/$remote" -o "$tmp"
+    echo "$sha  $tmp" | sha256sum -c -
+    mv "$tmp" "$DIR/$dest"
+done < "$MANIFEST"
+
+if [ -f "$DIR/rockyou.txt.tar.gz" ]; then
+    tar -xzf "$DIR/rockyou.txt.tar.gz" -C "$DIR"
+    rm -f "$DIR/rockyou.txt.tar.gz"
+fi
+
+if [ -f /usr/share/john/password.lst ]; then
+    ln -sfn /usr/share/john/password.lst "$DIR/john-password.lst"
+fi
+if [ -f /usr/share/dirb/wordlists/common.txt ]; then
+    ln -sfn /usr/share/dirb/wordlists/common.txt "$DIR/dirb-common.txt"
+fi
+
+test -s "$DIR/rockyou.txt"
+test -s "$DIR/10k-most-common.txt"
+test -s "$DIR/seclists-web-common.txt"
+echo "[TraceOS] Offline wordlists installed in $DIR"
