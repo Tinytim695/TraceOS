@@ -7,3 +7,5 @@ cache/
 chroot/
 binary/
 auto/
+__pycache__/
+*.pyc

@@ -2,6 +2,7 @@
 """TraceOS Control Centre: a polished local-first investigation cockpit."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import queue
@@ -11,11 +12,12 @@ import subprocess
 import sys
 import time
 import threading
+import webbrowser
 import tkinter as tk
 import uuid
-import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from urllib.parse import urlsplit
 
 TRACEOS_LIB = "/usr/local/lib/traceos"
 if TRACEOS_LIB not in sys.path:
@@ -85,6 +87,182 @@ def session_state() -> str:
     return "UNKNOWN"
 
 
+OSINT_TOOL_COMMANDS = {
+    "Sherlock": "sherlock",
+    "Maigret": "maigret",
+    "h8mail": "h8mail",
+    "Blackbird": "blackbird",
+    "WHOIS": "whois",
+    "DNS": "dig",
+}
+
+
+def build_osint_command(name: str, target: str, extra: str = "") -> list[str]:
+    if name not in OSINT_TOOL_COMMANDS:
+        raise ValueError(f"Unknown Investigation Centre tool: {name}")
+    value = target.strip()
+    if not value:
+        raise ValueError("Enter a target or arguments first.")
+    try:
+        extras = shlex.split(extra) if extra.strip() else []
+        target_args = shlex.split(value) if name == "Blackbird" else [value]
+    except ValueError as exc:
+        raise ValueError(f"Invalid arguments: {exc}") from exc
+    if name == "Blackbird":
+        if not target_args:
+            raise ValueError("Enter Blackbird arguments first.")
+        return ["blackbird", *target_args, *extras]
+    command = OSINT_TOOL_COMMANDS[name]
+    if name in {"Sherlock", "Maigret"}:
+        return [command, value, *extras]
+    if name == "h8mail":
+        return [command, "-t", value, *extras]
+    return [command, value, *extras]
+
+
+def require_osint_tool(command: str) -> None:
+    if shutil.which(command) is None:
+        raise FileNotFoundError(
+            f"{command} is not installed in this TraceOS image."
+        )
+
+
+
+WEB_TEST_TOOL_COMMANDS = {
+    "Nmap Quick Scan": "nmap",
+    "WhatWeb Fingerprint": "whatweb",
+    "Nikto Web Check": "nikto",
+    "Gobuster Directory Scan": "gobuster",
+    "OWASP ZAP Desktop": "zap.sh",
+    "SQLmap Interactive": "sqlmap",
+    "Metasploit Console": "msfconsole",
+}
+WEB_ACTIVE_TESTS = {
+    "Nmap Quick Scan",
+    "WhatWeb Fingerprint",
+    "Nikto Web Check",
+    "Gobuster Directory Scan",
+    "SQLmap Interactive",
+}
+WEB_WORDLIST = "/usr/share/dirb/wordlists/common.txt"
+REVERSE_IMAGE_SITES = {
+    "Google Lens": "https://lens.google.com/upload",
+    "Bing Visual Search": "https://www.bing.com/visualsearch",
+    "TinEye": "https://tineye.com/",
+}
+
+
+def normalize_web_target(name: str, target: str) -> str:
+    value = target.strip()
+    if name in {"Metasploit Console", "OWASP ZAP Desktop"}:
+        return ""
+    if not value:
+        raise ValueError("Enter a target first.")
+    if name == "Nmap Quick Scan":
+        parsed = urlsplit(value if "://" in value else f"//{value}")
+        if parsed.scheme and parsed.scheme not in {"http", "https"}:
+            raise ValueError("Nmap accepts a host or an HTTP(S) URL.")
+        if parsed.username or parsed.password:
+            raise ValueError("Credentials in target URLs are not allowed.")
+        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+            raise ValueError("For Nmap, enter a host or a URL without a path.")
+        host = parsed.hostname
+        if not host:
+            raise ValueError("Enter a valid host or IP address.")
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            try:
+                ascii_host = host.encode("idna").decode("ascii")
+            except UnicodeError as exc:
+                raise ValueError("Enter a valid host or IP address.") from exc
+            labels = ascii_host.rstrip(".").split(".")
+            if (
+                not ascii_host
+                or len(ascii_host) > 253
+                or any(
+                    not label
+                    or len(label) > 63
+                    or label.startswith("-")
+                    or label.endswith("-")
+                    or not all(ch.isalnum() or ch == "-" for ch in label)
+                    for label in labels
+                )
+            ):
+                raise ValueError("Enter a valid host or IP address.")
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("Target port is invalid.") from exc
+        return host
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Enter a full http:// or https:// URL.")
+    if parsed.username or parsed.password:
+        raise ValueError("Credentials in target URLs are not allowed.")
+    host = parsed.hostname
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("Target port is invalid.") from exc
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            ascii_host = host.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValueError("Enter a valid web host.") from exc
+        labels = ascii_host.rstrip(".").split(".")
+        if (
+            not ascii_host
+            or len(ascii_host) > 253
+            or any(
+                not label
+                or len(label) > 63
+                or label.startswith("-")
+                or label.endswith("-")
+                or not all(ch.isalnum() or ch == "-" for ch in label)
+                for label in labels
+            )
+        ):
+            raise ValueError("Enter a valid web host.")
+    return parsed._replace(fragment="").geturl()
+
+
+def build_web_test_command(name: str, target: str, wordlist: str = WEB_WORDLIST) -> list[str]:
+    if name not in WEB_TEST_TOOL_COMMANDS:
+        raise ValueError(f"Unknown Web Testing tool: {name}")
+    if name == "Metasploit Console":
+        return ["msfconsole"]
+    if name == "OWASP ZAP Desktop":
+        return ["zap.sh", "-silent"]
+    value = normalize_web_target(name, target)
+    command = WEB_TEST_TOOL_COMMANDS[name]
+    if name == "Nmap Quick Scan":
+        return [command, "-sT", "-F", "-T3", "--", value]
+    if name == "WhatWeb Fingerprint":
+        return [command, value]
+    if name == "Nikto Web Check":
+        return [command, "-h", value]
+    if name == "Gobuster Directory Scan":
+        if not wordlist.strip():
+            raise ValueError("Select a wordlist before starting Gobuster.")
+        return [command, "dir", "-u", value, "-w", wordlist]
+    if name == "SQLmap Interactive":
+        return [command, "-u", value]
+    raise ValueError(f"Web Testing tool is not configured: {name}")
+
+
+def require_web_test_tool(name: str) -> None:
+    command = WEB_TEST_TOOL_COMMANDS.get(name)
+    if command is None:
+        raise ValueError(f"Unknown Web Testing tool: {name}")
+    if shutil.which(command) is None:
+        raise FileNotFoundError(f"{command} is not installed in this TraceOS image.")
+    if name == "Gobuster Directory Scan" and not Path(WEB_WORDLIST).is_file():
+        raise FileNotFoundError(
+            f"Bundled Gobuster wordlist is missing: {WEB_WORDLIST}"
+        )
 def action_result_matches(
     active_action_id: uuid.UUID | None,
     result: ActionResult,
@@ -156,10 +334,10 @@ class TraceOSApp:
         self._trace_attempt = 0
         self._new_case_attempt_pending = False
 
-        # User-facing smoke-test shortcut: open the same OSINT page as the sidebar button.
-        # Tk keysyms are case-sensitive here; Ctrl+Shift+O produces keysym ``O``.
+        # Smoke shortcuts exercise the same pages linked from the sidebar.
         self.root.bind_all("<Control-Shift-O>", self._osint_shortcut)
         self.root.bind_all("<Control-Shift-N>", self._new_case_shortcut)
+        self.root.bind_all("<Control-Shift-W>", self._web_testing_shortcut)
         self.root.bind_all("<Control-Shift-I>", self._image_shortcut)
 
         self.active_process: subprocess.Popen[str] | None = None
@@ -181,7 +359,9 @@ class TraceOSApp:
             "dashboard": self.dashboard,
             "evidence": self.evidence,
             "network": self.network,
+            "web": self.web_testing,
             "osint": self.osint,
+            "images": self.image_osint,
             "reports": self.reports,
             "timeline": self.timeline,
             "doctor": self.doctor_page,
@@ -281,6 +461,18 @@ class TraceOSApp:
             )
             raise
         self._trace_diag("callback-complete", callback="osint")
+        return "break"
+
+    def _web_testing_shortcut(self, event: tk.Event) -> str:
+        self.web_testing()
+        self.root.update_idletasks()
+        self._trace_diag("WEB_TESTING_PAGE_RENDERED", page="web")
+        return "break"
+
+    def _image_osint_shortcut(self, event: tk.Event) -> str:
+        self.image_osint()
+        self.root.update_idletasks()
+        self._trace_diag("IMAGE_OSINT_PAGE_RENDERED", page="images")
         return "break"
 
     def _write_ready_marker(self) -> None:
@@ -416,7 +608,9 @@ class TraceOSApp:
             ("◉  Dashboard", self.dashboard),
             ("▣  Evidence Vault", self.evidence),
             ("⌁  Network", self.network),
+            ("⌑  Web Testing", self.web_testing),
             ("◎  Investigation Centre", self.osint),
+            ("▧  Image OSINT", self.image_osint),
             ("▤  Reports", self.reports),
             ("▥  Timeline", self.timeline),
         ]:
@@ -832,7 +1026,7 @@ class TraceOSApp:
     def dashboard(self) -> None:
         top = self.heading(
             "TraceOS", "Investigation cockpit",
-            "One polished front door for cases, evidence, network, OSINT and reporting."
+            "One polished front door for cases, evidence, network testing, OSINT and reporting."
         )
         if self.welcome:
             banner = tk.Frame(top, bg="#0c2232", highlightthickness=1, highlightbackground="#1c6571")
@@ -917,7 +1111,9 @@ class TraceOSApp:
         for title, action in [
             ("→  Evidence Vault", self.evidence),
             ("→  Network Command Centre", self.network),
+            ("→  Web Testing", self.web_testing),
             ("→  OSINT Centre", self.osint),
+            ("→  Image OSINT", self.image_osint),
             ("→  Reports", self.reports),
             ("→  Timeline", self.timeline),
             ("→  System Doctor", self.doctor_page),
@@ -1350,6 +1546,20 @@ class TraceOSApp:
         controls.grid_columnconfigure(0, weight=3)
         controls.grid_columnconfigure(1, weight=1)
 
+        authorized = tk.BooleanVar(value=False)
+        consent = tk.Checkbutton(
+            controls,
+            text="I own this system or have explicit authorization to scan it.",
+            variable=authorized,
+            bg=CARD,
+            fg=WARN,
+            activebackground=CARD,
+            activeforeground=WARN,
+            selectcolor=BG2,
+            font=("Sans", 9, "bold"),
+        )
+        consent.grid(row=2, column=0, columnspan=2, sticky="w", padx=14, pady=(0, 10))
+
         output_panel = self.card(self.content, padx=28, pady=8, expand=True)
         self.set_output(output_panel, height=18)
 
@@ -1358,12 +1568,26 @@ class TraceOSApp:
         self.action_button(bar, "STOP", self.stop_job).pack(side="left")
 
         def start_scan() -> None:
-            host = target.get().strip()
-            if not host:
-                messagebox.showwarning("Nmap", "Enter an authorized target first.", parent=self.root)
+            try:
+                host = normalize_web_target("Nmap Quick Scan", target.get())
+            except ValueError as exc:
+                messagebox.showwarning("Nmap", str(exc), parent=self.root)
+                return
+            if not authorized.get():
+                messagebox.showwarning(
+                    "Authorization required",
+                    "Confirm that you own this target or have explicit permission to scan it.",
+                    parent=self.root,
+                )
+                return
+            if not messagebox.askyesno(
+                "Start Nmap scan?",
+                f"This sends scan traffic to {host}. Continue only with authorization.",
+                parent=self.root,
+            ):
                 return
             args = {"Quick": ["-F"], "Standard": ["-sV", "-T3"], "Services": ["-sV", "-sC", "-T3"]}[profile.get()]
-            self.run_job([TRACE, "network", "nmap", *args, host], "Nmap scan")
+            self.run_job([TRACE, "network", "nmap", *args, "--", host], "Nmap scan")
 
         self.action_button(bar, "RUN NMAP", start_scan, primary=True).pack(side="right")
 
@@ -1445,19 +1669,31 @@ class TraceOSApp:
             if selected == "No image selected":
                 messagebox.showwarning("Image OSINT", "Choose an image first.", parent=self.root)
                 return
+            chosen = site.get()
+            address = REVERSE_IMAGE_SITES.get(chosen)
+            if not address:
+                messagebox.showerror("Image OSINT", "Choose a reverse-image site first.", parent=self.root)
+                return
             if not messagebox.askyesno(
                 "External browser handoff",
-                "Open an external reverse-image search site? TraceOS will not upload or submit this image.",
+                f"Open {chosen}? TraceOS will not upload or submit this image. You choose and submit it on that site.",
                 parent=self.root,
             ):
                 self._trace_diag("IMAGE_BROWSER_HANDOFF_CANCELLED")
                 return
             try:
-                webbrowser.open("https://lens.google.com/")
+                opened = webbrowser.open(address, new=2)
                 self._trace_diag("IMAGE_BROWSER_HANDOFF_OPENED", attempt=image_attempt)
             except Exception as exc:
                 self._trace_diag("IMAGE_BROWSER_HANDOFF_FAILED", exc_type=type(exc).__name__)
                 messagebox.showerror("Image OSINT", f"Unable to open browser: {exc}", parent=self.root)
+                return
+            if not opened:
+                messagebox.showerror(
+                    "Image OSINT",
+                    "TraceOS could not open a browser. Check Firefox in System Doctor.",
+                    parent=self.root,
+                )
 
         def start_image() -> None:
             selected = source_var.get()
@@ -1475,6 +1711,14 @@ class TraceOSApp:
             self.run_job([TRACE, "image", str(path)], "Local image analysis", kind="image", attempt=image_attempt)
 
         self.action_button(bar, "CHOOSE IMAGE", choose_image).pack(side="left")
+        site = ttk.Combobox(
+            bar,
+            state="readonly",
+            values=tuple(REVERSE_IMAGE_SITES),
+            width=22,
+        )
+        site.current(0)
+        site.pack(side="left", padx=(8, 0))
         self.action_button(controls, "USE PATH", use_image_path).grid(row=3, column=2, sticky="e", padx=15, pady=(0, 12))
 
         def handle_image_return(_event: tk.Event) -> str:
@@ -1507,13 +1751,22 @@ class TraceOSApp:
         ).pack(anchor="w", padx=15, pady=(10, 1))
         tk.Label(
             warning,
-            text="Some tools may contact third-party services when launched. TraceOS never runs them automatically.",
+            text="Missing commands are marked unavailable. Searches only start after you press Start.",
             bg=CARD, fg=MUTED, font=("Sans", 9)
         ).pack(anchor="w", padx=15, pady=(0, 10))
 
         controls = self.card(self.content, padx=28, pady=7)
         tk.Label(controls, text="TOOL", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(10, 4))
-        tool = ttk.Combobox(controls, state="readonly", values=("Sherlock", "Maigret", "h8mail", "Blackbird", "WHOIS", "DNS"), style="Trace.TCombobox")
+        tool_labels = [
+            name if shutil.which(command) else f"{name} (not installed)"
+            for name, command in OSINT_TOOL_COMMANDS.items()
+        ]
+        tool = ttk.Combobox(
+            controls,
+            state="readonly",
+            values=tuple(tool_labels),
+            style="Trace.TCombobox",
+        )
         tool.current(0)
         tool.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 12))
         tk.Label(controls, text="TARGET / ARGUMENTS", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
@@ -1554,10 +1807,24 @@ class TraceOSApp:
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
 
         def start_osint() -> None:
-            name = tool.get()
-            value = target.get().strip()
-            if not value:
-                messagebox.showwarning("OSINT", "Enter a target or arguments first.", parent=self.root)
+            selected = tool.get()
+            name = selected.removesuffix(" (not installed)")
+            try:
+                args = build_osint_command(name, target.get(), extra.get())
+                require_osint_tool(args[0])
+            except ValueError as exc:
+                messagebox.showwarning(
+                    "OSINT",
+                    f"Invalid arguments: {exc}",
+                    parent=self.root,
+                )
+                return
+            except FileNotFoundError as exc:
+                messagebox.showerror(
+                    "OSINT",
+                    f"Tool unavailable: {exc}",
+                    parent=self.root,
+                )
                 return
 
             try:
@@ -1614,6 +1881,179 @@ class TraceOSApp:
         self.action_button(bar, "START LOOKUP", start_osint, primary=True).pack(side="right")
         self.root.update_idletasks()
         self._trace_diag("osint-page-rendered", page="osint")
+
+
+    def web_testing(self) -> None:
+        self.heading(
+            "AUTHORIZED ASSESSMENT", "Web Testing",
+            "Start a scoped network or web check only for a target you own or have permission to test."
+        )
+        warning = self.card(self.content, padx=28, pady=7)
+        tk.Label(
+            warning,
+            text="NO SCANS RUN AUTOMATICALLY",
+            bg=CARD,
+            fg=WARN,
+            font=("Sans", 9, "bold"),
+        ).pack(anchor="w", padx=15, pady=(10, 1))
+        tk.Label(
+            warning,
+            text="For target-based checks, enter an authorized target and confirm each run. ZAP and Metasploit open their own interfaces; set or keep scope there. Neither starts a scan or exploit automatically.",
+            bg=CARD,
+            fg=MUTED,
+            wraplength=820,
+            justify="left",
+            font=("Sans", 9),
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        controls = self.card(self.content, padx=22, pady=8)
+        tk.Label(controls, text="TOOL", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(10, 4)
+        )
+        tool_labels = [
+            name if shutil.which(command) else f"{name} (not installed)"
+            for name, command in WEB_TEST_TOOL_COMMANDS.items()
+        ]
+        tool = ttk.Combobox(
+            controls,
+            state="readonly",
+            values=tuple(tool_labels),
+            style="Trace.TCombobox",
+        )
+        tool.current(0)
+        tool.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+        authorization_prompt = tk.StringVar(
+            value="I own this target or have explicit authorization to test it."
+        )
+
+        def update_authorization_prompt(_event=None) -> None:
+            selected_name = tool.get().removesuffix(" (not installed)")
+            target.delete(0, "end")
+            if selected_name in {"Metasploit Console", "OWASP ZAP Desktop"}:
+                target.configure(state="disabled")
+                target_label.configure(text="TARGET SET IN TOOL")
+            else:
+                target.configure(state="normal")
+                target_label.configure(text="AUTHORIZED TARGET")
+            if selected_name == "Metasploit Console":
+                authorization_prompt.set(
+                    "I will use this console only within an authorized assessment."
+                )
+            elif selected_name == "OWASP ZAP Desktop":
+                authorization_prompt.set(
+                    "I will set and test only targets authorized for this assessment."
+                )
+            else:
+                authorization_prompt.set(
+                    "I own this target or have explicit authorization to test it."
+                )
+
+        tool.bind("<<ComboboxSelected>>", update_authorization_prompt)
+        target_label = tk.Label(
+            controls, text="AUTHORIZED TARGET", bg=CARD, fg=MUTED,
+            font=("Sans", 8, "bold")
+        )
+        target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
+        target = tk.Entry(
+            controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT,
+            relief="flat", font=("Monospace", 10)
+        )
+        target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
+        target.focus_set()
+        controls.grid_columnconfigure(0, weight=2)
+        controls.grid_columnconfigure(1, weight=4)
+
+        authorized = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            controls,
+            textvariable=authorization_prompt,
+            variable=authorized,
+            bg=CARD,
+            fg=WARN,
+            activebackground=CARD,
+            activeforeground=WARN,
+            selectcolor=BG2,
+            font=("Sans", 9, "bold"),
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
+
+        output_panel = self.card(self.content, padx=22, pady=8, expand=True)
+        self.set_output(output_panel, height=19)
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 14))
+        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
+        def start_test() -> None:
+            selected = tool.get()
+            name = selected.removesuffix(" (not installed)")
+            try:
+                require_web_test_tool(name)
+                args = build_web_test_command(name, target.get())
+            except (ValueError, FileNotFoundError) as exc:
+                messagebox.showerror("Web Testing", str(exc), parent=self.root)
+                return
+            if not authorized.get():
+                if name == "Metasploit Console":
+                    authorization_message = (
+                        "Confirm that you will use this console only within an authorized assessment."
+                    )
+                elif name == "OWASP ZAP Desktop":
+                    authorization_message = (
+                        "Confirm that you will set and test only authorized targets in ZAP."
+                    )
+                else:
+                    authorization_message = (
+                        "Confirm that you own this target or have explicit permission to test it."
+                    )
+                messagebox.showwarning(
+                    "Authorization required",
+                    authorization_message,
+                    parent=self.root,
+                )
+                return
+            if name not in {"Metasploit Console", "OWASP ZAP Desktop"}:
+                try:
+                    normalized_target = normalize_web_target(name, target.get())
+                except ValueError as exc:
+                    messagebox.showwarning("Web Testing", str(exc), parent=self.root)
+                    return
+            else:
+                normalized_target = "no target preselected"
+            if name in WEB_ACTIVE_TESTS and not messagebox.askyesno(
+                "Confirm authorized testing",
+                f"{name} will send active traffic. Target: {normalized_target}\n\nContinue only if this testing is authorized.",
+                parent=self.root,
+            ):
+                return
+            if name == "OWASP ZAP Desktop":
+                try:
+                    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                except OSError as exc:
+                    messagebox.showerror("OWASP ZAP", str(exc), parent=self.root)
+                    return
+                messagebox.showinfo(
+                    "OWASP ZAP",
+                    "The ZAP desktop is open. Set the in-scope target in ZAP before using Quick Start or the active scanner.",
+                    parent=self.root,
+                )
+                return
+            if name == "Metasploit Console":
+                messagebox.showinfo(
+                    "Metasploit Framework",
+                    "The console is opening in a terminal. No module or exploit is selected or run automatically.",
+                    parent=self.root,
+                )
+                self.open_terminal(args, "TraceOS Metasploit Framework")
+                return
+            if name == "SQLmap Interactive":
+                messagebox.showinfo(
+                    "SQLmap",
+                    "SQLmap is opening in an interactive terminal. Review each prompt and stop if the test is outside your authorization.",
+                    parent=self.root,
+                )
+                self.open_terminal(args, "TraceOS SQLmap")
+                return
+            self.run_job(args, f"{name} • {normalized_target}")
+
+        self.action_button(bar, "START CHECK", start_test, primary=True).pack(side="right")
 
     def save_investigation_output(self) -> None:
         # Staging with mkdir()/Path.write_text() then calling evidence-add

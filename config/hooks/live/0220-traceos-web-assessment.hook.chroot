@@ -108,6 +108,7 @@ cat > /usr/local/bin/zap <<'EOF'
 exec /opt/traceos-zap/zap.sh "$@"
 EOF
 chmod 0755 /usr/local/bin/zap
+ln -sfn /opt/traceos-zap/zap.sh /usr/local/bin/zap.sh
 if version_output="$(/usr/local/bin/zap -version 2>&1)"; then
     version_status=0
 else

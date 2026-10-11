@@ -119,7 +119,7 @@ def status():
 ╰─────────────────────────────────────────╯
 """)
 def show_tools():
-    tools=[("nmap","network/service inspection"),("exiftool","metadata inspection"),("tesseract","OCR"),("imagemagick","image processing"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search"),("whois","OSINT WHOIS lookup"),("dig","OSINT DNS inspection")]
+    tools=[("nmap","authorized network/service inspection"),("whatweb","web technology fingerprinting"),("nikto","authorized web server checks"),("gobuster","authorized path discovery"),("sqlmap","interactive SQL testing"),("msfconsole","Metasploit Framework"),("zap.sh","OWASP ZAP desktop"),("exiftool","image metadata"),("identify","image dimensions/format"),("tesseract","OCR"),("convert","image format conversion"),("ffmpeg","audio/video inspection"),("sqlite3","SQLite inspection"),("rg","fast local text search"),("file","file identification"),("strings","printable strings"),("sha256sum","cryptographic hashing"),("sherlock","OSINT username discovery"),("maigret","OSINT username investigation"),("h8mail","OSINT email lookups"),("blackbird","OSINT username/email search"),("whois","WHOIS lookups"),("dig","DNS lookups")]
     print("\nTRACEOS TOOLBOX\n───────────────")
     for c,d in tools: print(f" {'[OK]' if have(c) else '[--]'} {c:<12} {d}")
 def verify_evidence():
@@ -803,6 +803,7 @@ def osint(a):
     if not a:
         print("\nTRACEOS OSINT WORKBENCH\n")
         for i,t in enumerate(tools,1):print(f" {i}) {t}")
+        print(" 0) Exit")
         print("Selection: ",end="",flush=True)
         c=sys.stdin.readline().strip()
         if c=="0":return 0
@@ -813,9 +814,10 @@ def osint(a):
             target=sys.stdin.readline().strip()
             if not target:return 2
             a.append(target)
-    if a[0] not in tools or not have(a[0]):
-        print(f"Tool unavailable: {a[0]}")
-        return 1
+    if a[0] not in tools:
+        print(f"Unknown Investigation Centre tool: {a[0]}",file=sys.stderr);return 2
+    if not have(a[0]):
+        print(f"Tool unavailable: {a[0]} is not installed.",file=sys.stderr);return 1
     if a[0] in {"whois","dig"}:
         if len(a) < 2:
             print(f"Usage: traceos osint {a[0]} DOMAIN_OR_IP", file=sys.stderr)
@@ -831,6 +833,8 @@ def osint(a):
         u=sys.stdin.readline().strip()
         if not u:return 2
         a.append(u)
+    elif len(a)==1:
+        print(f"Usage: traceos osint {a[0]} TARGET [OPTIONS]",file=sys.stderr);return 2
     print("External lookups happen only because you launched this command.")
     r=run(a,300)
     if r:
@@ -848,7 +852,7 @@ def demo():
     if previous: print(f"Previous case remains untouched: {previous}")
     return 0
 def doctor():
-    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","exiftool","sherlock","maigret","h8mail","blackbird","whois","dig","blueman-manager","ari"]
+    req=["xfce4-terminal","thunar","nmcli","python3","sha256sum","file"]; opt=["nmap","whatweb","nikto","gobuster","sqlmap","msfconsole","zap.sh","exiftool","identify","tesseract","sherlock","maigret","h8mail","blackbird","whois","dig","ffmpeg","convert","blueman-manager","ari"]
     assets=["/usr/share/traceos/traceos-logo.png","/usr/share/backgrounds/traceos/traceos-wallpaper.png"]
     configs=["/etc/xdg/autostart/traceos-welcome.desktop","/etc/lightdm/lightdm.conf.d/50-traceos.conf","/usr/local/bin/traceos-control","/usr/local/bin/traceos-shade"]
     print("\nTRACEOS SYSTEM DOCTOR\n─────────────────────")
@@ -949,11 +953,11 @@ def main(a):
         print('Usage: traceos case {new NAME [--description DESCRIPTION]|list|current|read [CASE_DIR]|use CASE_DIR}')
         return 2
     if c=="evidence":
-        if rest and rest[0]=="add" and len(rest)>1:return add_evidence(rest[1])
+        if rest and rest[0]=="add" and len(rest)==2:return add_evidence(rest[1])
         if rest and rest[0]=="verify":return verify_evidence()
         list_evidence();return 0
-    if c=="image":return analyse_image(rest[0]) if rest else 2
     if c=="analyse":return analyse(rest[0]) if rest else 2
+    if c=="image":return analyse_image(rest[0]) if rest else 2
     if c=="tools":show_tools();return 0
     if c=="network":return network(rest)
     if c=="osint":return osint(rest)
@@ -964,7 +968,7 @@ def main(a):
     if c=="ai":return ai()
     if c=="update":return update(rest)
     if c=="about":
-        print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\nOSINT workbench, network tools, reports, timeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
+        print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\npeople OSINT, authorized web testing, local image analysis, reports,\ntimeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
         return 0
-    print("Usage: traceos {status|welcome|session|case|evidence|analyse|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
+    print("Usage: traceos {status|welcome|session|case|evidence|analyse|image|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
 if __name__=="__main__":raise SystemExit(main(sys.argv[1:]))

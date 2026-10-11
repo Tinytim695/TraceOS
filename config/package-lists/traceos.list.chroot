@@ -103,6 +103,7 @@ suricata-update
 # Authorized web assessment / Red Team foundations
 ffuf
 gobuster
+dirb
 sqlmap
 whatweb
 wafw00f
