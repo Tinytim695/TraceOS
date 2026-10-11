@@ -27,6 +27,49 @@ def preserve_first_attempt_files(artifact_dir):
             artifact_dir / f"msfconsole-startup-first-attempt.{suffix}",
         )
 
+
+def classify_probe_result(timed_out, cleanup_status):
+    """Return timeout, cleanup_incomplete, or application.
+
+    A timed-out probe is a clean timeout only when its process group was fully
+    reaped. Incomplete cleanup is never a retryable timeout.
+    """
+    if timed_out:
+        if cleanup_status not in ("complete",):
+            return "cleanup_incomplete"
+        return "timeout"
+    if cleanup_status not in ("not_needed", "complete"):
+        return "cleanup_incomplete"
+    return "application"
+
+
+def diagnostic_cleanup_blocks_retry(cleanup_status):
+    """A diagnostic deadline with completed cleanup does not block recovery.
+
+    Recovery stays fail-closed when the diagnostic process group could not be
+    reaped. The diagnostic command timing out is expected for a slow probe and
+    is not, by itself, evidence of a contaminated process group.
+    """
+    return cleanup_status not in ("not_needed", "complete")
+
+
+def msfconsole_recovery_action(first_exit, diagnostics_clean):
+    """Decide whether one msfconsole recovery retry is authorised.
+
+    Exit 124 is a confirmed timeout whose process group was fully reaped.
+    Exit 125 means the original cleanup was incomplete: do not diagnose or retry.
+    Diagnostics may themselves time out. They authorise the retry only when
+    every diagnostic process group was fully reaped.
+    """
+    if first_exit == "125":
+        return "skip_initial_cleanup_incomplete"
+    if first_exit != "124":
+        return "skip_not_confirmed_timeout"
+    if not diagnostics_clean:
+        return "skip_diagnostic_cleanup_incomplete"
+    return "retry"
+
+
 def serial(s):
     print(s,flush=True)
     try:
@@ -212,17 +255,18 @@ def tool_version(label, binary, *args, cwd=None):
          "unknown" if p.returncode is None else p.returncode, cleanup_status)
     )
     (ART / (label + ".stdout")).write_text(stdout or "")
-    if timed_out:
-        if cleanup_status not in ("complete",):
-            (ART / (label + ".stderr")).write_text(
-                (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup incomplete: "
-                + cleanup_status + "\n"
-            )
-            (ART / (label + ".exit")).write_text("125\n")
-            results[label] = 125
-            serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label
-                   + " rc=125 timeout=30s cleanup_incomplete=" + cleanup_status)
-            return None
+    probe_class = classify_probe_result(timed_out, cleanup_status)
+    if probe_class == "cleanup_incomplete" and timed_out:
+        (ART / (label + ".stderr")).write_text(
+            (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup incomplete: "
+            + cleanup_status + "\n"
+        )
+        (ART / (label + ".exit")).write_text("125\n")
+        results[label] = 125
+        serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label
+               + " rc=125 timeout=30s cleanup_incomplete=" + cleanup_status)
+        return None
+    if probe_class == "timeout":
         (ART / (label + ".stderr")).write_text(
             (stderr or "") + "\n[TraceOS] execution deadline 30s expired; cleanup_status=complete\n"
         )
@@ -231,7 +275,7 @@ def tool_version(label, binary, *args, cwd=None):
         serial("TRACEOS_CI_E2E_CMD_END nonce=" + run_nonce + " label=" + label
                + " rc=124 timeout=30s elapsed=%.2f cleanup=complete" % elapsed)
         return None
-    if cleanup_status not in ("not_needed", "complete"):
+    if probe_class == "cleanup_incomplete":
         (ART / (label + ".stderr")).write_text(
             (stderr or "") + "\n[TraceOS] process cleanup incomplete: " + cleanup_status + "\n"
         )
@@ -274,7 +318,7 @@ def diagnose_metasp_timeout(label,binary,*args):
                     (label,cwd,elapsed,"HARNESS_TIMEOUT" if timed_out else "APPLICATION_EXIT",
                      124 if timed_out and cleanup_status == "complete" else (125 if timed_out else p.returncode),
                      cleanup_status,(stdout or "")[-12000:],(stderr or "")[-24000:]))
-        if cleanup_status not in ("not_needed", "complete"):
+        if diagnostic_cleanup_blocks_retry(cleanup_status):
             record_diag("DIAGNOSTIC_ABORT label=%s cwd=%s reason=cleanup_incomplete status=%s" %
                         (label,cwd,cleanup_status))
             record_diag("DIAGNOSTIC_END label=%s status=FAILED" % label)
@@ -346,27 +390,30 @@ if msfconsole_startup is None:
         diagnostics_clean = diagnose_metasp_timeout(
             "msfconsole-startup", "/usr/local/bin/msfconsole", "--version"
         )
-        if diagnostics_clean:
-            record_diag("RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s")
-            retry = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
-            retry_output = (retry.stdout + "\n" + retry.stderr) if retry is not None else ""
-            recovered = bool(
-                retry is not None
-                and retry.returncode == 0
-                and valid_msfconsole_version(retry_output)
-            )
-            record_diag(
-                "RECOVERY_RETRY_RESULT label=msfconsole-startup classification=%s rc=%s" %
-                ("RECOVERED_APPLICATION_EXIT" if recovered else "RECOVERY_FAILED",
-                 retry.returncode if retry is not None else "unknown")
-            )
-            serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=" + ("PASS" if recovered else "FAIL"))
-            msfconsole_startup = retry if recovered else None
-        else:
-            record_diag("RECOVERY_RETRY_SKIPPED label=msfconsole-startup reason=diagnostic_cleanup_incomplete")
-            serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=FAIL")
-            msfconsole_startup = None
-    elif first_exit == "125":
+    else:
+        diagnostics_clean = False
+    recovery_action = msfconsole_recovery_action(first_exit, diagnostics_clean)
+    if recovery_action == "retry":
+        record_diag("RECOVERY_RETRY_BEGIN label=msfconsole-startup execution_budget=30s")
+        retry = tool_version("msfconsole-startup", "/usr/local/bin/msfconsole", "--version", cwd="/opt/traceos-metasploit")
+        retry_output = (retry.stdout + "\n" + retry.stderr) if retry is not None else ""
+        recovered = bool(
+            retry is not None
+            and retry.returncode == 0
+            and valid_msfconsole_version(retry_output)
+        )
+        record_diag(
+            "RECOVERY_RETRY_RESULT label=msfconsole-startup classification=%s rc=%s" %
+            ("RECOVERED_APPLICATION_EXIT" if recovered else "RECOVERY_FAILED",
+             retry.returncode if retry is not None else "unknown")
+        )
+        serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=" + ("PASS" if recovered else "FAIL"))
+        msfconsole_startup = retry if recovered else None
+    elif recovery_action == "skip_diagnostic_cleanup_incomplete":
+        record_diag("RECOVERY_RETRY_SKIPPED label=msfconsole-startup reason=diagnostic_cleanup_incomplete")
+        serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=FAIL")
+        msfconsole_startup = None
+    elif recovery_action == "skip_initial_cleanup_incomplete":
         # Do not spawn another diagnostic process if cleanup itself was not safe.
         record_diag("RECOVERY_SKIPPED label=msfconsole-startup reason=initial_cleanup_incomplete")
         serial("TRACEOS_CI_E2E_MSFCONSOLE_RECOVERY=SKIPPED")

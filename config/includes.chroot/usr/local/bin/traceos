@@ -283,7 +283,7 @@ def _validate_ledger_case_rows(rows, case_path):
     """Reject ledger references outside this case without opening referenced files."""
     evidence_root = Path(case_path) / "evidence"
     for row_number, row in enumerate(rows, start=2):
-        fields = row.split("\\t")
+        fields = row.split("\t")
         if len(fields) != 6:
             raise OSError(f"Evidence ledger row {row_number} is malformed.")
         vault = Path(fields[2]).expanduser()
@@ -769,7 +769,9 @@ def timeline():
         print("No current case.")
         return 2
     try:
-        rows = _read_evidence_ledger_rows(p, missing_ok=True)
+        record = CASE_STORE.read(p)
+        rows = _read_evidence_ledger_rows(p, missing_ok=bool(record.legacy))
+        _validate_ledger_case_rows(rows, p)
     except (OSError, CaseError, UnicodeError) as exc:
         print(f"Unable to read evidence ledger: {exc}", file=sys.stderr)
         return 1

@@ -1,7 +1,11 @@
 import ast
+import os
 import re
 import shutil
+import signal
+import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -11,15 +15,32 @@ HOST = ROOT / "scripts/qemu-cli-e2e-smoke.sh"
 
 
 def load_function(path, name):
+    return load_functions(path, [name])[name]
+
+
+def load_functions(path, names):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    node = next(
+    wanted = set(names)
+    nodes = [
         item for item in tree.body
-        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == name
-    )
-    isolated = ast.Module(body=[node], type_ignores=[])
-    namespace = {"re": re, "Path": Path, "shutil": shutil}
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in wanted
+    ]
+    missing = wanted - {node.name for node in nodes}
+    if missing:
+        raise AssertionError(f"missing functions: {sorted(missing)}")
+    isolated = ast.Module(body=nodes, type_ignores=[])
+    namespace = {
+        "re": re,
+        "Path": Path,
+        "shutil": shutil,
+        "os": os,
+        "signal": signal,
+        "subprocess": subprocess,
+        "time": time,
+        "cleanup_details": {},
+    }
     exec(compile(ast.fix_missing_locations(isolated), str(path), "exec"), namespace)
-    return namespace[name]
+    return namespace
 
 
 class MsfVenomProbeTests(unittest.TestCase):
@@ -146,6 +167,7 @@ Options:
             for suffix, payload in expected.items():
                 retained = root / f"msfconsole-startup-first-attempt.{suffix}"
                 self.assertEqual(retained.read_bytes(), payload)
+                self.assertEqual((root / f"msfconsole-startup.{suffix}").read_bytes(), payload)
 
     def test_timeout_preservation_fails_closed_when_artifact_missing(self):
         preserve = load_function(GUEST, "preserve_first_attempt_files")
@@ -156,11 +178,142 @@ Options:
             with self.assertRaises(FileNotFoundError):
                 preserve(root)
 
+    def test_timeout_preservation_does_not_keep_partial_copies(self):
+        preserve = load_function(GUEST, "preserve_first_attempt_files")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "msfconsole-startup.stderr").write_text("original stderr\n")
+            (root / "msfconsole-startup.exit").write_text("124\n")
+            with self.assertRaises(FileNotFoundError):
+                preserve(root)
+            retained = list(root.glob("msfconsole-startup-first-attempt.*"))
+            self.assertEqual(retained, [])
+
+    def test_probe_classification_and_recovery_policy(self):
+        functions = load_functions(
+            GUEST,
+            [
+                "classify_probe_result",
+                "diagnostic_cleanup_blocks_retry",
+                "msfconsole_recovery_action",
+            ],
+        )
+        classify = functions["classify_probe_result"]
+        blocks = functions["diagnostic_cleanup_blocks_retry"]
+        action = functions["msfconsole_recovery_action"]
+
+        self.assertEqual(classify(True, "complete"), "timeout")
+        self.assertEqual(classify(True, "process_group_survived"), "cleanup_incomplete")
+        self.assertEqual(classify(True, "leader_reap_timeout"), "cleanup_incomplete")
+        self.assertEqual(classify(True, "output_drain_timeout"), "cleanup_incomplete")
+        self.assertEqual(classify(False, "not_needed"), "application")
+        self.assertEqual(classify(False, "complete"), "application")
+        self.assertEqual(classify(False, "process_group_survived"), "cleanup_incomplete")
+
+        # A diagnostic timeout whose process group was fully reaped does not
+        # block the single recovery retry. Incomplete diagnostic cleanup does.
+        self.assertFalse(blocks("complete"))
+        self.assertFalse(blocks("not_needed"))
+        self.assertTrue(blocks("process_group_survived"))
+        self.assertTrue(blocks("leader_reap_timeout"))
+        self.assertTrue(blocks("output_drain_timeout"))
+        self.assertEqual(action("124", True), "retry")
+        self.assertEqual(action("124", False), "skip_diagnostic_cleanup_incomplete")
+        self.assertEqual(action("125", True), "skip_initial_cleanup_incomplete")
+        self.assertEqual(action("1", True), "skip_not_confirmed_timeout")
+        self.assertEqual(action("", False), "skip_not_confirmed_timeout")
+
+    def _reap_group(self, proc):
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            proc.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+
+    def _process_group_members(self, pgid):
+        members = []
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                stat = Path(f"/proc/{entry}/stat").read_text(encoding="utf-8")
+            except OSError:
+                continue
+            marker = stat.rfind(")")
+            fields = stat[marker + 2:].split()
+            if len(fields) >= 3 and fields[2] == str(pgid):
+                members.append(entry)
+        return members
+
+    def test_stop_process_group_terminates_real_children(self):
+        functions = load_functions(
+            GUEST,
+            ["process_group_exists", "stop_process_group"],
+        )
+        functions["cleanup_details"].clear()
+        stop = functions["stop_process_group"]
+        exists = functions["process_group_exists"]
+        proc = subprocess.Popen(
+            ["bash", "-c", "sleep 60 & sleep 60 & wait"],
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            time.sleep(0.4)
+            pgid = os.getpgid(proc.pid)
+            self.assertGreaterEqual(len(self._process_group_members(pgid)), 3)
+            started = time.monotonic()
+            stop(proc)
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 8.0)
+            self.assertFalse(exists(pgid))
+            self.assertEqual(functions["cleanup_details"][proc.pid]["status"], "complete")
+            self.assertEqual(self._process_group_members(pgid), [])
+            with self.assertRaises(ProcessLookupError):
+                os.killpg(pgid, 0)
+        finally:
+            self._reap_group(proc)
+
+    def test_stop_process_group_kills_sigterm_resistant_leader(self):
+        functions = load_functions(
+            GUEST,
+            ["process_group_exists", "stop_process_group"],
+        )
+        functions["cleanup_details"].clear()
+        stop = functions["stop_process_group"]
+        proc = subprocess.Popen(
+            ["bash", "-c", "trap '' TERM; while true; do sleep 30; done"],
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            time.sleep(0.4)
+            self.assertIsNone(proc.poll())
+            started = time.monotonic()
+            stop(proc)
+            elapsed = time.monotonic() - started
+            self.assertGreaterEqual(elapsed, 1.0)
+            self.assertLess(elapsed, 8.0)
+            self.assertEqual(functions["cleanup_details"][proc.pid]["status"], "complete")
+            self.assertFalse(functions["process_group_exists"](proc.pid))
+            self.assertEqual(self._process_group_members(proc.pid), [])
+        finally:
+            self._reap_group(proc)
+
     def test_cleanup_failure_is_not_classified_as_retryable_timeout(self):
         guest = GUEST.read_text(encoding="utf-8")
         self.assertIn('if cleanup_status not in ("complete",):', guest)
         self.assertIn('results[label] = 125', guest)
-        self.assertIn('if diagnostics_clean:', guest)
+        self.assertIn('msfconsole_recovery_action(', guest)
         self.assertIn('reason=diagnostic_cleanup_incomplete', guest)
 
 

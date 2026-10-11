@@ -185,6 +185,21 @@ class ControlActionLifecycleTests(unittest.TestCase):
         self.assertIn("STDOUT (bounded preview)", rendered)
         self.assertIn("STDERR (bounded preview)", rendered)
 
+    def test_investigation_save_is_unavailable_and_does_not_stage_evidence(self):
+        app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
+        app.root = object()
+        app.job_output = "synthetic investigation output that must not be vaulted\n"
+        with mock.patch.object(self.mod.messagebox, "showinfo") as showinfo, \
+                mock.patch.object(self.mod, "capture") as capture, \
+                mock.patch.object(self.mod.Path, "write_text") as write_text, \
+                mock.patch.object(self.mod.Path, "mkdir") as mkdir:
+            app.save_investigation_output()
+        showinfo.assert_called_once()
+        self.assertIn("unavailable", showinfo.call_args.args[1].lower())
+        capture.assert_not_called()
+        write_text.assert_not_called()
+        mkdir.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

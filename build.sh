@@ -2,16 +2,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT"
-
-# Keep the bundled Blackbird lock in one authoritative source file.
-install -D config/third-party/blackbird-requirements.txt \
-  config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
-
-command -v lb >/dev/null 2>&1 || {
-  echo "live-build is required. Install it with: sudo apt install live-build"
-  exit 1
-}
 
 configure_live_build() {
   sudo lb config \
@@ -33,34 +23,75 @@ configure_live_build() {
     --bootappend-live "boot=live components username=traceos hostname=traceos console=ttyS0,115200n8"
 }
 
-echo "[TraceOS] Cleaning previous build state..."
-sudo lb clean --purge
+# Production commands. A test may override these after sourcing with
+# TRACEOS_BUILD_UNDER_TEST=1. The purge command must not hide failure.
+lb_clean_purge() {
+  sudo lb clean --purge
+}
 
-echo "[TraceOS] Configuring Debian live image..."
-configure_live_build
+lb_build_once() {
+  sudo lb build
+}
 
-echo "[TraceOS] Preparing executable build hooks..."
-sudo chmod +x config/hooks/live/*.hook.chroot 2>/dev/null || true
+lb_prepare_hooks() {
+  sudo chmod +x config/hooks/live/*.hook.chroot 2>/dev/null || true
+}
 
-echo "[TraceOS] Building ISO..."
+lb_retry_pause() {
+  sleep 5
+}
+
+prepare_live_build() {
+  echo "[TraceOS] Cleaning previous build state..."
+  lb_clean_purge
+  echo "[TraceOS] Configuring Debian live image..."
+  configure_live_build
+  echo "[TraceOS] Preparing executable build hooks..."
+  lb_prepare_hooks
+}
+
 # Debian mirrors can occasionally reset a large package download on CI.
 # Retries must not reuse stage markers from an incomplete build: a failed
 # package fetch can leave live-build claiming the kernel stage is complete
-# even though chroot/boot has no kernel image.
-for attempt in 1 2 3; do
-  if sudo lb build; then
-    break
-  fi
-  if [ "$attempt" -eq 3 ]; then
-    echo "[TraceOS] live-build failed after 3 attempts." >&2
-    exit 1
-  fi
-  echo "[TraceOS] live-build attempt $attempt failed; purging partial state before retry." >&2
-  sudo lb clean --purge || true
-  configure_live_build
-  sudo chmod +x config/hooks/live/*.hook.chroot 2>/dev/null || true
-  sleep 5
-done
+# even though chroot/boot has no kernel image. A failed purge stops the
+# retry instead of configuring over that partial state.
+run_live_build_attempts() {
+  local attempt
+  for attempt in 1 2 3; do
+    if lb_build_once; then
+      return 0
+    fi
+    if [ "$attempt" -eq 3 ]; then
+      echo "[TraceOS] live-build failed after 3 attempts." >&2
+      return 1
+    fi
+    echo "[TraceOS] live-build attempt $attempt failed; purging partial state before retry." >&2
+    lb_clean_purge
+    configure_live_build
+    lb_prepare_hooks
+    lb_retry_pause
+  done
+}
+
+if [[ "${TRACEOS_BUILD_UNDER_TEST:-0}" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+cd "$ROOT"
+
+# Keep the bundled Blackbird lock in one authoritative source file.
+install -D config/third-party/blackbird-requirements.txt \
+  config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
+
+command -v lb >/dev/null 2>&1 || {
+  echo "live-build is required. Install it with: sudo apt install live-build"
+  exit 1
+}
+
+prepare_live_build
+
+echo "[TraceOS] Building ISO..."
+run_live_build_attempts
 
 echo "[TraceOS] Build complete."
 ls -lh live-image-amd64.hybrid.iso
