@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -348,13 +350,166 @@ class CaseStoreTests(unittest.TestCase):
             self.assertEqual(cli.add_evidence(str(source)), 1)
 
         ledger = self.store.current().path / "hashes" / "evidence.tsv"
-        self.assertGreater(len(ledger.read_bytes()), len(
+        header = (
             b"timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n"
-        ))
+        )
+        self.assertEqual(ledger.read_bytes(), header)
+        self.assertEqual(cli.verify_evidence(), 0)
         self.assertEqual(
             list((self.store.current().path / "evidence").iterdir()),
             [],
         )
+
+    def test_report_and_timeline_reject_headerless_ledger(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_headerless_ledger_test")
+        record = self.store.create("Headerless Ledger")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        ledger.write_text("2026-10-10T12:00:00Z\tsource\tvault\n", encoding="utf-8")
+        reports = record.path / "reports"
+        before = list(reports.iterdir())
+        self.assertEqual(cli.report(), 1)
+        self.assertEqual(cli.timeline(), 1)
+        self.assertEqual(list(reports.iterdir()), before)
+
+    def test_report_and_timeline_reject_malformed_ledger_row(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_malformed_ledger_test")
+        record = self.store.create("Malformed Ledger")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        ledger.write_text(
+            "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n"
+            "2026-10-10T12:00:00Z\ttoo-few-fields\n",
+            encoding="utf-8",
+        )
+        reports = record.path / "reports"
+        before = list(reports.iterdir())
+        self.assertEqual(cli.report(), 1)
+        self.assertEqual(cli.timeline(), 1)
+        self.assertEqual(list(reports.iterdir()), before)
+
+    def test_header_only_ledger_is_valid_and_produces_empty_report(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_header_only_ledger_test")
+        record = self.store.create("Header Only Ledger")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        ledger.write_text(
+            "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(cli.report(), 0)
+        self.assertEqual(cli.timeline(), 0)
+        reports = list((record.path / "reports").glob("TraceOS-report-*.md"))
+        self.assertEqual(len(reports), 1)
+        self.assertIn("## Evidence", reports[0].read_text(encoding="utf-8"))
+
+    def _synthetic_ledger_line(self, vault_path: Path) -> str:
+        return (
+            "2026-10-11T00:00:00Z\t/tmp/synthetic-source.txt\t"
+            f"{vault_path}\t{'ab' * 32}\t4\ttext/plain\n"
+        )
+
+    def _write_ledger(self, record, body: str) -> None:
+        ledger = record.path / "hashes" / "evidence.tsv"
+        header = "timestamp_utc\tsource\tvault_copy\tsha256\tsize_bytes\tmime\n"
+        ledger.write_text(header + body, encoding="utf-8")
+
+    def test_tab_delimited_ledger_is_accepted_by_report_timeline_and_list(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_tab_ledger_test")
+        record = self.store.create("Tab Ledger")
+        vault = record.path / "evidence" / "synthetic-vault.txt"
+        self._write_ledger(record, self._synthetic_ledger_line(vault))
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            report_code = cli.report()
+            timeline_code = cli.timeline()
+            list_code = cli.list_evidence()
+        self.assertEqual(report_code, 0, stderr.getvalue())
+        self.assertEqual(timeline_code, 0, stderr.getvalue())
+        self.assertIsNone(list_code, stderr.getvalue())
+        rendered = stdout.getvalue()
+        self.assertIn("synthetic-vault.txt", rendered)
+        reports = list((record.path / "reports").glob("TraceOS-report-*.md"))
+        self.assertEqual(len(reports), 1)
+        report_text = reports[0].read_text(encoding="utf-8")
+        self.assertIn("synthetic-vault.txt", report_text)
+        self.assertIn("ab" * 32, report_text)
+
+    def test_timeline_rejects_cross_case_nested_and_missing_nonlegacy_ledger(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_timeline_ownership_test")
+        record = self.store.create("Timeline Ownership")
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            self._write_ledger(
+                record,
+                self._synthetic_ledger_line(self.home / "outside-vault.txt"),
+            )
+            self.assertEqual(cli.timeline(), 1)
+            self.assertEqual(cli.report(), 1)
+            self._write_ledger(
+                record,
+                self._synthetic_ledger_line(
+                    record.path / "evidence" / "nested" / "file.txt"
+                ),
+            )
+            self.assertEqual(cli.timeline(), 1)
+        self.assertIn("outside this case", stderr.getvalue())
+        self.assertEqual(
+            list((record.path / "reports").glob("TraceOS-report-*.md")),
+            [],
+        )
+        (record.path / "hashes" / "evidence.tsv").unlink()
+        self.assertEqual(cli.timeline(), 1)
+        self.assertEqual(cli.report(), 1)
+
+    def test_legacy_timeline_allows_missing_ledger_and_rejects_foreign_rows(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_legacy_timeline_test")
+        legacy = self.store.cases_root / "legacy-timeline"
+        for name in ("evidence", "working", "exports", "reports", "hashes"):
+            (legacy / name).mkdir(parents=True)
+        (legacy / "CASE.md").write_text("# Legacy Timeline\n", encoding="utf-8")
+        self.store.select(legacy)
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(cli.timeline(), 0)
+        self.assertIn("No timeline events recorded.", stdout.getvalue())
+
+        current = self.store.current()
+        self.assertIsNotNone(current)
+        self._write_ledger(
+            current,
+            self._synthetic_ledger_line(self.home / "legacy-foreign.txt"),
+        )
+        self.assertEqual(cli.timeline(), 1)
+
+        vault = legacy / "evidence" / "legacy-vault.txt"
+        self._write_ledger(current, self._synthetic_ledger_line(vault))
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(cli.timeline(), 0)
+        self.assertIn("legacy-vault.txt", stdout.getvalue())
+        self.assertNotIn("legacy-foreign.txt", stdout.getvalue())
+
+    def test_report_does_not_follow_existing_symlink(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_report_symlink_test")
+        record = self.store.create("Report Symlink")
+        stamp = "20300101T000000Z"
+        reports = record.path / "reports"
+        outside = self.home / "outside-report.md"
+        sentinel = "outside report must remain untouched\n"
+        outside.write_text(sentinel, encoding="utf-8")
+        symlink = reports / f"TraceOS-report-{stamp}.md"
+        symlink.symlink_to(outside)
+
+        with mock.patch.object(cli, "_report_stamp", return_value=stamp):
+            self.assertEqual(cli.report(), 0)
+
+        self.assertTrue(symlink.is_symlink())
+        self.assertEqual(outside.read_text(encoding="utf-8"), sentinel)
+        published = reports / f"TraceOS-report-{stamp}-2.md"
+        self.assertTrue(published.is_file())
+        self.assertFalse(published.is_symlink())
+        self.assertIn("# TraceOS Investigation Report", published.read_text(encoding="utf-8"))
+        self.assertEqual(published.stat().st_mode & 0o777, 0o600)
 
     def test_verify_evidence_accepts_real_vault_copy_and_detects_tampering(self):
         cli = self._load_cli_for_evidence_test("traceos_cli_verify_test")

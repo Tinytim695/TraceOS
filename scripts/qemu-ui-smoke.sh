@@ -23,21 +23,73 @@ extract_boot_config() {
     fi
 }
 
-# Validate the actual bootloader payloads inside the ISO before spending five
-# minutes on the graphical boot. The BIOS El Torito path is the path used by
-# QEMU below, so it must carry the same live username as the GRUB path.
-extract_boot_config /isolinux/isolinux.cfg "$OUT/traceos-generated-isolinux.cfg"
-extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg" || true
+# Validate generated bootloader payloads. Parser-fixture mode never reaches
+# these calls, so it does not need an ISO. Extraction failures are not ignored
+# on the real graphical path: both configs must come out of the ISO.
+assert_generated_grub() {
+    local grub_cfg="$1"
+    local failsafe_block linux_line initrd_line first_entry default_line
+    local line path boot_text
 
-if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-isolinux.cfg"; then
-    echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
-    exit 1
-fi
+    if [[ ! -s "$grub_cfg" ]]; then
+        echo "[TraceOS] Generated GRUB config is missing or empty." >&2
+        return 1
+    fi
+    if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$grub_cfg"; then
+        echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
+        return 1
+    fi
+    if grep -Eq '@(KERNEL_LIVE|INITRD_LIVE|APPEND_LIVE(_FAILSAFE)?)@' "$grub_cfg"; then
+        echo "[TraceOS] Generated GRUB config contains unresolved live-build placeholders." >&2
+        return 1
+    fi
 
-if [ -s "$OUT/traceos-generated-grub.cfg" ] && ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-grub.cfg"; then
-    echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
-    exit 1
-fi
+    failsafe_block="$(awk '
+        $0 ~ /^menuentry "TraceOS Failsafe \(Amnesic\)"/ { capture = 1 }
+        capture { print }
+        capture && /^}/ { exit }
+    ' "$grub_cfg")"
+    linux_line="$(printf '%s\n' "$failsafe_block" | grep -E '^[[:space:]]*linux[[:space:]]' | head -n 1 || true)"
+    initrd_line="$(printf '%s\n' "$failsafe_block" | grep -E '^[[:space:]]*initrd[[:space:]]' | head -n 1 || true)"
+    if [[ -z "$linux_line" || -z "$initrd_line" ]]; then
+        echo "[TraceOS] Generated GRUB failsafe entry is missing resolved paths or expected arguments." >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$linux_line" | grep -Eq '(^|[[:space:]])nopersistence([[:space:]]|$)'; then
+        echo "[TraceOS] Generated GRUB failsafe entry is missing resolved paths or expected arguments." >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$linux_line" | grep -Eq '(^|[[:space:]])nomodeset([[:space:]]|$)'; then
+        echo "[TraceOS] Generated GRUB failsafe entry is missing resolved paths or expected arguments." >&2
+        return 1
+    fi
+
+    boot_text="$(grep -E '^[[:space:]]*(linux|initrd)[[:space:]]+' "$grub_cfg" || true)"
+    if [[ -z "$boot_text" ]]; then
+        echo "[TraceOS] Generated GRUB config has an unresolved kernel or initrd path." >&2
+        return 1
+    fi
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        path="$(printf '%s\n' "$line" | awk '{ print $2 }')"
+        case "$path" in
+            /live/*) ;;
+            *)
+                echo "[TraceOS] Generated GRUB config has an unresolved kernel or initrd path." >&2
+                return 1
+                ;;
+        esac
+    done <<EOF
+$boot_text
+EOF
+
+    default_line="$(grep -E '^set default=' "$grub_cfg" | tail -n 1 || true)"
+    first_entry="$(grep -E '^menuentry ' "$grub_cfg" | head -n 1 || true)"
+    if [[ "$default_line" != "set default=0" ]] || [[ "$first_entry" != 'menuentry "TraceOS Amnesic (no persistent storage)" {' ]]; then
+        echo "[TraceOS] Generated GRUB default selection could not be verified." >&2
+        return 1
+    fi
+}
 
 
 cleanup() {
@@ -322,9 +374,88 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     [[ "$(extract_field "$matching_cr" case_id)" == "$test_case_id" ]]
     [[ "$(extract_field "$matching_cr" id_prefix)" == "01234567" ]]
 
+    # Synthetic generated GRUB configs. These do not require an ISO and must
+    # reject unresolved placeholders, a bad failsafe entry, unresolved
+    # kernel/initrd paths, and a default that is not the amnesic menu.
+    fixture_dir="$(mktemp -d)"
+    trap 'rm -rf "$fixture_dir"; cleanup' EXIT
+    valid_grub="$fixture_dir/valid.cfg"
+    cat >"$valid_grub" <<'EOF'
+set timeout=8
+set default=0
+source /boot/grub/config.cfg
+
+menuentry "TraceOS Amnesic (no persistent storage)" {
+    linux /live/vmlinuz boot=live components username=traceos hostname=traceos nopersistence splash
+    initrd /live/initrd.img
+}
+
+menuentry "TraceOS Persistent" {
+    linux /live/vmlinuz boot=live components username=traceos hostname=traceos persistence splash
+    initrd /live/initrd.img
+}
+
+menuentry "TraceOS Failsafe (Amnesic)" {
+    linux /live/vmlinuz boot=live components username=traceos hostname=traceos nomodeset nopersistence
+    initrd /live/initrd.img
+}
+EOF
+    assert_generated_grub "$valid_grub"
+
+    reject_grub() {
+        local label="$1"
+        local cfg="$2"
+        if assert_generated_grub "$cfg" 2>/dev/null; then
+            echo "[TraceOS] GRUB fixture unexpectedly accepted: $label" >&2
+            exit 1
+        fi
+    }
+
+    cp "$valid_grub" "$fixture_dir/placeholder.cfg"
+    printf '\nlinux @KERNEL_LIVE@ @APPEND_LIVE_FAILSAFE@ nopersistence\ninitrd @INITRD_LIVE@\n' >>"$fixture_dir/placeholder.cfg"
+    reject_grub "unresolved placeholders" "$fixture_dir/placeholder.cfg"
+
+    sed 's/nomodeset nopersistence/nopersistence/' "$valid_grub" >"$fixture_dir/no-nomodeset.cfg"
+    reject_grub "failsafe missing nomodeset" "$fixture_dir/no-nomodeset.cfg"
+
+    sed 's#nomodeset nopersistence#nomodeset persistence#' "$valid_grub" >"$fixture_dir/no-nopersistence.cfg"
+    reject_grub "failsafe missing nopersistence" "$fixture_dir/no-nopersistence.cfg"
+
+    sed 's#linux /live/vmlinuz boot=live components username=traceos hostname=traceos nomodeset#linux vmlinuz boot=live components username=traceos hostname=traceos nomodeset#' \
+        "$valid_grub" >"$fixture_dir/bad-kernel.cfg"
+    reject_grub "unresolved failsafe kernel" "$fixture_dir/bad-kernel.cfg"
+
+    sed 's#initrd /live/initrd.img#initrd /boot/initrd.img#' "$valid_grub" >"$fixture_dir/bad-initrd.cfg"
+    reject_grub "unresolved initrd" "$fixture_dir/bad-initrd.cfg"
+
+    sed 's/^set default=0$/set default=1/' "$valid_grub" >"$fixture_dir/bad-default.cfg"
+    reject_grub "default is not amnesic" "$fixture_dir/bad-default.cfg"
+
+    sed '0,/menuentry "TraceOS Amnesic (no persistent storage)"/s//menuentry "TraceOS Persistent"/' \
+        "$valid_grub" >"$fixture_dir/reordered.cfg"
+    reject_grub "first menuentry is not amnesic" "$fixture_dir/reordered.cfg"
+
+    sed 's/username=traceos //g' "$valid_grub" >"$fixture_dir/no-user.cfg"
+    reject_grub "missing username" "$fixture_dir/no-user.cfg"
+
+    rm -rf "$fixture_dir"
     echo "[TraceOS] QEMU GUI parser fixtures: PASS"
     exit 0
 fi
+
+# Validate the actual bootloader payloads inside the ISO before spending five
+# minutes on the graphical boot. The BIOS El Torito path is the path used by
+# QEMU below, so it must carry the same live username as the GRUB path.
+# Do not ignore extraction failure: a missing GRUB or ISOLINUX payload is a
+# failed smoke test, not a warning.
+extract_boot_config /isolinux/isolinux.cfg "$OUT/traceos-generated-isolinux.cfg"
+extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg"
+
+if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-isolinux.cfg"; then
+    echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
+    exit 1
+fi
+assert_generated_grub "$OUT/traceos-generated-grub.cfg"
 
 
 # First prove the real desktop renders. Keep the same guest alive for one
