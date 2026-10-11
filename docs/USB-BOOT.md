@@ -67,7 +67,7 @@ Expected session result:
 TraceOS session: amnesic (no persistent storage)
 ```
 
-Then check the Control Centre, Terminal, Files, Network, Investigation Centre, Web Testing, Image OSINT, and the evidence-handling helpers. Use only synthetic data and targets you own or are explicitly authorized to test.
+Then check the Control Centre, Terminal, Files, Network, Investigation Centre, Web Testing, Assessment, Defence, Image OSINT, and the evidence-handling helpers. Use only synthetic data and targets you own or are explicitly authorized to test.
 
 ## Important forensic note
 
