@@ -61,13 +61,6 @@ whois
 net-tools
 openssh-client
 nmap
-whatweb
-nikto
-gobuster
-dirb
-sqlmap
-gnupg
-default-jre
 pciutils
 usbutils
 
@@ -110,6 +103,7 @@ suricata-update
 # Authorized web assessment / Red Team foundations
 ffuf
 gobuster
+dirb
 sqlmap
 whatweb
 wafw00f

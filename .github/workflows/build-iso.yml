@@ -141,7 +141,7 @@ jobs:
           tesseract|--version
           EOF
 
-          if zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap.sh -cmd -silent -version 2>&1)"; then
+          if zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap -version 2>&1)"; then
             printf '%s\n' "$zap_version"
             printf '%s' "$zap_version" | grep -Fq '2.17.0'
             echo "WORKSTATION_TOOL_zap_version=PASS (2.17.0)"

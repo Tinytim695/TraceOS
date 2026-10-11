@@ -1169,7 +1169,8 @@ class CaseStoreTests(unittest.TestCase):
         source = control.read_text(encoding="utf-8")
         self.assertIn("if not authorized.get():", source)
         self.assertIn("if name in WEB_ACTIVE_TESTS and not messagebox.askyesno(", source)
-        self.assertIn('webbrowser.open("https://lens.google.com/")', source)
+        self.assertIn("webbrowser.open(address, new=2)", source)
+        self.assertIn("https://lens.google.com/upload", source)
         self.assertIn("External browser handoff", source)
 
         for name, target in (

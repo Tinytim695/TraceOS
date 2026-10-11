@@ -1669,19 +1669,31 @@ class TraceOSApp:
             if selected == "No image selected":
                 messagebox.showwarning("Image OSINT", "Choose an image first.", parent=self.root)
                 return
+            chosen = site.get()
+            address = REVERSE_IMAGE_SITES.get(chosen)
+            if not address:
+                messagebox.showerror("Image OSINT", "Choose a reverse-image site first.", parent=self.root)
+                return
             if not messagebox.askyesno(
                 "External browser handoff",
-                "Open an external reverse-image search site? TraceOS will not upload or submit this image.",
+                f"Open {chosen}? TraceOS will not upload or submit this image. You choose and submit it on that site.",
                 parent=self.root,
             ):
                 self._trace_diag("IMAGE_BROWSER_HANDOFF_CANCELLED")
                 return
             try:
-                webbrowser.open("https://lens.google.com/")
+                opened = webbrowser.open(address, new=2)
                 self._trace_diag("IMAGE_BROWSER_HANDOFF_OPENED", attempt=image_attempt)
             except Exception as exc:
                 self._trace_diag("IMAGE_BROWSER_HANDOFF_FAILED", exc_type=type(exc).__name__)
                 messagebox.showerror("Image OSINT", f"Unable to open browser: {exc}", parent=self.root)
+                return
+            if not opened:
+                messagebox.showerror(
+                    "Image OSINT",
+                    "TraceOS could not open a browser. Check Firefox in System Doctor.",
+                    parent=self.root,
+                )
 
         def start_image() -> None:
             selected = source_var.get()
@@ -1699,6 +1711,14 @@ class TraceOSApp:
             self.run_job([TRACE, "image", str(path)], "Local image analysis", kind="image", attempt=image_attempt)
 
         self.action_button(bar, "CHOOSE IMAGE", choose_image).pack(side="left")
+        site = ttk.Combobox(
+            bar,
+            state="readonly",
+            values=tuple(REVERSE_IMAGE_SITES),
+            width=22,
+        )
+        site.current(0)
+        site.pack(side="left", padx=(8, 0))
         self.action_button(controls, "USE PATH", use_image_path).grid(row=3, column=2, sticky="e", padx=15, pady=(0, 12))
 
         def handle_image_return(_event: tk.Event) -> str:

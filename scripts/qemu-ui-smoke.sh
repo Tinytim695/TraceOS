@@ -508,7 +508,7 @@ capture_workspace_page() {
 }
 
 capture_workspace_page web-testing w WEB_TESTING_PAGE_RENDERED WEB_TESTING
-capture_workspace_page image-osint i IMAGE_OSINT_PAGE_RENDERED IMAGE_OSINT
+capture_workspace_page image-osint i image-osint-page-rendered IMAGE_OSINT
 cat "$workspace_matrix"
 
 # Diagnostic-only New Case GUI interaction. This uses the normal visible Control Centre
