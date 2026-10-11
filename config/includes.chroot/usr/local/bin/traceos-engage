@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Run one authorized TraceOS engagement playbook."""
+from __future__ import annotations
+
+import os
+import shlex
+import subprocess
+import sys
+
+TRACEOS_LIB = "/usr/local/lib/traceos"
+if TRACEOS_LIB not in sys.path:
+    sys.path.insert(0, TRACEOS_LIB)
+
+from engagement import CANARY_NAME, CANARY_TEXT, build_playbook, list_playbooks
+from traceos_case import CaseError, CaseStore
+
+STORE = CaseStore()
+PURPLE = "/usr/local/bin/traceos-purple"
+
+
+def die(message: str) -> None:
+    print(f"[TraceOS] {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def usage() -> None:
+    print(
+        """TraceOS engagement
+Usage:
+  traceos-engage list
+  traceos-engage show PLAYBOOK [TARGET] [SERVICE USERS PASSWORDS]
+  traceos-engage run PLAYBOOK [TARGET] [SERVICE USERS PASSWORDS]
+  traceos-engage canary
+
+run requires TRACEOS_ENGAGE_AUTHORIZED=1 and an active case.
+No playbook performs denial of service.
+"""
+    )
+
+
+def _print_steps(steps: list[dict]) -> None:
+    if not steps:
+        die("Engagement produced no steps.")
+    first = steps[0]
+    print(f"[TraceOS] {first['team']} / {first['title']}")
+    print(f"[TraceOS] Technique {first['technique']}")
+    print(f"[TraceOS] Expected detection: {first['expected']}")
+    for number, step in enumerate(steps, start=1):
+        rendered = " ".join(shlex.quote(part) for part in step["argv"])
+        print(f"{number}. {step['name']} ({step['timeout']}s)")
+        print(f"   {rendered}")
+
+
+def _plan(steps: list[dict], target: str) -> None:
+    first = steps[0]
+    subprocess.run(
+        [
+            sys.executable,
+            PURPLE,
+            "plan",
+            first["technique"],
+            target or "local",
+            first["expected"],
+        ],
+        check=True,
+    )
+
+
+def _run_steps(steps: list[dict], preserve_last: bool = False) -> int:
+    last = 0
+    for step in steps:
+        print(f"[TraceOS] START {step['name']}")
+        try:
+            completed = subprocess.run(
+                step["argv"],
+                timeout=step["timeout"],
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"[TraceOS] TIMEOUT {step['name']}", file=sys.stderr)
+            return 124
+        except OSError as exc:
+            print(f"[TraceOS] FAILED {step['name']}: {exc}", file=sys.stderr)
+            return 127
+        last = completed.returncode
+        print(f"[TraceOS] EXIT {step['name']} {last}")
+        if last < 0 or last >= 126:
+            return last
+    return last if preserve_last else 0
+
+
+def _write_canary() -> str:
+    try:
+        case = STORE.current()
+    except CaseError as exc:
+        die(f"Cannot determine active case: {exc}")
+    if case is None:
+        die("No active case. Create or select a case first.")
+    try:
+        notes_fd = STORE.open_required_dir(case.path, "notes")
+    except CaseError as exc:
+        die(f"Cannot open case notes: {exc}")
+    fd = None
+    try:
+        fd = os.open(
+            CANARY_NAME,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=notes_fd,
+        )
+        os.write(fd, CANARY_TEXT.encode("utf-8"))
+        os.fsync(fd)
+    except OSError as exc:
+        die(f"Cannot write the purple canary: {exc}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(notes_fd)
+    return str(case.path / "notes" / CANARY_NAME)
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] in {"-h", "--help", "help"}:
+        usage()
+        return 0
+    action = argv[1]
+    if action == "list":
+        for item in list_playbooks():
+            print(f"{item['id']}\t{item['team']}\t{item['title']}")
+        return 0
+    if action == "canary":
+        if os.environ.get("TRACEOS_ENGAGE_AUTHORIZED") != "1":
+            die("Set TRACEOS_ENGAGE_AUTHORIZED=1 after confirming this local detection test.")
+        canary = _write_canary()
+        steps = build_playbook("purple-canary", canary_path=canary)
+        _print_steps(steps)
+        _plan(steps, "case-local-canary")
+        status = _run_steps(steps, preserve_last=True)
+        if status == 0:
+            outcome = "detected"
+        elif status == 1:
+            outcome = "missed"
+        else:
+            return status
+        subprocess.run(
+            [sys.executable, PURPLE, "result", "canary", outcome, "YARA canary scan"],
+            check=False,
+        )
+        return 0 if outcome == "detected" else 1
+    if action not in {"show", "run"} or len(argv) < 3:
+        die("Invalid arguments. Use --help.")
+    playbook_id = argv[2]
+    target = argv[3] if len(argv) > 3 else ""
+    service = argv[4] if len(argv) > 4 else "ssh"
+    users = argv[5] if len(argv) > 5 else ""
+    passwords = argv[6] if len(argv) > 6 else ""
+    try:
+        steps = build_playbook(playbook_id, target, users, passwords, service)
+    except ValueError as exc:
+        die(str(exc))
+    _print_steps(steps)
+    if action == "show":
+        return 0
+    if os.environ.get("TRACEOS_ENGAGE_AUTHORIZED") != "1":
+        die("Refusing to run. Confirm authorization in Control Centre first.")
+    try:
+        _plan(steps, target or "local")
+    except subprocess.CalledProcessError:
+        die("Purple plan was not recorded. Select a case, then run the engagement again.")
+    return _run_steps(steps)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

@@ -140,8 +140,21 @@ libpq-dev
 libpcap-dev
 default-libmysqlclient-dev
 
-# Block 6A runtime/build dependencies
-ruby
+# Enterprise assessment clients that stay inside normal protocols.
+# No flood, reflector, or denial-of-service packages.
+testssl.sh
+sslscan
+hydra
+nbtscan
+onesixtyone
+ike-scan
+
+# Blue Team host audit
+lynis
+rkhunter
+chkrootkit
+auditd
+
 ruby-dev
 bundler
 build-essential

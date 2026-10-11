@@ -303,6 +303,10 @@ ASSESSMENT_TOOL_SPECS = {
     "Naabu Port Discovery": {"command": "naabu", "mode": "host", "ui": "job", "argv": ["-host", "{target}", "-top-ports", "100"]},
     "NetExec SMB": {"command": "nxc", "mode": "host", "ui": "job", "argv": ["smb", "{target}"]},
     "enum4linux-ng": {"command": "enum4linux-ng", "mode": "host", "ui": "job", "argv": ["{target}"]},
+    "NBTscan": {"command": "nbtscan", "mode": "host", "ui": "job", "argv": ["{target}"]},
+    "TLS testssl": {"command": "testssl.sh", "mode": "url", "ui": "job", "argv": ["--quiet", "--color", "0", "{target}"]},
+    "SSLScan": {"command": "sslscan", "mode": "url", "ui": "job", "argv": ["{target}"]},
+    "IKE-scan": {"command": "ike-scan", "mode": "host", "ui": "job", "argv": ["{target}"]},
     "Impacket AS-REP": {"command": "GetNPUsers.py", "mode": "identity", "ui": "terminal", "argv": ["{target}", "-no-pass"]},
     "Impacket Kerberoast": {"command": "GetUserSPNs.py", "mode": "identity", "ui": "terminal", "argv": ["{target}"]},
     "Impacket AD Users": {"command": "GetADUsers.py", "mode": "identity", "ui": "terminal", "argv": ["{target}", "-all"]},
@@ -313,6 +317,10 @@ ASSESSMENT_TOOL_SPECS = {
     "John Console": {"command": "john", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "john; exec bash"], "replace": True},
 }
 DEFENCE_TOOL_SPECS = {
+    "auditd status": {"command": "auditctl", "mode": "local", "ui": "job", "argv": ["-s"]},
+    "Lynis Quick Audit": {"command": "lynis", "mode": "local", "ui": "job", "argv": ["audit", "system", "--quick", "--no-colors"]},
+    "Rootkit Hunter": {"command": "rkhunter", "mode": "local", "ui": "job", "argv": ["--check", "--sk", "--nocolors", "--rwo"]},
+    "chkrootkit": {"command": "chkrootkit", "mode": "local", "ui": "job", "argv": ["-q"]},
     "Wireshark": {"command": "wireshark", "mode": "launch", "ui": "gui", "argv": []},
     "tcpdump Sample": {"command": "tcpdump", "mode": "local", "ui": "job", "argv": ["-i", "any", "-c", "50", "-n"]},
     "tshark Sample": {"command": "tshark", "mode": "local", "ui": "job", "argv": ["-i", "any", "-c", "50", "-n"]},
@@ -528,6 +536,7 @@ class TraceOSApp:
             "network": self.network,
             "web": self.web_testing,
             "assessment": self.assessment,
+            "engagement": self.engagement,
             "osint": self.osint,
             "defence": self.defence,
             "images": self.image_osint,
@@ -779,6 +788,7 @@ class TraceOSApp:
             ("⌁  Network", self.network),
             ("⌑  Web Testing", self.web_testing),
             ("⌖  Assessment", self.assessment),
+            ("⚔  Engagement", self.engagement),
             ("◎  Investigation Centre", self.osint),
             ("◈  Defence", self.defence),
             ("▧  Image OSINT", self.image_osint),
@@ -1284,6 +1294,7 @@ class TraceOSApp:
             ("→  Network Command Centre", self.network),
             ("→  Web Testing", self.web_testing),
             ("→  Assessment", self.assessment),
+            ("→  Engagement", self.engagement),
             ("→  OSINT Centre", self.osint),
             ("→  Defence", self.defence),
             ("→  Image OSINT", self.image_osint),
@@ -2139,6 +2150,172 @@ class TraceOSApp:
             self.run_job(args, name)
 
         self.action_button(bar, "START", start_catalogue, primary=True).pack(side="right")
+
+    def engagement(self) -> None:
+        from engagement import PLAYBOOKS, build_playbook
+
+        self.heading(
+            "RED / BLUE / PURPLE",
+            "Engagement",
+            "A full scoped exercise. Red checks attack only the target you enter. Blue checks this machine. Purple records what should have been detected.",
+        )
+        notice = self.card(self.content, padx=28, pady=7)
+        tk.Label(
+            notice, text="NO DENIAL-OF-SERVICE TOOLING",
+            bg=CARD, fg=WARN, font=("Sans", 9, "bold")
+        ).pack(anchor="w", padx=15, pady=(10, 1))
+        tk.Label(
+            notice,
+            text="Nuclei excludes dos, fuzz and intrusive tags. Credential audits are four attempts at one service and need your own account and password files. Select a case first so the exercise is written to the purple ledger.",
+            bg=CARD, fg=MUTED, wraplength=820, justify="left", font=("Sans", 9)
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        controls = self.card(self.content, padx=22, pady=8)
+        labels = [f"{spec['team']}  {spec['title']}" for spec in PLAYBOOKS.values()]
+        ids = list(PLAYBOOKS)
+        tk.Label(controls, text="ENGAGEMENT", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(10, 4)
+        )
+        choice = ttk.Combobox(controls, state="readonly", values=tuple(labels), style="Trace.TCombobox")
+        choice.current(0)
+        choice.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+        target_label = tk.Label(controls, text="AUTHORIZED TARGET", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
+        target = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
+        tk.Label(controls, text="SERVICE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=2, column=0, sticky="w", padx=12, pady=(0, 4)
+        )
+        service = ttk.Combobox(
+            controls, state="readonly",
+            values=("ssh", "ftp", "smb", "rdp", "http-get", "https-get", "ldap2", "mssql"),
+            style="Trace.TCombobox",
+        )
+        service.current(0)
+        service.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 10))
+        tk.Label(controls, text="USERS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=2, column=1, sticky="w", padx=8, pady=(0, 4)
+        )
+        users = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        users.grid(row=3, column=1, sticky="ew", padx=8, pady=(0, 10))
+        tk.Label(controls, text="PASSWORDS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=4, column=0, sticky="w", padx=12, pady=(0, 4)
+        )
+        passwords = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        passwords.grid(row=5, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
+        controls.grid_columnconfigure(0, weight=2)
+        controls.grid_columnconfigure(1, weight=4)
+        detail = tk.Label(self.content, text="", bg=BG, fg=MUTED, justify="left", font=("Sans", 8), wraplength=860)
+        detail.pack(anchor="w", padx=30, pady=(0, 6))
+
+        def selected_id() -> str:
+            return ids[labels.index(choice.get())]
+
+        def refresh_detail(_event=None) -> None:
+            spec = PLAYBOOKS[selected_id()]
+            names = ", ".join(step["name"] for step in spec["steps"])
+            detail.configure(
+                text=f"{spec['technique']}  •  {spec['expected']}\nSteps: {names}"
+            )
+            local = spec["mode"] == "local"
+            target.configure(state="disabled" if local else "normal")
+            auth = spec["mode"] == "auth"
+            service.configure(state="readonly" if auth else "disabled")
+            users.configure(state="normal" if auth else "disabled")
+            passwords.configure(state="normal" if auth else "disabled")
+            target_label.configure(text="NO TARGET" if local else "AUTHORIZED TARGET")
+
+        choice.bind("<<ComboboxSelected>>", refresh_detail)
+        refresh_detail()
+        authorized = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            controls,
+            text="I own this target or have written authorization for this engagement.",
+            variable=authorized, bg=CARD, fg=WARN, activebackground=CARD,
+            activeforeground=WARN, selectcolor=BG2, font=("Sans", 9, "bold"),
+        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
+        output_panel = self.card(self.content, padx=22, pady=8, expand=True)
+        self.set_output(output_panel, height=12)
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 14))
+        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
+
+        def start_engagement() -> None:
+            playbook_id = selected_id()
+            if playbook_id == "purple-canary":
+                shown = "Write notes/purple-canary.txt in the active case, scan it with the bundled YARA rule, and record detected or missed."
+                title = "Purple detection canary"
+            else:
+                try:
+                    steps = build_playbook(
+                        playbook_id,
+                        target.get(),
+                        users.get(),
+                        passwords.get(),
+                        service.get() or "ssh",
+                    )
+                except ValueError as exc:
+                    messagebox.showerror("Engagement", str(exc), parent=self.root)
+                    return
+                title = steps[0]["title"]
+                shown = "\n".join(
+                    " ".join(shlex.quote(part) for part in step["argv"]) for step in steps
+                )
+            if not authorized.get():
+                messagebox.showwarning(
+                    "Authorization required",
+                    "Confirm written authorization before this engagement starts.",
+                    parent=self.root,
+                )
+                return
+            shown = "\n".join(
+                " ".join(shlex.quote(part) for part in step["argv"]) for step in steps
+            )
+            if not messagebox.askyesno(
+                "Confirm engagement",
+                f"{title} will run these commands and record a purple exercise.\n\n{shown}",
+                parent=self.root,
+            ):
+                return
+            env = os.environ.copy()
+            env["TRACEOS_ENGAGE_AUTHORIZED"] = "1"
+            args = [
+                sys.executable,
+                "/usr/local/bin/traceos-engage",
+                "canary" if playbook_id == "purple-canary" else "run",
+                *([] if playbook_id == "purple-canary" else [
+                    playbook_id,
+                    target.get().strip(),
+                    service.get() or "ssh",
+                    users.get().strip(),
+                    passwords.get().strip(),
+                ]),
+            ]
+            if self.active_process and self.active_process.poll() is None:
+                messagebox.showinfo("TraceOS", "A task is already running. Stop it before starting another.", parent=self.root)
+                return
+            self.active_job_label = title
+            self.job_output = f"[TraceOS] Starting engagement: {title}\n\n"
+            if self.output_widget:
+                self.set_text(self.output_widget, self.job_output)
+            try:
+                self.active_process = subprocess.Popen(
+                    args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, env=env,
+                )
+            except OSError as exc:
+                messagebox.showerror("Engagement", str(exc), parent=self.root)
+                return
+            threading.Thread(target=self._read_active_output, daemon=True).start()
+            self.root.after(80, self.poll_job)
+
+        self.action_button(bar, "RUN ENGAGEMENT", start_engagement, primary=True).pack(side="right")
+
+    def _read_active_output(self) -> None:
+        if self.active_process and self.active_process.stdout:
+            for line in self.active_process.stdout:
+                self.output_queue.put(line)
+        self.output_queue.put(None)
 
     def assessment(self) -> None:
         self._tool_catalogue_page(
