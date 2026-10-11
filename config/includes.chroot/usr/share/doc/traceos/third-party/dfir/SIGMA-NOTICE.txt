@@ -1,0 +1,8 @@
+TraceOS bundles sigma-cli version 3.1.0 from the PyPI distribution.
+
+Project: https://github.com/SigmaHQ/sigma-cli
+Release: https://github.com/SigmaHQ/sigma-cli/releases/tag/v3.1.0
+License: LGPL-2.1-or-later
+
+The PyPI release is published with verified provenance. TraceOS does not modify
+the sigma-cli distribution.

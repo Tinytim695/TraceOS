@@ -17,6 +17,45 @@ install_tool() {
 install_tool sherlock-project 0.16.2
 install_tool maigret 0.6.6
 install_tool h8mail 2.5.6
+install_tool holehe 1.61
+install_tool ghunt 2.3.4
+
+install_git_tool() {
+    label="$1"
+    repo="$2"
+    ref="$3"
+    echo "[TraceOS] Installing OSINT tool: $label from $repo@$ref"
+    pipx install --global "git+${repo}@${ref}"
+}
+
+# Advanced OSINT collection tools are pinned to upstream release tags.
+install_git_tool theHarvester https://github.com/laramies/theHarvester.git 4.11.1
+install_git_tool dnsrecon https://github.com/darkoperator/dnsrecon.git 1.6.3
+install_git_tool dnstwist https://github.com/elceef/dnstwist.git 20250130
+
+# PhoneInfoga is distributed as a signed release archive. Pin the release and
+# keep the checksum manifest verification in the build for provenance.
+# verify the upstream SHA-256 manifest before installing the amd64 binary.
+PHONEINFOGA_VERSION="2.11.0"
+PHONEINFOGA_ARCHIVE="phoneinfoga_Linux_x86_64.tar.gz"
+PHONEINFOGA_BASE="https://github.com/sundowndev/phoneinfoga/releases/download/v${PHONEINFOGA_VERSION}"
+PHONEINFOGA_TMP="/tmp/traceos-phoneinfoga"
+
+cd /
+rm -rf "$PHONEINFOGA_TMP"
+mkdir -p "$PHONEINFOGA_TMP"
+cd "$PHONEINFOGA_TMP"
+curl -fsSL "$PHONEINFOGA_BASE/$PHONEINFOGA_ARCHIVE" -o "$PHONEINFOGA_ARCHIVE"
+curl -fsSL "$PHONEINFOGA_BASE/phoneinfoga_checksums.txt" -o phoneinfoga_checksums.txt
+grep -F "  $PHONEINFOGA_ARCHIVE" phoneinfoga_checksums.txt > expected.sha256
+sha256sum -c expected.sha256
+
+tar -xzf "$PHONEINFOGA_ARCHIVE"
+test -x phoneinfoga
+install -m 0755 phoneinfoga /usr/local/bin/phoneinfoga
+/usr/local/bin/phoneinfoga version
+cd /
+rm -rf "$PHONEINFOGA_TMP"
 
 # Blackbird is actively maintained but distributed from source rather than
 # a released PyPI package. Pin an exact upstream commit and locked deps.
@@ -24,6 +63,7 @@ BLACKBIRD_COMMIT="b45505080ef51bb3ef52dc29879ee6bef31e5b94"
 BLACKBIRD_DIR="/opt/traceos-blackbird"
 
 echo "[TraceOS] Installing Blackbird at $BLACKBIRD_COMMIT"
+cd /
 rm -rf "$BLACKBIRD_DIR"
 git clone https://github.com/antoniaci/blackbird.git "$BLACKBIRD_DIR"
 cd "$BLACKBIRD_DIR"
@@ -53,9 +93,15 @@ cat > /usr/share/traceos/osint-tools.txt <<'EOF'
 sherlock-project==0.16.2|sherlock|OSINT username discovery
 maigret==0.6.6|maigret|OSINT username investigation across thousands of sites
 h8mail==2.5.6|h8mail|OSINT email and breach-oriented lookups
+holehe==1.61|holehe|OSINT email-account existence checks
+phoneinfoga==2.11.0|phoneinfoga|OSINT phone-number reconnaissance and metadata lookup
 blackbird@b45505080ef51bb3ef52dc29879ee6bef31e5b94|blackbird|OSINT username/email search across hundreds of platforms
-whois|whois|WHOIS registration lookups
-dnsutils|dig|DNS record lookups
+ghunt==2.3.4|ghunt|Google-account OSINT and public profile intelligence; interactive login required for authenticated modules
+theHarvester@4.11.1|theHarvester|OSINT collection of names, emails, hosts and related infrastructure from public sources
+dnsrecon@1.6.3|dnsrecon|DNS enumeration, records, subdomain discovery and zone-transfer assessment
+dnstwist@20250130|dnstwist|domain permutation and lookalike-domain discovery for brand/phishing exposure
+whois|whois|WHOIS registration lookup for domains and IPs
+dnsutils|dig|DNS record lookup
 EOF
 
 echo "[TraceOS] OSINT tool installation complete."

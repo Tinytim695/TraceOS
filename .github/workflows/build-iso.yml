@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: traceos-iso-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -38,7 +38,15 @@ jobs:
             po4a \
             debian-archive-keyring \
             file \
-            imagemagick
+            imagemagick \
+            shellcheck
+
+      - name: "Static preflight: syntax, shebangs and manifests"
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/preflight-static.sh
+          scripts/preflight-static.sh
 
       - name: Install pinned live-build
         run: |
@@ -108,26 +116,30 @@ jobs:
           test -s /tmp/traceos-root/usr/share/dirb/wordlists/common.txt
           echo "WORKSTATION_TOOL_GOBUSTER_WORDLIST=PASS"
 
+          # Java and ZAP need /proc. The extracted squashfs is not a booted system.
+          sudo mount --bind /proc /tmp/traceos-root/proc
+          sudo mount --bind /sys /tmp/traceos-root/sys
+          cleanup_mounts() {
+            sudo umount /tmp/traceos-root/sys || true
+            sudo umount /tmp/traceos-root/proc || true
+          }
+          trap cleanup_mounts EXIT
+
           while IFS='|' read -r tool arg; do
             test -n "$tool"
             sudo chroot /tmp/traceos-root /bin/sh -c 'timeout 90 "$@" >/dev/null 2>&1' sh "$tool" "$arg"
             echo "WORKSTATION_TOOL_${tool}_SMOKE=PASS"
           done <<'EOF'
-          nmap|--version
-          whatweb|--version
-          nikto|-Version
-          gobuster|version
-          sqlmap|--version
-          msfconsole|--version
-          exiftool|-ver
-          identify|-version
-          tesseract|--version
-          EOF
-
-          # Java's runtime is exercised by ZAP's final-image version check below.
-          installed_msf_version="$(sudo chroot /tmp/traceos-root dpkg-query -W -f='${Version}' metasploit-framework)"
-          test "$installed_msf_version" = "6.5.3~20260818061200~1rapid7-1"
-          echo "WORKSTATION_TOOL_metasploit_version=PASS ($installed_msf_version)"
+nmap|--version
+whatweb|--version
+nikto|-Version
+gobuster|version
+sqlmap|--version
+msfconsole|--version
+exiftool|-ver
+identify|-version
+tesseract|--version
+EOF
 
           if zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap.sh -cmd -silent -version 2>&1)"; then
             printf '%s\n' "$zap_version"
@@ -136,8 +148,49 @@ jobs:
           else
             zap_status=$?
             printf 'ZAP version command failed (%s):\n%s\n' "$zap_status" "$zap_version" >&2
+            sudo chroot /tmp/traceos-root /usr/bin/java -version >&2 || true
             exit "$zap_status"
           fi
+
+
+      - name: Validate packaged WHOIS and DNS tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          root=/tmp/traceos-root
+          admindir="$root/var/lib/dpkg"
+
+          test -s "$admindir/status"
+
+          for path in /usr/bin/whois /usr/bin/dig; do
+            test -f "$root$path"
+            test -x "$root$path"
+          done
+
+          # Debian 13/Trixie exposes dnsutils as a virtual package; the actual
+          # installed package providing /usr/bin/dig is bind9-dnsutils.
+          for package in whois bind9-dnsutils; do
+            status="$(dpkg-query --admindir="$admindir" -W -f='${Status}' "$package")"
+            version="$(dpkg-query --admindir="$admindir" -W -f='${Version}' "$package")"
+            test "$status" = "install ok installed"
+            test -n "$version"
+            printf 'PACKAGED_PACKAGE=%s STATUS=%s VERSION=%s\n' \
+              "$package" "$status" "$version"
+          done
+
+          dpkg-query --admindir="$admindir" -L whois | grep -Fx '/usr/bin/whois'
+          dpkg-query --admindir="$admindir" -L bind9-dnsutils | grep -Fx '/usr/bin/dig'
+
+          echo "[TraceOS] Packaged WHOIS/DNS filesystem and dpkg-state checks passed."
+          echo "[TraceOS] Executable startup is verified separately in the booted QEMU guest."
+
+      - name: Validate bundled security toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/validate-toolchain.sh
+          scripts/validate-toolchain.sh /tmp/traceos-root
 
       - name: QEMU live-kernel boot smoke test
         shell: bash

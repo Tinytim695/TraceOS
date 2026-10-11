@@ -23,21 +23,73 @@ extract_boot_config() {
     fi
 }
 
-# Validate the actual bootloader payloads inside the ISO before spending five
-# minutes on the graphical boot. The BIOS El Torito path is the path used by
-# QEMU below, so it must carry the same live username as the GRUB path.
-extract_boot_config /isolinux/isolinux.cfg "$OUT/traceos-generated-isolinux.cfg"
-extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg" || true
+# Validate generated bootloader payloads. Parser-fixture mode never reaches
+# these calls, so it does not need an ISO. Extraction failures are not ignored
+# on the real graphical path: both configs must come out of the ISO.
+assert_generated_grub() {
+    local grub_cfg="$1"
+    local failsafe_block linux_line initrd_line first_entry default_line
+    local line path boot_text
 
-if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-isolinux.cfg"; then
-    echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
-    exit 1
-fi
+    if [[ ! -s "$grub_cfg" ]]; then
+        echo "[TraceOS] Generated GRUB config is missing or empty." >&2
+        return 1
+    fi
+    if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$grub_cfg"; then
+        echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
+        return 1
+    fi
+    if grep -Eq '@(KERNEL_LIVE|INITRD_LIVE|APPEND_LIVE(_FAILSAFE)?)@' "$grub_cfg"; then
+        echo "[TraceOS] Generated GRUB config contains unresolved live-build placeholders." >&2
+        return 1
+    fi
 
-if [ -s "$OUT/traceos-generated-grub.cfg" ] && ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-grub.cfg"; then
-    echo "[TraceOS] Generated GRUB config is missing username=traceos." >&2
-    exit 1
-fi
+    failsafe_block="$(awk '
+        $0 ~ /^menuentry "TraceOS Failsafe \(Amnesic\)"/ { capture = 1 }
+        capture { print }
+        capture && /^}/ { exit }
+    ' "$grub_cfg")"
+    linux_line="$(printf '%s\n' "$failsafe_block" | grep -E '^[[:space:]]*linux[[:space:]]' | head -n 1 || true)"
+    initrd_line="$(printf '%s\n' "$failsafe_block" | grep -E '^[[:space:]]*initrd[[:space:]]' | head -n 1 || true)"
+    if [[ -z "$linux_line" || -z "$initrd_line" ]]; then
+        echo "[TraceOS] Generated GRUB failsafe entry is missing resolved paths or expected arguments." >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$linux_line" | grep -Eq '(^|[[:space:]])nopersistence([[:space:]]|$)'; then
+        echo "[TraceOS] Generated GRUB failsafe entry is missing resolved paths or expected arguments." >&2
+        return 1
+    fi
+    if ! printf '%s\n' "$linux_line" | grep -Eq '(^|[[:space:]])nomodeset([[:space:]]|$)'; then
+        echo "[TraceOS] Generated GRUB failsafe entry is missing resolved paths or expected arguments." >&2
+        return 1
+    fi
+
+    boot_text="$(grep -E '^[[:space:]]*(linux|initrd)[[:space:]]+' "$grub_cfg" || true)"
+    if [[ -z "$boot_text" ]]; then
+        echo "[TraceOS] Generated GRUB config has an unresolved kernel or initrd path." >&2
+        return 1
+    fi
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        path="$(printf '%s\n' "$line" | awk '{ print $2 }')"
+        case "$path" in
+            /live/*) ;;
+            *)
+                echo "[TraceOS] Generated GRUB config has an unresolved kernel or initrd path." >&2
+                return 1
+                ;;
+        esac
+    done <<EOF
+$boot_text
+EOF
+
+    default_line="$(grep -E '^set default=' "$grub_cfg" | tail -n 1 || true)"
+    first_entry="$(grep -E '^menuentry ' "$grub_cfg" | head -n 1 || true)"
+    if [[ "$default_line" != "set default=0" ]] || [[ "$first_entry" != 'menuentry "TraceOS Amnesic (no persistent storage)" {' ]]; then
+        echo "[TraceOS] Generated GRUB default selection could not be verified." >&2
+        return 1
+    fi
+}
 
 
 cleanup() {
@@ -169,6 +221,7 @@ capture_page() {
         -smp 2 \
         -vga std \
         -nic none \
+        -fw_cfg name=opt/traceos/ui-image-e2e,string=1 \
         -drive "file=$ISO,media=cdrom,readonly=on,format=raw" \
         -boot order=d \
         -display "vnc=unix:$vnc_socket" \
@@ -196,11 +249,27 @@ capture_page() {
         exit 1
     fi
 
-    # TCG is slow. Give the real ISO boot path time to reach LightDM,
-    # XFCE and the TraceOS welcome/control centre.
-    # TCG boot time can vary on shared CI runners. Allow a longer window before
-    # declaring the real graphical desktop absent.
-    sleep 300
+    # TCG is slow and shared CI runners vary. Wait for the real Control Centre
+    # session marker instead of burning a fixed five minutes, but retain a
+    # 300-second hard ceiling before declaring the graphical desktop absent.
+    readiness_deadline=$((SECONDS + 300))
+    while (( SECONDS < readiness_deadline )); do
+        if grep -Fq "stage=CONTROL_CENTRE_SESSION_READY" "$STATE/serial-$page.log" 2>/dev/null; then
+            echo "[TraceOS] Control Centre session readiness observed."
+            break
+        fi
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "[TraceOS] QEMU exited before Control Centre session readiness." >&2
+            tail -n 220 "$STATE/serial-$page.log" >&2 || true
+            exit 1
+        fi
+        sleep 1
+    done
+    if ! grep -Fq "stage=CONTROL_CENTRE_SESSION_READY" "$STATE/serial-$page.log" 2>/dev/null; then
+        echo "[TraceOS] Control Centre session readiness marker was not observed before deadline." >&2
+        tail -n 220 "$STATE/serial-$page.log" >&2 || true
+        exit 1
+    fi
 
     capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
 
@@ -256,7 +325,7 @@ capture_page() {
     assert_serial "LIVE_SESSION_HOME=/home/traceos" "the graphical session home is /home/traceos"
     assert_serial "TRACEOS_XFCE_SESSION_RUNNING" "the TraceOS XFCE session is running"
     assert_serial "CONTROL_CENTRE_PROCESS_RUNNING" "the Control Centre process is running"
-    assert_serial "CONTROL_CENTRE_READY" "the Control Centre readiness marker was observed"
+    assert_serial "stage=CONTROL_CENTRE_SESSION_READY" "the Control Centre session readiness marker was observed"
 
     rm -f "$ppm"
     if [[ "$keep_alive" != "true" ]]; then
@@ -276,6 +345,8 @@ extract_field() {
     cr="$(printf '\r')"
     printf '%s\n' "${value%$cr}"
 }
+
+
 
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
@@ -303,9 +374,88 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     [[ "$(extract_field "$matching_cr" case_id)" == "$test_case_id" ]]
     [[ "$(extract_field "$matching_cr" id_prefix)" == "01234567" ]]
 
+    # Synthetic generated GRUB configs. These do not require an ISO and must
+    # reject unresolved placeholders, a bad failsafe entry, unresolved
+    # kernel/initrd paths, and a default that is not the amnesic menu.
+    fixture_dir="$(mktemp -d)"
+    trap 'rm -rf "$fixture_dir"; cleanup' EXIT
+    valid_grub="$fixture_dir/valid.cfg"
+    cat >"$valid_grub" <<'EOF'
+set timeout=8
+set default=0
+source /boot/grub/config.cfg
+
+menuentry "TraceOS Amnesic (no persistent storage)" {
+    linux /live/vmlinuz boot=live components username=traceos hostname=traceos nopersistence splash
+    initrd /live/initrd.img
+}
+
+menuentry "TraceOS Persistent" {
+    linux /live/vmlinuz boot=live components username=traceos hostname=traceos persistence splash
+    initrd /live/initrd.img
+}
+
+menuentry "TraceOS Failsafe (Amnesic)" {
+    linux /live/vmlinuz boot=live components username=traceos hostname=traceos nomodeset nopersistence
+    initrd /live/initrd.img
+}
+EOF
+    assert_generated_grub "$valid_grub"
+
+    reject_grub() {
+        local label="$1"
+        local cfg="$2"
+        if assert_generated_grub "$cfg" 2>/dev/null; then
+            echo "[TraceOS] GRUB fixture unexpectedly accepted: $label" >&2
+            exit 1
+        fi
+    }
+
+    cp "$valid_grub" "$fixture_dir/placeholder.cfg"
+    printf '\nlinux @KERNEL_LIVE@ @APPEND_LIVE_FAILSAFE@ nopersistence\ninitrd @INITRD_LIVE@\n' >>"$fixture_dir/placeholder.cfg"
+    reject_grub "unresolved placeholders" "$fixture_dir/placeholder.cfg"
+
+    sed 's/nomodeset nopersistence/nopersistence/' "$valid_grub" >"$fixture_dir/no-nomodeset.cfg"
+    reject_grub "failsafe missing nomodeset" "$fixture_dir/no-nomodeset.cfg"
+
+    sed 's#nomodeset nopersistence#nomodeset persistence#' "$valid_grub" >"$fixture_dir/no-nopersistence.cfg"
+    reject_grub "failsafe missing nopersistence" "$fixture_dir/no-nopersistence.cfg"
+
+    sed 's#linux /live/vmlinuz boot=live components username=traceos hostname=traceos nomodeset#linux vmlinuz boot=live components username=traceos hostname=traceos nomodeset#' \
+        "$valid_grub" >"$fixture_dir/bad-kernel.cfg"
+    reject_grub "unresolved failsafe kernel" "$fixture_dir/bad-kernel.cfg"
+
+    sed 's#initrd /live/initrd.img#initrd /boot/initrd.img#' "$valid_grub" >"$fixture_dir/bad-initrd.cfg"
+    reject_grub "unresolved initrd" "$fixture_dir/bad-initrd.cfg"
+
+    sed 's/^set default=0$/set default=1/' "$valid_grub" >"$fixture_dir/bad-default.cfg"
+    reject_grub "default is not amnesic" "$fixture_dir/bad-default.cfg"
+
+    sed '0,/menuentry "TraceOS Amnesic (no persistent storage)"/s//menuentry "TraceOS Persistent"/' \
+        "$valid_grub" >"$fixture_dir/reordered.cfg"
+    reject_grub "first menuentry is not amnesic" "$fixture_dir/reordered.cfg"
+
+    sed 's/username=traceos //g' "$valid_grub" >"$fixture_dir/no-user.cfg"
+    reject_grub "missing username" "$fixture_dir/no-user.cfg"
+
+    rm -rf "$fixture_dir"
     echo "[TraceOS] QEMU GUI parser fixtures: PASS"
     exit 0
 fi
+
+# Validate the actual bootloader payloads inside the ISO before spending five
+# minutes on the graphical boot. The BIOS El Torito path is the path used by
+# QEMU below, so it must carry the same live username as the GRUB path.
+# Do not ignore extraction failure: a missing GRUB or ISOLINUX payload is a
+# failed smoke test, not a warning.
+extract_boot_config /isolinux/isolinux.cfg "$OUT/traceos-generated-isolinux.cfg"
+extract_boot_config /boot/grub/grub.cfg "$OUT/traceos-generated-grub.cfg"
+
+if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-generated-isolinux.cfg"; then
+    echo "[TraceOS] Generated ISOLINUX config is missing username=traceos." >&2
+    exit 1
+fi
+assert_generated_grub "$OUT/traceos-generated-grub.cfg"
 
 
 # First prove the real desktop renders. Keep the same guest alive for one
@@ -505,6 +655,165 @@ capture_screendump "$monitor" "$new_case_final_ppm" "$STATE/monitor-new-case-fin
 convert "$new_case_final_ppm" -resize 1280x720 -strip "$new_case_final_png"
 identify "$new_case_final_png"
 test -s "$new_case_final_png"
+
+# Diagnostic-only Image OSINT interaction against an opt-in synthetic fixture.
+image_matrix="$OUT/traceos-image-osint-matrix.txt"
+image_page_ppm="$OUT/traceos-image-page.ppm"
+image_page_png="$OUT/traceos-image-page.png"
+image_selected_ppm="$OUT/traceos-image-selected.ppm"
+image_selected_png="$OUT/traceos-image-selected.png"
+image_result_ppm="$OUT/traceos-image-result.ppm"
+image_result_png="$OUT/traceos-image-result.png"
+image_fixture="/home/traceos/traceosimage.png"
+image_expected_sha="431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+image_ready="no"
+image_page="no"
+image_selected="no"
+image_start="no"
+image_selected_attempt="unknown"
+image_start_attempt="unknown"
+image_result_attempt="unknown"
+image_cli_started="no"
+image_cli_completed="no"
+image_result_rendered="no"
+image_failed="no"
+
+image_marker_line() {
+    local stage="$1"
+    local attempt="${2:-}"
+    local result
+    result="$(grep -F "stage=$stage" "$serial_log" 2>/dev/null \
+        | grep -F "nonce=$gui_nonce" \
+        | grep -F "pid=$gui_pid" \
+        | tail -n 1 || true)"
+    if [[ -n "$attempt" && -n "$result" ]]; then
+        echo "$result" | grep -F "image_attempt=$attempt" | tail -n 1 || true
+    else
+        echo "$result"
+    fi
+}
+
+wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 45 && image_ready="yes" || true
+
+if [[ "$image_ready" == "yes" ]]; then
+    fixture_line="$(grep -F "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" "$serial_log" | tail -n 1 || true)"
+    fixture_sha="$(echo "$fixture_line" | sed -n 's/.*sha256=\([^ ]*\).*/\1/p')"
+    fixture_size="$(echo "$fixture_line" | sed -n 's/.*size=\([0-9]*\).*/\1/p')"
+    if [[ "$fixture_sha" != "$image_expected_sha" || "$fixture_size" != "68" ]]; then
+        echo "[TraceOS] Synthetic image fixture mismatch." >&2
+        image_ready="no"
+    fi
+fi
+
+if [[ "$image_ready" == "yes" ]]; then
+    hmp_command "$monitor" "sendkey ctrl-shift-i" "$STATE/monitor-image-page-shortcut.log"
+    for _ in $(seq 1 30); do
+        if [[ -n "$(image_marker_line "image-osint-page-rendered")" ]]; then
+            image_page="yes"
+            break
+        fi
+        sleep 1
+    done
+
+    if [[ "$image_page" == "yes" ]]; then
+        capture_screendump "$monitor" "$image_page_ppm" "$STATE/monitor-image-page-screendump.log"
+        convert "$image_page_ppm" -resize 1280x720 -strip "$image_page_png"
+        identify "$image_page_png"
+
+        send_image_path() {
+            local i ch key log
+            for ((i=0; i<${#image_fixture}; i++)); do
+                ch="${image_fixture:i:1}"
+                case "$ch" in
+                    /) key="slash" ;;
+                    .) key="dot" ;;
+                    *) key="$ch" ;;
+                esac
+                log="$STATE/monitor-image-key-$i.log"
+                hmp_command "$monitor" "sendkey $key" "$log"
+            done
+        }
+
+        send_image_path
+        hmp_command "$monitor" "sendkey ret" "$STATE/monitor-image-use-path.log" || true
+
+        for _ in $(seq 1 20); do
+            source_line="$(image_marker_line "IMAGE_SOURCE_SELECTED")"
+            if [[ -n "$source_line" ]]; then
+                image_selected="yes"
+                image_selected_attempt="$(echo "$source_line" | sed -n 's/.*image_attempt=\([^ ]*\).*/\1/p')"
+                break
+            fi
+            sleep 1
+        done
+
+        if [[ "$image_selected" == "yes" ]]; then
+            capture_screendump "$monitor" "$image_selected_ppm" "$STATE/monitor-image-selected-screendump.log"
+            convert "$image_selected_ppm" -resize 1280x720 -strip "$image_selected_png"
+            identify "$image_selected_png"
+            hmp_command "$monitor" "sendkey ret" "$STATE/monitor-image-start.log" || true
+
+            for _ in $(seq 1 30); do
+                start_line="$(image_marker_line "IMAGE_ANALYSIS_START_CLICKED")"
+                if [[ -n "$start_line" ]]; then
+                    image_start="yes"
+                    image_start_attempt="$(echo "$start_line" | sed -n 's/.*image_attempt=\([^ ]*\).*/\1/p')"
+                    break
+                fi
+                sleep 1
+            done
+        fi
+
+        for _ in $(seq 1 60); do
+            if [[ "$image_selected_attempt" != "unknown" ]]; then
+                [[ -n "$(image_marker_line "IMAGE_CLI_STARTED" "$image_selected_attempt")" ]] && image_cli_started="yes"
+                [[ -n "$(image_marker_line "IMAGE_CLI_COMPLETED" "$image_selected_attempt")" ]] && image_cli_completed="yes"
+                [[ -n "$(image_marker_line "IMAGE_RESULT_RENDERED" "$image_selected_attempt")" ]] && image_result_rendered="yes"
+                [[ -n "$(image_marker_line "IMAGE_CLI_STOPPED" "$image_selected_attempt")" ]] && image_failed="yes"
+            fi
+            [[ "$image_result_rendered" == "yes" || "$image_failed" == "yes" ]] && break
+            sleep 1
+        done
+
+        if [[ "$image_result_rendered" == "yes" ]]; then
+            result_line="$(image_marker_line "IMAGE_RESULT_RENDERED" "$image_selected_attempt")"
+            result_attempt="$(echo "$result_line" | sed -n 's/.*image_attempt=\([^ ]*\).*/\1/p')"
+            image_result_attempt="${result_attempt:-unknown}"
+            result_status="$(echo "$result_line" | sed -n 's/.*status=\([^ ]*\).*/\1/p')"
+            result_sha="$(echo "$result_line" | sed -n 's/.*sha256=\([^ ]*\).*/\1/p')"
+            result_unchanged="$(echo "$result_line" | sed -n 's/.*source_unchanged=\([^ ]*\).*/\1/p')"
+            result_mime="$(echo "$result_line" | sed -n 's/.*mime=\([^ ]*\).*/\1/p')"
+            if [[ "$result_attempt" != "$image_selected_attempt" || "$result_status" != "ok" || "$result_sha" != "$image_expected_sha" || "$result_unchanged" != "True" || "$result_mime" != "image/png" ]]; then
+                image_result_rendered="no"
+                image_failed="yes"
+            else
+                capture_screendump "$monitor" "$image_result_ppm" "$STATE/monitor-image-result-screendump.log"
+                convert "$image_result_ppm" -resize 1280x720 -strip "$image_result_png"
+                identify "$image_result_png"
+            fi
+        fi
+    fi
+fi
+
+{
+    echo "STATUS=$([[ "$image_result_rendered" == "yes" ]] && echo PASS || echo UNKNOWN)"
+    echo "FIXTURE_READY=$image_ready"
+    echo "PAGE_RENDERED=$image_page"
+    echo "SOURCE_SELECTED=$image_selected"
+    echo "START_CALLBACK=$image_start"
+    echo "SOURCE_ATTEMPT=$image_selected_attempt"
+    echo "START_ATTEMPT=$image_start_attempt"
+    attempt_match="no"
+    if [[ "$image_selected_attempt" != "unknown" && "$image_start_attempt" != "unknown" && "$image_selected_attempt" == "$image_start_attempt" ]]; then
+        attempt_match="yes"
+    fi
+    echo "ATTEMPT_MATCH=$attempt_match"
+    echo "RESULT_ATTEMPT=$image_result_attempt"
+    echo "CLI_STARTED=$image_cli_started"
+    echo "CLI_COMPLETED=$image_cli_completed"
+    echo "RESULT_RENDERED=$image_result_rendered"
+    echo "EXPECTED_FIXTURE_SHA=$image_expected_sha"
+} >"$image_matrix"
 
 dashboard_png="$OUT/traceos-dashboard.png"
 dashboard_hash="$(sha256sum "$dashboard_png" | awk '{print $1}')"

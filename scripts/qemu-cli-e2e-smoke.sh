@@ -39,6 +39,17 @@ def write_result(status, reason):
         f"STATUS={status}\nLAST_STAGE={last_stage}\nREASON={reason}\n")
     result_written = True
 
+def valid_msfvenom_help(output):
+    return bool(
+        re.search(r"\bmsfvenom\b", output, re.IGNORECASE)
+        and re.search(r"(?im)^\s*usage\s*:", output)
+        and re.search(r"(?im)^\s*options\s*:", output)
+    )
+
+def valid_msfconsole_version(output):
+    return bool(re.search(r"(?im)^\s*framework version:\s*\S+", output))
+
+
 try:
     for _ in range(600):
         s = serial.read_text(errors="replace") if serial.exists() else ""
@@ -97,7 +108,18 @@ try:
         "evidence-verify-pass.stdout", "evidence-verify-pass.stderr", "evidence-verify-pass.exit",
         "evidence-verify-tamper.stdout", "evidence-verify-tamper.stderr", "evidence-verify-tamper.exit",
         "report.stdout", "report.stderr", "report.exit",
-        "timeline.stdout", "timeline.stderr", "timeline.exit"}
+        "timeline.stdout", "timeline.stderr", "timeline.exit",
+        "whois-version.stdout", "whois-version.stderr", "whois-version.exit",
+        "dig-version.stdout", "dig-version.stderr", "dig-version.exit",
+        "ruby-version.stdout", "ruby-version.stderr", "ruby-version.exit",
+        "bundler-version.stdout", "bundler-version.stderr", "bundler-version.exit",
+        "msf-bundle-check.stdout", "msf-bundle-check.stderr", "msf-bundle-check.exit",
+        "msfconsole-startup.stdout", "msfconsole-startup.stderr", "msfconsole-startup.exit",
+        "msfconsole-startup-first-attempt.stdout", "msfconsole-startup-first-attempt.stderr", "msfconsole-startup-first-attempt.exit",
+        "msfvenom-startup.stdout", "msfvenom-startup.stderr", "msfvenom-startup.exit",
+        "msfdb-startup.stdout", "msfdb-startup.stderr", "msfdb-startup.exit",
+        "enum4linux-ng-startup.stdout", "enum4linux-ng-startup.stderr", "enum4linux-ng-startup.exit",
+        "msfdb-entrypoint.txt", "metasploit-diagnostics.txt"}
 
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tf:
         names = tf.getnames()
@@ -230,6 +252,72 @@ try:
     audit("TIMELINE_REFERENCES_VAULT",
           bool(ledger_vault) and ledger_vault.rsplit("/", 1)[-1] in timeline_stdout)
 
+    whois_version_exit = exit_code("whois-version")
+    dig_version_exit = exit_code("dig-version")
+    whois_version_stdout = (out / "whois-version.stdout").read_text(errors="replace") if (out / "whois-version.stdout").exists() else ""
+    whois_version_stderr = (out / "whois-version.stderr").read_text(errors="replace") if (out / "whois-version.stderr").exists() else ""
+    dig_version_stdout = (out / "dig-version.stdout").read_text(errors="replace") if (out / "dig-version.stdout").exists() else ""
+    dig_version_stderr = (out / "dig-version.stderr").read_text(errors="replace") if (out / "dig-version.stderr").exists() else ""
+    audit("WHOIS_VERSION_EXIT", whois_version_exit == 0)
+    audit("WHOIS_VERSION_OUTPUT", bool(whois_version_stdout.strip() or whois_version_stderr.strip()))
+    audit("DIG_VERSION_EXIT", dig_version_exit == 0)
+    audit("DIG_VERSION_OUTPUT", bool(dig_version_stdout.strip() or dig_version_stderr.strip()))
+
+    msfvenom_startup_stdout = (out / "msfvenom-startup.stdout").read_text(errors="replace") if (out / "msfvenom-startup.stdout").exists() else ""
+    msfvenom_startup_stderr = (out / "msfvenom-startup.stderr").read_text(errors="replace") if (out / "msfvenom-startup.stderr").exists() else ""
+    msfvenom_help_output = msfvenom_startup_stdout + "\n" + msfvenom_startup_stderr
+    audit(
+        "MSFVENOM_HELP_CONTENT",
+        # The pinned upstream revision explicitly exits 1 after printing --help.
+        exit_code("msfvenom-startup") == 1 and valid_msfvenom_help(msfvenom_help_output),
+    )
+    audit(
+        "MATRIX_MSFVENOM_HELP_OK",
+        matrix.exists() and "MSFVENOM_HELP_OK=yes" in matrix.read_text(errors="replace"),
+    )
+
+    for label in (
+        "ruby-version",
+        "bundler-version",
+        "msf-bundle-check",
+        "msfconsole-startup",
+        "msfvenom-startup",
+        "msfdb-startup",
+        "enum4linux-ng-startup",
+    ):
+        exit_value = exit_code(label)
+        stdout = (out / f"{label}.stdout").read_text(errors="replace") if (out / f"{label}.stdout").exists() else ""
+        stderr = (out / f"{label}.stderr").read_text(errors="replace") if (out / f"{label}.stderr").exists() else ""
+        expected_exit = 1 if label == "msfvenom-startup" else 0
+        audit(f"{label.upper().replace('-', '_')}_EXIT", exit_value == expected_exit)
+        output_ok = bool(stdout.strip() or stderr.strip())
+        if label == "msfconsole-startup":
+            output_ok = valid_msfconsole_version(stdout + "\n" + stderr)
+        audit(f"{label.upper().replace('-', '_')}_OUTPUT", output_ok)
+
+    first_attempt_paths = [
+        out / "msfconsole-startup-first-attempt.stdout",
+        out / "msfconsole-startup-first-attempt.stderr",
+        out / "msfconsole-startup-first-attempt.exit",
+    ]
+    if any(path.exists() for path in first_attempt_paths):
+        retained = all(path.is_file() for path in first_attempt_paths)
+        retained = retained and (first_attempt_paths[2].read_text(errors="replace").strip() == "124")
+        audit("MSFCONSOLE_FIRST_TIMEOUT_RETAINED", retained)
+        final_console_output = (
+            (out / "msfconsole-startup.stdout").read_text(errors="replace")
+            + "\n"
+            + (out / "msfconsole-startup.stderr").read_text(errors="replace")
+        )
+        audit(
+            "MSFCONSOLE_TIMEOUT_RECOVERY",
+            exit_code("msfconsole-startup") == 0 and valid_msfconsole_version(final_console_output),
+        )
+
+    entrypoint_text = (out / "msfdb-entrypoint.txt").read_text(errors="replace") if (out / "msfdb-entrypoint.txt").exists() else ""
+    audit("MSFDB_ENTRYPOINT", entrypoint_text.startswith("#!/bin/sh") and 'MSF_BUNDLER="2.6.7"' in entrypoint_text and "BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile" in entrypoint_text and "TRACEOS_MSF_BOOTSNAP_READONLY=1" in entrypoint_text and "/opt/traceos-metasploit/msfdb" in entrypoint_text and 'gem "bundler", ENV.fetch("MSF_BUNDLER")' in entrypoint_text and "$0 = program; load program" in entrypoint_text)
+
+
     required_success_members = {
         "matrix.txt", "case.json", "case-path.txt", *state_files, "source.sha256", "case-new.stdout", "case-new.stderr", "case-new.exit",
         "ledger-check.txt", "vault-pre.txt", "vault-post.txt",
@@ -238,7 +326,17 @@ try:
         "evidence-verify-pass.stdout", "evidence-verify-pass.stderr", "evidence-verify-pass.exit",
         "evidence-verify-tamper.stdout", "evidence-verify-tamper.stderr", "evidence-verify-tamper.exit",
         "report.stdout", "report.stderr", "report.exit",
-        "timeline.stdout", "timeline.stderr", "timeline.exit"
+        "timeline.stdout", "timeline.stderr", "timeline.exit",
+        "whois-version.stdout", "whois-version.stderr", "whois-version.exit",
+        "dig-version.stdout", "dig-version.stderr", "dig-version.exit",
+        "ruby-version.stdout", "ruby-version.stderr", "ruby-version.exit",
+        "bundler-version.stdout", "bundler-version.stderr", "bundler-version.exit",
+        "msf-bundle-check.stdout", "msf-bundle-check.stderr", "msf-bundle-check.exit",
+        "msfconsole-startup.stdout", "msfconsole-startup.stderr", "msfconsole-startup.exit",
+        "msfvenom-startup.stdout", "msfvenom-startup.stderr", "msfvenom-startup.exit",
+        "msfdb-startup.stdout", "msfdb-startup.stderr", "msfdb-startup.exit",
+        "enum4linux-ng-startup.stdout", "enum4linux-ng-startup.stderr", "enum4linux-ng-startup.exit",
+        "msfdb-entrypoint.txt", "metasploit-diagnostics.txt"
     }
     present_members = {p.name for p in out.iterdir() if p.is_file() and p.name != "result.txt"}
     audit("REQUIRED_BUNDLE_MEMBERS", required_success_members.issubset(present_members))

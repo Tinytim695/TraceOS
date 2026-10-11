@@ -74,17 +74,39 @@ TraceOS includes Debian's `package-update-indicator`, intended for Xfce desktops
 
 ## OSINT workbench
 
-The Investigation Centre and `traceos osint` expose six people/domain OSINT commands: Sherlock 0.16.2 and Maigret 0.6.6 for usernames, h8mail 2.5.6 for email-oriented lookups, Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, plus WHOIS and DNS. The image build checks all six command paths and local help for the four Python tools. External lookups start only after the user presses Start.
+The Investigation Centre and `traceos osint` expose the bundled people and domain tools. External lookups start only after the user presses Start.
 
 ## Web Testing
 
 The Web Testing page provides Nmap, WhatWeb, Nikto, Gobuster, SQLmap, OWASP ZAP, and Metasploit. The active command-line checks require an authorization checkbox and a per-run confirmation. OWASP ZAP 2.17.0 is installed from its Linux archive after a SHA-256 check and opens in its own window; it receives no target and starts no scan automatically. Set and confirm scope inside ZAP before starting a scan. The Debian tools WhatWeb, Nikto, Gobuster, and SQLmap come from Debian 13 repositories; Gobuster uses the packaged dirb common wordlist.
 
-Metasploit Framework is pinned to Rapid7 package version `6.5.3~20260818061200~1rapid7-1`. TraceOS opens its console in a terminal without selecting a target, module, or exploit. SQLmap opens interactively; the user reviews its prompts. Metasploit itself does not enforce a target scope, so only use its console within an authorized assessment. The Rapid7 repository is used during the image build and removed from the live image after installation.
+Metasploit Framework 6.5.6 is pinned to upstream Git commit `c6e99d08265b081d2f180086790b12811642c278`, not a Debian package. TraceOS opens its console in a terminal without selecting a target, module, or exploit. SQLmap opens interactively; the user reviews its prompts. Metasploit itself does not enforce a target scope, so only use its console within an authorized assessment.
 
 ## Image OSINT
 
 Image OSINT runs locally: it computes SHA-256, identifies MIME type and image dimensions, extracts metadata with ExifTool, and attempts local OCR with Tesseract. The GUI does not upload selected images. Google Lens, Bing Visual Search, and TinEye are optional browser handoffs; TraceOS displays an external-service warning and the user must choose and submit the image on that site.
+
+The OSINT workbench includes Sherlock Project 0.16.2, Maigret 0.6.6, h8mail 2.5.6, Holehe 1.61, PhoneInfoga 2.11.0, Blackbird pinned to upstream commit `b45505080ef51bb3ef52dc29879ee6bef31e5b94`, GHunt 2.3.4, theHarvester 4.11.1, DNSRecon 1.6.3, and dnstwist 20250130. Blackbird uses an authoritative runtime dependency lock kept in `config/third-party/blackbird-requirements.txt`; its optional AI path is not enabled by TraceOS. Advanced OSINT tools are pinned to upstream releases and validated as packaged command surfaces during ISO builds.
+
+## Block 6A: Offensive Operations Foundation
+
+Block 6A adds a real offensive-assessment foundation rather than mock buttons:
+
+- **Metasploit Framework 6.5.6**, pinned to upstream Git commit `c6e99d08265b081d2f180086790b12811642c278`, with `msfconsole`, `msfvenom`, and `msfdb`.
+- **enum4linux-ng 1.3.10**, pinned to upstream commit `f34e7bb`, for structured Windows/Samba enumeration.
+- The build validates installation and command surfaces but does not execute offensive actions against targets during ISO construction.
+
+## Block 6B: Windows / Active Directory / Authentication Assessment
+
+Block 6B extends the offensive workstation into enterprise identity and authentication assessment:
+
+- **BloodHound.py 1.9.0**, pinned to upstream Git commit `fd3f322e066d66314bfb31d4ae6f497df5872177`, for BloodHound-compatible Active Directory collection.
+- **Kerbrute 1.0.3**, pinned to upstream Git commit `9dad6e171abdc7491f587c793aa05411264a3393` and built from source with Debian's Go toolchain.
+- **Hashcat 6.2.6+ds2-1** and **John the Ripper 1.9.0-2**, using Debian Trixie packages for offline password/hash recovery assessment.
+- Existing **Impacket 0.13.1**, **NetExec 1.5.1**, **Certipy 5.1.0**, LDAP, SMB, RPC, and Kerberos tooling form the surrounding AD assessment stack.
+- The tools are operator-invoked and intended for explicitly authorized assessments; TraceOS does not automate uncontrolled credential spraying or destructive actions during ISO construction.
+- The full BloodHound CE server/frontend remains a separate evaluation item because its current upstream release is not shipped as a simple standalone Linux asset. BloodHound.py is the portable collector component bundled in this block.
+
 
 ## Security engineering
 
@@ -100,7 +122,14 @@ Before a public 1.0 release, TraceOS must also pass VM/hardware boot tests, depe
 - ShellSieve integration
 - TraceLock integration
 - DNAProcess integration
+- Image forensics integration
 - Expanded image-forensics workflows
+- OSINT workspace
+- Core OSINT tools bundled in the live image
 - Additional people and domain OSINT providers
+- Advanced OSINT and entity-intelligence collection
+- Red Team assessment expansion
+- Blue Team detection and hunting expansion
+- Purple Team ATT&CK-linked validation workflows
 - Local Ari/llama.cpp integration
 - Installer and signed releases
