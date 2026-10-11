@@ -130,16 +130,16 @@ jobs:
             sudo chroot /tmp/traceos-root /bin/sh -c 'timeout 90 "$@" >/dev/null 2>&1' sh "$tool" "$arg"
             echo "WORKSTATION_TOOL_${tool}_SMOKE=PASS"
           done <<'EOF'
-nmap|--version
-whatweb|--version
-nikto|-Version
-gobuster|version
-sqlmap|--version
-msfconsole|--version
-exiftool|-ver
-identify|-version
-tesseract|--version
-EOF
+          nmap|--version
+          whatweb|--version
+          nikto|-Version
+          gobuster|version
+          sqlmap|--version
+          msfconsole|--version
+          exiftool|-ver
+          identify|-version
+          tesseract|--version
+          EOF
 
           if zap_version="$(sudo chroot /tmp/traceos-root /usr/local/bin/zap.sh -cmd -silent -version 2>&1)"; then
             printf '%s\n' "$zap_version"
