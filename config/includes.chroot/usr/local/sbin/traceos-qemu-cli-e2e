@@ -420,6 +420,7 @@ try:
         and "TRACEOS_MSF_BOOTSNAP_READONLY=1" in entrypoint_text
         and "/opt/traceos-metasploit/msfdb" in entrypoint_text
         and 'gem "bundler", ENV.fetch("MSF_BUNDLER")' in entrypoint_text
+        and "$0 = program; load program" in entrypoint_text
     )
 except OSError as exc:
     (ART/"msfdb-entrypoint.txt").write_text(f"ERROR={exc}\n")

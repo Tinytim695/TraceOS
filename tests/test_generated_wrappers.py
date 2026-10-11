@@ -19,6 +19,7 @@ class GeneratedWrapperFixturesTests(unittest.TestCase):
         for path, body in matches:
             self.assertIn('MSF_BUNDLER="2.6.7"', body, path)
             self.assertIn('gem "bundler", ENV.fetch("MSF_BUNDLER")', body, path)
+            self.assertIn("$0 = program; load program", body, path)
             self.assertIn("BUNDLE_GEMFILE=/opt/traceos-metasploit/Gemfile", body, path)
             self.assertIn("TRACEOS_MSF_BOOTSNAP_READONLY=1", body, path)
             self.assertIn(path.replace("/usr/local/bin/", "/opt/traceos-metasploit/"), body, path)
