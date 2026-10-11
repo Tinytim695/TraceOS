@@ -29,6 +29,10 @@ REQUIRED_FILES=(
     config/includes.chroot/usr/local/bin/traceos_case.py
     config/includes.chroot/usr/local/bin/traceos-purple
     scripts/validate-toolchain.sh
+    scripts/validate-grub-config.py
+    scripts/test-grub-config-validator.py
+    config/hooks/live/0240-traceos-offensive.hook.chroot
+    scripts/qemu-ui-smoke.sh
     tests/test_validate_toolchain.py
     tests/test_traceos_purple.py
     tests/test_generated_wrappers.py
@@ -77,6 +81,16 @@ while IFS= read -r -d '' file; do
     esac
 done < "$FILE_LIST"
 
+echo "[TraceOS] Targeted GRUB and requested cheap checks"
+offensive_hook="config/hooks/live/0240-traceos-offensive.hook.chroot"
+sh -n "$offensive_hook"
+dash -n "$offensive_hook"
+shellcheck --shell=sh "$offensive_hook"
+bash -n scripts/qemu-ui-smoke.sh
+PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/traceos-pycache" \
+    python3 -m py_compile config/includes.chroot/usr/local/bin/traceos
+python3 scripts/test-grub-config-validator.py
+
 echo "[TraceOS] Manifest contract checks"
 python3 - <<'PY'
 from pathlib import Path
@@ -108,5 +122,13 @@ echo "[TraceOS] Targeted host fixtures"
 python3 -m unittest discover -s tests -p 'test_validate_toolchain.py' -v
 python3 -m unittest discover -s tests -p 'test_traceos_purple.py' -v
 python3 -m unittest discover -s tests -p 'test_generated_wrappers.py' -v
+
+echo "[TraceOS] Whitespace check for the PR diff"
+if [[ -n "${TRACEOS_PR_BASE_SHA:-}" ]]; then
+    git fetch --no-tags --depth=1 origin "$TRACEOS_PR_BASE_SHA"
+    git diff --check "$TRACEOS_PR_BASE_SHA" HEAD
+else
+    git diff --check
+fi
 
 echo "[TraceOS] Static preflight PASSED"
