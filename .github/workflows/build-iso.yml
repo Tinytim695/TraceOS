@@ -127,6 +127,9 @@ jobs:
           }
           trap cleanup_mounts EXIT
 
+          # Do not run msfconsole here. Root in an extracted squashfs does not
+          # use the Bootsnap warm user, so --version exceeds 90s. Presence is
+          # checked above; startup is checked in the booted QEMU CLI workflow.
           while IFS='|' read -r tool arg; do
             test -n "$tool"
             sudo chroot /tmp/traceos-root /bin/sh -c 'timeout 90 "$@" >/dev/null 2>&1' sh "$tool" "$arg"
@@ -137,7 +140,6 @@ jobs:
           nikto|-Version
           gobuster|version
           sqlmap|--version
-          msfconsole|--version
           exiftool|-ver
           identify|-version
           tesseract|--version
