@@ -15,8 +15,12 @@ from pathlib import Path
 iso = Path(sys.argv[1] if len(sys.argv) > 1 else "live-image-amd64.hybrid.iso")
 out = Path(sys.argv[2] if len(sys.argv) > 2 else "traceos-cli-e2e")
 state = Path(sys.argv[3] if len(sys.argv) > 3 else "traceos-cli-e2e-state")
-out.mkdir(exist_ok=True)
-state.mkdir(exist_ok=True)
+def ensure_output_directories(out_path: Path, state_path: Path) -> None:
+    out_path.mkdir(parents=True, exist_ok=True)
+    state_path.mkdir(parents=True, exist_ok=True)
+
+
+ensure_output_directories(out, state)
 serial = state / "serial.log"
 launch = state / "launch.log"
 
@@ -50,9 +54,46 @@ def valid_msfconsole_version(output):
     return bool(re.search(r"(?im)^\s*framework version:\s*\S+", output))
 
 
+def read_new_serial_chunk(serial_path: Path, processed_offset: int, scan_tail: str):
+    """Read only appended serial bytes while retaining a tail for split markers."""
+    if not serial_path.exists():
+        return processed_offset, scan_tail, ""
+
+    try:
+        with serial_path.open("rb") as handle:
+            handle.seek(0, 2)
+            current_size = handle.tell()
+            if current_size < processed_offset:
+                # Restart safely if the log was truncated or replaced.
+                processed_offset = 0
+                scan_tail = ""
+            handle.seek(processed_offset)
+            chunk = handle.read()
+            processed_offset = handle.tell()
+    except FileNotFoundError:
+        return processed_offset, scan_tail, ""
+
+    combined = scan_tail + chunk.decode("utf-8", "replace")
+    return processed_offset, combined[-64:], combined
+
+
+def has_hash_mismatch(output: str) -> bool:
+    """Require a real ledger hash mismatch, not a loosely matching error message."""
+    matches = re.findall(
+        r"(?m)^\\s*\\[FAIL\\]\\s+\\S+\\s+expected=([0-9a-f]{64})"
+        r"\\s+actual=([0-9a-f]{64})\\s*$",
+        output,
+    )
+    return any(expected != actual for expected, actual in matches)
+
+
 try:
+    processed_offset = 0
+    scan_tail = ""
     for _ in range(600):
-        s = serial.read_text(errors="replace") if serial.exists() else ""
+        processed_offset, scan_tail, s = read_new_serial_chunk(
+            serial, processed_offset, scan_tail
+        )
         if "TRACEOS_CI_E2E_PREFLIGHT=1" in s:
             last_stage = "PREFLIGHT"
         if "TRACEOS_CI_E2E_STARTED=1" in s:
@@ -203,8 +244,7 @@ try:
     verify_tamper_stdout = (out / "evidence-verify-tamper.stdout").read_text(errors="replace") if (out / "evidence-verify-tamper.stdout").exists() else ""
     timeline_stdout = (out / "timeline.stdout").read_text(errors="replace") if (out / "timeline.stdout").exists() else ""
     audit("VERIFY_PASS_OUTPUT", "1 checked, 0 failed" in verify_pass_stdout)
-    audit("VERIFY_TAMPER_HASH_MISMATCH",
-          "expected=" in verify_tamper_stdout and "missing or unsafe vault copy" not in verify_tamper_stdout)
+    audit("VERIFY_TAMPER_HASH_MISMATCH", has_hash_mismatch(verify_tamper_stdout))
 
     source_hash = ""
     try:

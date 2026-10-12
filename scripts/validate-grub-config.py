@@ -50,7 +50,7 @@ def _validate_live_entry(
     if not kernel_fields:
         raise GrubValidationError(f"{title!r} has an empty kernel line")
 
-    if "@" in kernel or "@" in initrd:
+    if re.search(r"@[A-Z_][A-Z0-9_]*@", kernel + " " + initrd):
         raise GrubValidationError(
             f"unresolved or malformed placeholder in {title!r}: "
             f"linux={kernel!r}, initrd={initrd!r}"
@@ -111,16 +111,23 @@ def validate_grub_config(grub_text: str, generated_config_text: str) -> None:
     if not re.search(r"(?m)^[ \t]*set default=0[ \t]*$", grub_text):
         raise GrubValidationError("default menu index is not zero")
 
-    traceos_entries = re.findall(
-        r"""(?m)^[ \t]*menuentry[ \t]+["'](TraceOS [^"']+)["']""",
+    all_entries = re.findall(
+        r"""(?m)^[ \t]*menuentry[ \t]+["']([^"']+)["']""",
         grub_text,
     )
+    if not all_entries:
+        raise GrubValidationError("no GRUB menu entries found")
+
+    traceos_entries = [entry for entry in all_entries if entry.startswith("TraceOS ")]
     if not traceos_entries:
         raise GrubValidationError("no TraceOS menu entries found")
-    if traceos_entries[0] != AMNESIC_TITLE:
+
+    # GRUB's default=0 is the first menuentry in the complete file, not the
+    # first TraceOS-labelled entry. That first entry must be the Amnesic mode.
+    if all_entries[0] != AMNESIC_TITLE:
         raise GrubValidationError(
-            "first TraceOS menu entry is not Amnesic "
-            f"(found {traceos_entries[0]!r})"
+            "first menu entry (GRUB default=0 target) is not Amnesic "
+            f"(found {all_entries[0]!r})"
         )
 
     _validate_live_entry(
