@@ -72,7 +72,25 @@ tar --no-same-owner -xzf amass_linux_amd64.tar.gz
 test -x amass_linux_amd64/amass
 install -m 0755 amass_linux_amd64/amass /usr/libexec/traceos/amass
 cp -a amass_linux_amd64/resources/. /usr/share/traceos/amass/
-/usr/libexec/traceos/amass -version | grep -F "5.1.1" >/dev/null
+check_amass_version() {
+    amass_binary="$1"
+    expected_version="$2"
+
+    # Amass may emit its version on stderr. Capture both streams before checking.
+    if ! amass_version_output="$("$amass_binary" -version 2>&1)"; then
+        printf '[TraceOS] Amass version probe failed for %s.\n' "$amass_binary" >&2
+        printf '%s\n' "$amass_version_output" >&2
+        return 1
+    fi
+
+    printf '%s\n' "$amass_version_output"
+    if ! printf '%s\n' "$amass_version_output" | grep -F "$expected_version" >/dev/null; then
+        printf '[TraceOS] Amass version output did not contain expected version %s.\n' "$expected_version" >&2
+        return 1
+    fi
+}
+
+check_amass_version /usr/libexec/traceos/amass 5.1.1
 cat > /usr/local/bin/amass <<'EOF'
 #!/bin/sh
 set -eu
