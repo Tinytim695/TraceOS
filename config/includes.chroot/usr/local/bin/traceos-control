@@ -284,6 +284,21 @@ def build_web_test_command(name: str, target: str, wordlist: str = WEB_WORDLIST)
     raise ValueError(f"Web Testing tool is not configured: {name}")
 
 
+def format_engagement_preview(playbook_id: str, steps: list[dict]) -> str:
+    """Render the exact confirmed command preview without requiring steps for local canary."""
+    if playbook_id == "purple-canary":
+        return (
+            "Write notes/purple-canary.txt in the active case, scan it with "
+            "the bundled YARA rule, and record detected or missed."
+        )
+    if not steps:
+        raise ValueError("Engagement produced no steps.")
+    return "\n".join(
+        " ".join(shlex.quote(part) for part in step["argv"])
+        for step in steps
+    )
+
+
 def require_web_test_tool(name: str) -> None:
     command = WEB_TEST_TOOL_COMMANDS.get(name)
     if command is None:
@@ -2279,7 +2294,7 @@ class TraceOSApp:
         def start_engagement() -> None:
             playbook_id = selected_id()
             if playbook_id == "purple-canary":
-                shown = "Write notes/purple-canary.txt in the active case, scan it with the bundled YARA rule, and record detected or missed."
+                steps = []
                 title = "Purple detection canary"
             else:
                 try:
@@ -2294,9 +2309,7 @@ class TraceOSApp:
                     messagebox.showerror("Engagement", str(exc), parent=self.root)
                     return
                 title = steps[0]["title"]
-                shown = "\n".join(
-                    " ".join(shlex.quote(part) for part in step["argv"]) for step in steps
-                )
+            shown = format_engagement_preview(playbook_id, steps)
             if not authorized.get():
                 messagebox.showwarning(
                     "Authorization required",
@@ -2304,9 +2317,6 @@ class TraceOSApp:
                     parent=self.root,
                 )
                 return
-            shown = "\n".join(
-                " ".join(shlex.quote(part) for part in step["argv"]) for step in steps
-            )
             if not messagebox.askyesno(
                 "Confirm engagement",
                 f"{title} will run these commands and record a purple exercise.\n\n{shown}",

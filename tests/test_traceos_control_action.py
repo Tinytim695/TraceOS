@@ -185,6 +185,23 @@ class ControlActionLifecycleTests(unittest.TestCase):
         self.assertIn("STDOUT (bounded preview)", rendered)
         self.assertIn("STDERR (bounded preview)", rendered)
 
+    def test_purple_canary_preview_does_not_require_playbook_steps(self):
+        preview = self.mod.format_engagement_preview("purple-canary", [])
+        self.assertIn("notes/purple-canary.txt", preview)
+        self.assertIn("YARA", preview)
+        self.assertIn("detected or missed", preview)
+
+    def test_regular_engagement_preview_formats_argv(self):
+        preview = self.mod.format_engagement_preview(
+            "nmap-quick",
+            [{"argv": ["nmap", "-sT", "127.0.0.1"]}],
+        )
+        self.assertEqual(preview, "nmap -sT 127.0.0.1")
+
+    def test_regular_engagement_preview_rejects_empty_steps(self):
+        with self.assertRaises(ValueError):
+            self.mod.format_engagement_preview("missing-steps", [])
+
     def test_investigation_save_is_unavailable_and_does_not_stage_evidence(self):
         app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
         app.root = object()
