@@ -80,8 +80,8 @@ def read_new_serial_chunk(serial_path: Path, processed_offset: int, scan_tail: s
 def has_hash_mismatch(output: str) -> bool:
     """Require a real ledger hash mismatch, not a loosely matching error message."""
     matches = re.findall(
-        r"(?m)^\\s*\\[FAIL\\]\\s+\\S+\\s+expected=([0-9a-f]{64})"
-        r"\\s+actual=([0-9a-f]{64})\\s*$",
+        r"(?m)^\s*\[FAIL\]\s+\S+\s+expected=([0-9a-f]{64})"
+        r"\s+actual=([0-9a-f]{64})\s*$",
         output,
     )
     return any(expected != actual for expected, actual in matches)
