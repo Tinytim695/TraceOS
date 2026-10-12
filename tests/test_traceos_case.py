@@ -1330,9 +1330,9 @@ class CaseStoreTests(unittest.TestCase):
         defence = namespace["DEFENCE_TOOL_SPECS"]
         wordlist = "/tmp/synthetic-wordlist.txt"
         expected = (
-            (assessment, "Nuclei Templates", "https://example.test", ["nuclei", "-u", "https://example.test", "-silent"]),
+            (assessment, "Nuclei Templates", "https://example.test", ["nuclei", "-u", "https://example.test", "-silent", "-rl", "20", "-exclude-tags", "dos,fuzz,intrusive"]),
             (assessment, "Dalfox XSS Check", "https://example.test/a", ["dalfox", "url", "https://example.test/a"]),
-            (assessment, "ffuf Content Discovery", "https://example.test", ["ffuf", "-u", "https://example.test/FUZZ", "-w", wordlist, "-mc", "200,204,301,302,307,401,403", "-s"]),
+            (assessment, "ffuf Content Discovery", "https://example.test", ["ffuf", "-u", "https://example.test/FUZZ", "-w", wordlist, "-rate", "20", "-mc", "200,204,301,302,307,401,403", "-s"]),
             (assessment, "NetExec SMB", "10.0.0.5", ["nxc", "smb", "10.0.0.5"]),
             (assessment, "Impacket AS-REP", "corp.example/alice", ["GetNPUsers.py", "corp.example/alice", "-no-pass"]),
             (assessment, "Kerbrute Console", "", ["bash", "-lc", "kerbrute; exec bash"]),

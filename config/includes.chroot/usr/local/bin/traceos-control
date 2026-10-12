@@ -363,9 +363,9 @@ def require_web_test_tool(name: str) -> None:
 
 
 ASSESSMENT_TOOL_SPECS = {
-    "Nuclei Templates": {"command": "nuclei", "mode": "url", "ui": "job", "argv": ["-u", "{target}", "-silent"]},
+    "Nuclei Templates": {"command": "nuclei", "mode": "url", "ui": "job", "argv": ["-u", "{target}", "-silent", "-rl", "20", "-exclude-tags", "dos,fuzz,intrusive"]},
     "Dalfox XSS Check": {"command": "dalfox", "mode": "url", "ui": "job", "argv": ["url", "{target}"]},
-    "ffuf Content Discovery": {"command": "ffuf", "mode": "url", "ui": "job", "argv": ["-u", "{fuzz}", "-w", "{wordlist}", "-mc", "200,204,301,302,307,401,403", "-s"]},
+    "ffuf Content Discovery": {"command": "ffuf", "mode": "url", "ui": "job", "argv": ["-u", "{fuzz}", "-w", "{wordlist}", "-rate", "20", "-mc", "200,204,301,302,307,401,403", "-s"]},
     "WAF Fingerprint": {"command": "wafw00f", "mode": "url", "ui": "job", "argv": ["{target}"]},
     "httpx Probe": {"command": "httpx", "mode": "url", "ui": "job", "argv": ["-silent", "-u", "{target}"]},
     "dnsx Lookup": {"command": "dnsx", "mode": "domain", "ui": "job", "argv": ["-silent", "-d", "{target}"]},
