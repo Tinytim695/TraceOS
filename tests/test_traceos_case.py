@@ -318,6 +318,23 @@ class CaseStoreTests(unittest.TestCase):
             [],
         )
 
+    def test_evidence_refuses_hardlinked_ledger_without_modifying_other_file(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_hardlinked_ledger_test")
+        record = self.store.create("Hardlinked Ledger")
+        source = self.home / "hardlinked-ledger-source.txt"
+        source.write_text("synthetic evidence\n", encoding="utf-8")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        outside = self.home / "outside-ledger-sentinel.tsv"
+        original = ledger.read_bytes()
+        outside.write_bytes(original)
+        ledger.unlink()
+        os.link(outside, ledger)
+
+        self.assertEqual(cli.add_evidence(str(source)), 1)
+        self.assertEqual(outside.read_bytes(), original)
+        self.assertEqual(ledger.read_bytes(), original)
+        self.assertEqual(list((record.path / "evidence").iterdir()), [])
+
     def test_evidence_ledger_fifo_is_rejected_without_blocking(self):
         cli = self._load_cli_for_evidence_test("traceos_cli_ledger_fifo_test")
         self.store.create("Ledger FIFO")

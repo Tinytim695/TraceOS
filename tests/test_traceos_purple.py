@@ -74,6 +74,19 @@ class PurpleLedgerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
 
+    def test_ledger_hard_link_is_rejected_without_modifying_external_file(self):
+        case = self.store.create("Purple Hard Link")
+        ledger = case.path / "notes/purple-exercises.jsonl"
+        outside = self.home / "outside-purple-ledger.txt"
+        original = "external sentinel must remain untouched\n"
+        outside.write_text(original, encoding="utf-8")
+        os.link(outside, ledger)
+
+        result = self.run_cli("plan", "T1059", "example.test", "expected telemetry")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(outside.read_text(encoding="utf-8"), original)
+        self.assertEqual(ledger.read_text(encoding="utf-8"), original)
+
     def test_ledger_fifo_is_rejected_without_blocking(self):
         case = self.store.create("Purple FIFO")
         ledger = case.path / "notes/purple-exercises.jsonl"
