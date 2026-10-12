@@ -119,6 +119,40 @@ def _process_group_exists(pgid: int) -> bool:
         return True
 
 
+def _process_group_has_live_member(pgid: int) -> bool:
+    """Ignore zombies but fail closed if a process group cannot be inspected."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return True
+
+    found_member = False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", "r", encoding="utf-8") as handle:
+                stat_text = handle.read()
+        except OSError:
+            continue
+        marker = stat_text.rfind(")")
+        if marker < 0:
+            continue
+        fields = stat_text[marker + 2:].split()
+        if len(fields) >= 3 and fields[2] == str(pgid):
+            found_member = True
+            if fields[0] != "Z":
+                return True
+    return not found_member
+
+
 def _stop_process_group(
     process: subprocess.Popen,
     term_grace: float = 0.5,
@@ -265,6 +299,25 @@ def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | Non
             selector.close()
             if ACTIVE_STEP_PROCESS is completed:
                 ACTIVE_STEP_PROCESS = None
+
+        if _process_group_has_live_member(completed.pid):
+            cleanup_ok = _stop_process_group(completed)
+            message = (
+                f"[TraceOS] UNEXPECTED CHILD PROCESS GROUP {step['name']}: "
+                "the command left live descendants after its leader exited.\n"
+            )
+            print(message, end="", file=sys.stderr)
+            if log_fd is not None:
+                _write_log(log_fd, message)
+            if not cleanup_ok:
+                failure = (
+                    f"[TraceOS] CLEANUP FAILED {step['name']}: "
+                    "the child process group could not be fully reaped.\n"
+                )
+                print(failure, end="", file=sys.stderr)
+                if log_fd is not None:
+                    _write_log(log_fd, failure)
+            return 125
 
         footer = f"[TraceOS] EXIT {step['name']} {last}\n"
         print(footer, end="", flush=True)

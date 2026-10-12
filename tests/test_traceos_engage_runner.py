@@ -15,7 +15,13 @@ RUNNER = ROOT / "config/includes.chroot/usr/local/bin/traceos-engage"
 
 def load_runner_functions():
     tree = ast.parse(RUNNER.read_text(encoding="utf-8"), filename=str(RUNNER))
-    wanted = {"_write_log", "_process_group_exists", "_stop_process_group", "_run_steps"}
+    wanted = {
+        "_write_log",
+        "_process_group_exists",
+        "_process_group_has_live_member",
+        "_stop_process_group",
+        "_run_steps",
+    }
     nodes = [
         node for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name in wanted
@@ -84,6 +90,32 @@ class TraceOSEngagementRunnerTests(unittest.TestCase):
             elapsed = time.monotonic() - started
             self.assertEqual(status, 124)
             self.assertLess(elapsed, 3.0)
+            time.sleep(1.4)
+            self.assertFalse(marker.exists())
+
+    def test_successful_leader_cannot_leave_a_background_child_running(self):
+        run_steps = self.functions["_run_steps"]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "detached-child-ran"
+            script = (
+                "import os,time\n"
+                "pid = os.fork()\n"
+                "if pid == 0:\n"
+                "    os.close(1)\n"
+                "    os.close(2)\n"
+                "    time.sleep(1.2)\n"
+                f"    open({str(marker)!r}, 'w').write('survived')\n"
+                "    os._exit(0)\n"
+                "os._exit(0)\n"
+            )
+            status = run_steps(
+                [{
+                    "name": "background-child",
+                    "argv": [sys.executable, "-c", script],
+                    "timeout": 3,
+                }]
+            )
+            self.assertEqual(status, 125)
             time.sleep(1.4)
             self.assertFalse(marker.exists())
 
