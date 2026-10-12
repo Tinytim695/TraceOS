@@ -232,6 +232,28 @@ class ControlActionLifecycleTests(unittest.TestCase):
         self.assertIsNone(app.active_process)
         self.assertIsNone(app.active_job_token)
 
+    def test_poll_job_does_not_finish_when_stdout_closes_before_process_exit(self):
+        app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
+        app.root = mock.Mock()
+        app.active_process = mock.Mock()
+        app.active_process.poll.return_value = None
+        app.active_job_token = "still-running"
+        app.active_job_label = "quiet task"
+        app.active_job_kind = None
+        app.active_job_attempt = None
+        app.output_queue = queue.Queue()
+        app.output_widget = None
+        app.job_output = "starting quiet task\n"
+        app._trace_diag = mock.Mock()
+        app.output_queue.put(("still-running", None))
+
+        app.poll_job()
+
+        self.assertIs(app.active_process.poll.return_value, None)
+        self.assertEqual(app.active_job_token, "still-running")
+        self.assertEqual(app.output_queue.get_nowait(), ("still-running", None))
+        app.root.after.assert_called_once_with(80, app.poll_job)
+
     def test_poll_job_reschedules_after_leader_exit_until_reader_sentinel(self):
         app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
         app.root = mock.Mock()

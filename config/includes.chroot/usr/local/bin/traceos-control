@@ -1201,6 +1201,13 @@ class TraceOSApp:
                 self.output_widget.insert("1.0", self.job_output)
                 self.output_widget.see("end")
                 self.output_widget.configure(state="disabled")
+        if finished and self.active_process is not None and self.active_process.poll() is None:
+            # A child can close stdout before the launcher exits. Keep the
+            # sentinel pending until the process is reaped so Stop still owns
+            # the process handle and exit status remains accurate.
+            self.output_queue.put((self.active_job_token, None))
+            self.root.after(80, self.poll_job)
+            return
         if finished:
             code = self.active_process.poll() if self.active_process else 0
             self.job_output += f"\n[TraceOS] Task finished with exit code {code}.\n"
