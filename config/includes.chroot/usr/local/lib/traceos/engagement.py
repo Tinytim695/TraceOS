@@ -187,7 +187,7 @@ PLAYBOOKS: dict[str, dict] = {
         "technique": "T1190",
         "expected": "TLS handshake logs on the target service",
         "steps": [
-            {"name": "testssl", "timeout": 300, "argv": ["testssl.sh", "--quiet", "--color", "0", "{url}"]},
+            {"name": "testssl", "timeout": 300, "argv": ["testssl", "--quiet", "--color", "0", "{url}"]},
             {"name": "sslscan", "timeout": 180, "argv": ["sslscan", "{url}"]},
         ],
     },

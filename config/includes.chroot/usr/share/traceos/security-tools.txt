@@ -41,7 +41,7 @@ BLUE|sleuthkit|filesystem forensics|local
 BLUE|plaso-log2timeline|forensic timeline generation|local
 BLUE|vol|volatile memory forensics|local
 BLUE|sigma|Sigma rule validation and conversion|local
-RED|testssl.sh|TLS and certificate assessment|authorized
+RED|testssl|TLS and certificate assessment|authorized
 RED|sslscan|TLS cipher and certificate inspection|authorized
 RED|nbtscan|NetBIOS enumeration|authorized/internal
 RED|onesixtyone|single-community SNMP name check|authorized/internal

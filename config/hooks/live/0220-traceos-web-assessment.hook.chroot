@@ -120,6 +120,13 @@ printf '%s\n' "$version_output" | grep -F "$ZAP_VERSION" >/dev/null
 rm -rf "$ZAP_TMP"
 cd /
 
+# Debian installs this package's command as testssl. Keep the familiar name too.
+if [ ! -x /usr/bin/testssl ]; then
+    echo "[TraceOS] Debian package testssl.sh did not install /usr/bin/testssl" >&2
+    exit 1
+fi
+ln -sfn /usr/bin/testssl /usr/local/bin/testssl.sh
+
 # web-assessment-tools.txt under config/includes.chroot is the authoritative
 # inventory. This hook installs the pinned binaries only and does not rewrite
 # the checked-in manifest.
