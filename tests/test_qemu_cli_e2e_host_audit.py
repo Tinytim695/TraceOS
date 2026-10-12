@@ -32,6 +32,11 @@ class QemuCliHostAuditTests(unittest.TestCase):
             + "expected=" + "a" * 64 + " actual=" + "b" * 64 + "\n"
         )
         self.assertTrue(check(good))
+        spaced_name = (
+            "[FAIL] evidence filename with spaces.txt expected="
+            + "a" * 64 + " actual=" + "b" * 64 + "\n"
+        )
+        self.assertTrue(check(spaced_name))
         same = "[FAIL] sample expected=" + "a" * 64 + " actual=" + "a" * 64 + "\n"
         self.assertFalse(check(same))
         missing = "[FAIL] missing or unsafe vault copy: sample\n"
