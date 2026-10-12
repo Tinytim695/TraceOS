@@ -92,6 +92,22 @@ EOF
 }
 
 
+assert_ui_matrix_status() {
+    local new_case_status="$1"
+    local image_status="$2"
+
+    if [[ "$new_case_status" != "PASS" ]]; then
+        echo "[TraceOS] QEMU New Case matrix is $new_case_status; GUI smoke cannot pass." >&2
+        return 1
+    fi
+    if [[ "$image_status" != "yes" ]]; then
+        echo "[TraceOS] QEMU image OSINT matrix did not reach a verified synthetic result." >&2
+        return 1
+    fi
+    return 0
+}
+
+
 cleanup() {
     if [[ -n "${QEMU_PID:-}" ]]; then
         kill "$QEMU_PID" 2>/dev/null || true
@@ -439,6 +455,22 @@ EOF
     reject_grub "missing username" "$fixture_dir/no-user.cfg"
 
     rm -rf "$fixture_dir"
+
+    # The GUI release gate must reject UNKNOWN as well as FAIL. Keep these
+    # fixtures here so the logic is checked even when no ISO has been built.
+    assert_ui_matrix_status PASS yes
+    if assert_ui_matrix_status UNKNOWN yes 2>/dev/null; then
+        echo "[TraceOS] Matrix gate accepted UNKNOWN New Case status." >&2
+        exit 1
+    fi
+    if assert_ui_matrix_status FAIL yes 2>/dev/null; then
+        echo "[TraceOS] Matrix gate accepted failed New Case status." >&2
+        exit 1
+    fi
+    if assert_ui_matrix_status PASS no 2>/dev/null; then
+        echo "[TraceOS] Matrix gate accepted missing image result." >&2
+        exit 1
+    fi
     echo "[TraceOS] QEMU GUI parser fixtures: PASS"
     exit 0
 fi
@@ -894,6 +926,17 @@ fi
 
 echo "[TraceOS] New Case GUI diagnostic matrix:"
 cat "$new_case_matrix"
+
+# These matrices are release-gating tests, not optional diagnostics. Preserve
+# screenshots and logs on failure so the next investigation has real evidence.
+if ! assert_ui_matrix_status "$status" "$image_result_rendered"; then
+    echo "[TraceOS] New Case matrix:" >&2
+    cat "$new_case_matrix" >&2 || true
+    echo "[TraceOS] Image OSINT matrix:" >&2
+    cat "$image_matrix" >&2 || true
+    exit 1
+fi
+echo "[TraceOS] Required QEMU GUI interaction matrices: PASS"
 
 rm -f "$OUT"/*.ppm
 
