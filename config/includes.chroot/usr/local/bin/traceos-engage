@@ -343,7 +343,7 @@ def _write_canary() -> str:
     try:
         fd = os.open(
             CANARY_NAME,
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
             0o600,
             dir_fd=notes_fd,
         )

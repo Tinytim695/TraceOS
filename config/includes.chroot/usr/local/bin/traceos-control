@@ -1269,7 +1269,9 @@ class TraceOSApp:
             self.active_job_kind = None
             self.active_job_attempt = None
             return
-        if self.active_process and self.active_process.poll() is None:
+        # Keep polling until the matching reader sentinel arrives. The process
+        # leader can exit before its reader thread has drained EOF and queued it.
+        if self.active_job_token is not None:
             self.root.after(80, self.poll_job)
 
     def stop_job(self) -> None:

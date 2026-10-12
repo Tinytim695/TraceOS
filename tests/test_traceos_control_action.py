@@ -232,6 +232,26 @@ class ControlActionLifecycleTests(unittest.TestCase):
         self.assertIsNone(app.active_process)
         self.assertIsNone(app.active_job_token)
 
+    def test_poll_job_reschedules_after_leader_exit_until_reader_sentinel(self):
+        app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
+        app.root = mock.Mock()
+        app.active_process = mock.Mock()
+        app.active_process.poll.return_value = 0
+        app.active_job_token = "task-token"
+        app.active_job_label = "quick task"
+        app.active_job_kind = None
+        app.active_job_attempt = None
+        app.output_queue = queue.Queue()
+        app.output_widget = None
+        app.job_output = "starting quick task\n"
+        app._trace_diag = mock.Mock()
+
+        app.poll_job()
+
+        self.assertIsNotNone(app.active_process)
+        self.assertEqual(app.active_job_token, "task-token")
+        app.root.after.assert_called_once_with(80, app.poll_job)
+
     def test_stop_process_group_terminates_descendant_processes(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = pathlib.Path(directory) / "child-survived"
