@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import selectors
+import signal
 import shlex
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from traceos_case import CaseError, CaseStore
 
 STORE = CaseStore()
 PURPLE = "/usr/local/bin/traceos-purple"
+ACTIVE_STEP_PROCESS: subprocess.Popen | None = None
 
 
 def die(message: str) -> None:
@@ -107,11 +109,84 @@ def _write_log(fd: int, text: str) -> None:
         written += count
 
 
+def _process_group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _stop_process_group(
+    process: subprocess.Popen,
+    term_grace: float = 0.5,
+    kill_timeout: float = 5.0,
+) -> bool:
+    """Terminate and reap an isolated command plus any descendants it spawned."""
+    signal_failed = False
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        signal_failed = True
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+    else:
+        if term_grace > 0:
+            time.sleep(term_grace)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            signal_failed = True
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            signal_failed = True
+    try:
+        process.wait(timeout=kill_timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return not signal_failed
+
+
+def _handle_termination(signum, _frame) -> None:
+    """Clean up an active command group before the engagement runner exits."""
+    process = ACTIVE_STEP_PROCESS
+    if process is not None:
+        _stop_process_group(process)
+    raise SystemExit(128 + signum)
+
+
 def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | None = None) -> int:
+    global ACTIVE_STEP_PROCESS
     last = 0
+
+    def emit(data: bytes) -> None:
+        if not data:
+            return
+        text = data.decode("utf-8", errors="replace")
+        print(text, end="", flush=True)
+        if log_fd is not None:
+            _write_log(log_fd, text)
+
     for step in steps:
         header = f"[TraceOS] START {step['name']}\n"
-        print(header, end="")
+        print(header, end="", flush=True)
         if log_fd is not None:
             _write_log(log_fd, header)
         try:
@@ -119,7 +194,7 @@ def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | Non
                 step["argv"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                start_new_session=True,
             )
         except OSError as exc:
             message = f"[TraceOS] FAILED {step['name']}: {exc}\n"
@@ -127,8 +202,11 @@ def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | Non
             if log_fd is not None:
                 _write_log(log_fd, message)
             return 127
+
+        ACTIVE_STEP_PROCESS = completed
         deadline = time.monotonic() + step["timeout"]
         selector = selectors.DefaultSelector()
+        pending = bytearray()
         try:
             assert completed.stdout is not None
             selector.register(completed.stdout, selectors.EVENT_READ)
@@ -138,28 +216,58 @@ def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | Non
                     raise subprocess.TimeoutExpired(step["argv"], step["timeout"])
                 if not selector.select(remaining):
                     raise subprocess.TimeoutExpired(step["argv"], step["timeout"])
-                try:
-                    line = completed.stdout.readline()
-                except UnicodeDecodeError as exc:
-                    line = f"[TraceOS] skipped an undecodable line: {exc}\n"
-                if line == "":
+
+                # os.read returns currently available bytes. TextIO.readline()
+                # can block past the deadline when a tool writes no newline.
+                chunk = os.read(completed.stdout.fileno(), 65536)
+                if not chunk:
+                    if pending:
+                        emit(bytes(pending))
+                        pending.clear()
                     break
-                print(line, end="")
-                if log_fd is not None:
-                    _write_log(log_fd, line)
-            last = completed.wait(timeout=5)
+
+                pending.extend(chunk)
+                while True:
+                    newline = pending.find(b"\n")
+                    if newline < 0:
+                        break
+                    emit(bytes(pending[: newline + 1]))
+                    del pending[: newline + 1]
+
+                # Bound memory if a tool emits a very long line or progress output
+                # without line breaks. The output stream remains fully recorded.
+                if len(pending) > 65536:
+                    emit(bytes(pending[:32768]))
+                    del pending[:32768]
+
+            remaining = deadline - time.monotonic()
+            last = completed.wait(timeout=max(0.0, remaining))
         except subprocess.TimeoutExpired:
-            completed.kill()
-            completed.wait(timeout=5)
+            if pending:
+                emit(bytes(pending))
+                pending.clear()
+            cleanup_ok = _stop_process_group(completed)
             message = f"[TraceOS] TIMEOUT {step['name']}\n"
             print(message, end="", file=sys.stderr)
             if log_fd is not None:
                 _write_log(log_fd, message)
+            if not cleanup_ok:
+                cleanup_message = (
+                    f"[TraceOS] CLEANUP FAILED {step['name']}: "
+                    "the command process group could not be fully reaped.\n"
+                )
+                print(cleanup_message, end="", file=sys.stderr)
+                if log_fd is not None:
+                    _write_log(log_fd, cleanup_message)
+                return 125
             return 124
         finally:
             selector.close()
+            if ACTIVE_STEP_PROCESS is completed:
+                ACTIVE_STEP_PROCESS = None
+
         footer = f"[TraceOS] EXIT {step['name']} {last}\n"
-        print(footer, end="")
+        print(footer, end="", flush=True)
         if log_fd is not None:
             _write_log(log_fd, footer)
         if last < 0 or last >= 126:
@@ -198,6 +306,8 @@ def _write_canary() -> str:
 
 
 def main(argv: list[str]) -> int:
+    signal.signal(signal.SIGTERM, _handle_termination)
+    signal.signal(signal.SIGINT, _handle_termination)
     if len(argv) < 2 or argv[1] in {"-h", "--help", "help"}:
         usage()
         return 0
