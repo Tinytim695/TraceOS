@@ -325,7 +325,7 @@ def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | Non
             _write_log(log_fd, footer)
         if last < 0 or last >= 126:
             return last
-    return last if preserve_last else 0
+    return last
 
 
 def _write_canary() -> str:
