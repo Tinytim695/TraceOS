@@ -719,7 +719,9 @@ class TraceOSApp:
 
     def _web_testing_shortcut(self, event: tk.Event) -> str:
         self.web_testing()
-        self.root.update_idletasks()
+        # Process Tk's pending redraw events before announcing readiness to the
+        # QEMU smoke harness, otherwise it can capture the previous page.
+        self.root.update()
         self._trace_diag("WEB_TESTING_PAGE_RENDERED", page="web")
         return "break"
 
@@ -2024,7 +2026,8 @@ class TraceOSApp:
         start_button.bind("<Return>", lambda _event: (start_image(), "break")[1])
         start_button.bind("<space>", lambda _event: (start_image(), "break")[1])
 
-        self.root.update_idletasks()
+        # Flush pending Tk redraws before the smoke harness sees the page marker.
+        self.root.update()
         source_entry.focus_set()
         self._trace_diag("image-osint-page-rendered", page="image")
     def osint(self) -> None:
