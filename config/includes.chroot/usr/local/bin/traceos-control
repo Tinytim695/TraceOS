@@ -718,7 +718,17 @@ class TraceOSApp:
         return "break"
 
     def _web_testing_shortcut(self, event: tk.Event) -> str:
-        self.web_testing()
+        try:
+            self.web_testing()
+        except Exception as exc:
+            self._trace_diag(
+                "WEB_TESTING_PAGE_FAILED",
+                exc_type=type(exc).__name__,
+                message=str(exc),
+            )
+            raise
+        # Flush drawing without re-entering the key handler. root.update()
+        # can nest the event loop here and never reach the smoke marker.
         self.root.update_idletasks()
         self._trace_diag("WEB_TESTING_PAGE_RENDERED", page="web")
         return "break"
@@ -2024,6 +2034,7 @@ class TraceOSApp:
         start_button.bind("<Return>", lambda _event: (start_image(), "break")[1])
         start_button.bind("<space>", lambda _event: (start_image(), "break")[1])
 
+        # Flush drawing without nesting the Tk event loop from this callback.
         self.root.update_idletasks()
         source_entry.focus_set()
         self._trace_diag("image-osint-page-rendered", page="image")
