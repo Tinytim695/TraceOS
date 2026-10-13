@@ -595,7 +595,21 @@ fi
 
 attempt=""
 if [[ -n "$gui_nonce" && -n "$gui_pid" ]]; then
-    attempt="$(extract_field "$(grep -F "stage=NEW_CASE_INPUT_RECEIVED" "$serial_log" 2>/dev/null | tail -n 1 || true)" attempt)"
+    # The GUI event logger writes to serial asynchronously after HMP accepts
+    # the key. Wait for the nonce/PID-scoped input marker before capturing its
+    # attempt number, otherwise a fast grep can race the event and default to
+    # attempt=1 while the actual dialog is attempt=2 (or later).
+    for _ in $(seq 1 15); do
+        input_line="$(grep -F "stage=NEW_CASE_INPUT_RECEIVED" "$serial_log" 2>/dev/null \
+            | grep -F "nonce=$gui_nonce" \
+            | grep -F "pid=$gui_pid" \
+            | tail -n 1 || true)"
+        if [[ -n "$input_line" ]]; then
+            attempt="$(extract_field "$input_line" attempt)"
+            break
+        fi
+        sleep 1
+    done
 fi
 [[ -n "$attempt" ]] || attempt="1"
 
