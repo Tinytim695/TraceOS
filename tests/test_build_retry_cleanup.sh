@@ -60,6 +60,14 @@ assert_purge_definition_fails_closed() {
   [[ "$body" != *"|| true"* ]] || fail "purge failure is still ignored"
 }
 
+assert_dependency_checked_before_tree_mutation() {
+  local check_line install_line
+  check_line="$(grep -n 'command -v lb' "$ROOT/build.sh" | head -n 1 | cut -d: -f1)"
+  install_line="$(grep -n 'install -D config/third-party/blackbird-requirements.txt' "$ROOT/build.sh" | head -n 1 | cut -d: -f1)"
+  [[ -n "$check_line" && -n "$install_line" ]] || fail "build dependency or lock-file install line missing"
+  [[ "$check_line" -lt "$install_line" ]] || fail "build tree is mutated before live-build dependency check"
+}
+
 assert_initial_cleanup_failure_stops_before_configure() {
   load_build
   lb_clean_purge() { mark purges; return 4; }
@@ -114,6 +122,7 @@ assert_successful_retry_after_one_purge() {
   [[ "$(count configured)" -eq 1 ]] || fail "expected 1 reconfigure before success, got $(count configured)"
 }
 
+assert_dependency_checked_before_tree_mutation
 assert_purge_definition_fails_closed
 assert_initial_cleanup_failure_stops_before_configure
 assert_retry_stops_when_purge_fails
