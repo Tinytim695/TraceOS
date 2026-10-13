@@ -70,6 +70,10 @@ def _open_new_ledger(case: CaseRecord, create: bool) -> tuple[int, int]:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise OSError("Purple ledger is not a regular file.")
+        if info.st_nlink != 1:
+            raise OSError(
+                "Purple ledger has multiple hard links; refusing a write outside the case."
+            )
         os.fchmod(fd, 0o600)
         return notes_fd, fd
     except OSError as exc:

@@ -5,6 +5,9 @@ OSINT|maigret|username investigation|external
 OSINT|h8mail|email OSINT|external
 OSINT|blackbird|username/email discovery|external
 OSINT|subfinder|passive subdomain discovery|external/passive
+OSINT|amass|attack-surface mapping|external/passive
+OSINT|urlfinder|historical and source URL discovery|external/passive
+RED|katana|bounded web crawl|authorized
 OSINT|whois|registration lookup|external
 OSINT|dig|DNS lookup|external
 RED|nmap|network/service discovery|authorized
@@ -38,4 +41,16 @@ BLUE|sleuthkit|filesystem forensics|local
 BLUE|plaso-log2timeline|forensic timeline generation|local
 BLUE|vol|volatile memory forensics|local
 BLUE|sigma|Sigma rule validation and conversion|local
+RED|testssl|TLS and certificate assessment|authorized
+RED|sslscan|TLS cipher and certificate inspection|authorized
+RED|nbtscan|NetBIOS enumeration|authorized/internal
+RED|onesixtyone|single-community SNMP name check|authorized/internal
+RED|ike-scan|IPsec handshake probe|authorized/internal
+RED|hydra|scoped authentication audit, four tasks, one service|authorized
+RED|masscan|rate-capped port scan, 1000 packets per second|authorized
+BLUE|lynis|host hardening audit|local
+BLUE|rkhunter|rootkit and file-change checks|local
+BLUE|chkrootkit|local rootkit scan|local
+BLUE|auditctl|Linux audit status|local
 PURPLE|traceos-purple|exercise/detection ledger|case
+PURPLE|traceos-engage|scoped red, blue and purple playbooks|authorized/local

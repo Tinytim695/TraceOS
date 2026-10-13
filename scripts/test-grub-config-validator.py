@@ -86,8 +86,16 @@ def main() -> int:
             1,
         ),
     )
+    expect_pass(
+        "ordinary at-sign in a kernel argument is accepted",
+        VALID_GRUB.replace(
+            "findiso=${iso_path} nopersistence splash",
+            "findiso=${iso_path} operator=dev@lab nopersistence splash",
+            1,
+        ),
+    )
     expect_fail(
-        "arbitrary unresolved at-sign in kernel arguments",
+        "unresolved @NAME@ placeholder in kernel arguments",
         VALID_GRUB.replace(
             "findiso=${iso_path} nopersistence nomodeset",
             "findiso=${iso_path} @UNRESOLVED@ nopersistence nomodeset",
@@ -108,8 +116,8 @@ def main() -> int:
         'menuentry "TraceOS Amnesic (no persistent storage)" {',
         1,
     )
-    expect_pass(
-        "unrelated global menuentry does not mask TraceOS ordering",
+    expect_fail(
+        "unrelated global menuentry before Amnesic becomes the default=0 target",
         unrelated_before_traceos,
     )
 

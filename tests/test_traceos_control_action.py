@@ -1,10 +1,15 @@
 import importlib.machinery
 import types
 import importlib.util
+import os
 import pathlib
 import queue
+import signal
+import subprocess
 import sys
+import tempfile
 import threading
+import time
 import unittest
 import uuid
 from unittest import mock
@@ -184,6 +189,122 @@ class ControlActionLifecycleTests(unittest.TestCase):
         self.assertIn("Field count: 3", rendered)
         self.assertIn("STDOUT (bounded preview)", rendered)
         self.assertIn("STDERR (bounded preview)", rendered)
+
+    def test_purple_canary_preview_does_not_require_playbook_steps(self):
+        preview = self.mod.format_engagement_preview("purple-canary", [])
+        self.assertIn("notes/purple-canary.txt", preview)
+        self.assertIn("YARA", preview)
+        self.assertIn("detected or missed", preview)
+
+    def test_regular_engagement_preview_formats_argv(self):
+        preview = self.mod.format_engagement_preview(
+            "nmap-quick",
+            [{"argv": ["nmap", "-sT", "127.0.0.1"]}],
+        )
+        self.assertEqual(preview, "nmap -sT 127.0.0.1")
+
+    def test_regular_engagement_preview_rejects_empty_steps(self):
+        with self.assertRaises(ValueError):
+            self.mod.format_engagement_preview("missing-steps", [])
+
+    def test_poll_job_ignores_stale_output_and_completion_tokens(self):
+        app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
+        app.root = mock.Mock()
+        app.active_process = mock.Mock()
+        app.active_process.poll.return_value = 0
+        app.active_job_token = "current-task"
+        app.active_job_label = "current"
+        app.active_job_kind = None
+        app.active_job_attempt = None
+        app.output_queue = queue.Queue()
+        app.output_widget = None
+        app.job_output = "starting current task\n"
+        app._trace_diag = mock.Mock()
+        app.output_queue.put(("old-task", "STALE OUTPUT\n"))
+        app.output_queue.put(("old-task", None))
+        app.output_queue.put(("current-task", "CURRENT OUTPUT\n"))
+        app.output_queue.put(("current-task", None))
+
+        app.poll_job()
+
+        self.assertNotIn("STALE OUTPUT", app.job_output)
+        self.assertIn("CURRENT OUTPUT", app.job_output)
+        self.assertIsNone(app.active_process)
+        self.assertIsNone(app.active_job_token)
+
+    def test_poll_job_does_not_finish_when_stdout_closes_before_process_exit(self):
+        app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
+        app.root = mock.Mock()
+        app.active_process = mock.Mock()
+        app.active_process.poll.return_value = None
+        app.active_job_token = "still-running"
+        app.active_job_label = "quiet task"
+        app.active_job_kind = None
+        app.active_job_attempt = None
+        app.output_queue = queue.Queue()
+        app.output_widget = None
+        app.job_output = "starting quiet task\n"
+        app._trace_diag = mock.Mock()
+        app.output_queue.put(("still-running", None))
+
+        app.poll_job()
+
+        self.assertIs(app.active_process.poll.return_value, None)
+        self.assertEqual(app.active_job_token, "still-running")
+        self.assertEqual(app.output_queue.get_nowait(), ("still-running", None))
+        app.root.after.assert_called_once_with(80, app.poll_job)
+
+    def test_poll_job_reschedules_after_leader_exit_until_reader_sentinel(self):
+        app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)
+        app.root = mock.Mock()
+        app.active_process = mock.Mock()
+        app.active_process.poll.return_value = 0
+        app.active_job_token = "task-token"
+        app.active_job_label = "quick task"
+        app.active_job_kind = None
+        app.active_job_attempt = None
+        app.output_queue = queue.Queue()
+        app.output_widget = None
+        app.job_output = "starting quick task\n"
+        app._trace_diag = mock.Mock()
+
+        app.poll_job()
+
+        self.assertIsNotNone(app.active_process)
+        self.assertEqual(app.active_job_token, "task-token")
+        app.root.after.assert_called_once_with(80, app.poll_job)
+
+    def test_stop_process_group_terminates_descendant_processes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = pathlib.Path(directory) / "child-survived"
+            script = (
+                "import os, time\n"
+                "pid = os.fork()\n"
+                "if pid == 0:\n"
+                "    time.sleep(1.3)\n"
+                f"    open({str(marker)!r}, 'w').write('survived')\n"
+                "    os._exit(0)\n"
+                "time.sleep(30)\n"
+            )
+            process = subprocess.Popen(
+                [sys.executable, "-c", script],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            try:
+                self.assertTrue(
+                    self.mod.terminate_process_group(
+                        process, term_timeout=0.1, kill_timeout=2
+                    )
+                )
+                time.sleep(1.5)
+                self.assertFalse(marker.exists())
+            finally:
+                if process.poll() is None:
+                    self.mod.terminate_process_group(
+                        process, term_timeout=0.1, kill_timeout=2
+                    )
 
     def test_investigation_save_is_unavailable_and_does_not_stage_evidence(self):
         app = self.mod.TraceOSApp.__new__(self.mod.TraceOSApp)

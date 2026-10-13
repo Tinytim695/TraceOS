@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""Run one authorized TraceOS engagement playbook."""
+from __future__ import annotations
+
+import os
+import selectors
+import signal
+import shlex
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+
+TRACEOS_LIB = "/usr/local/lib/traceos"
+if TRACEOS_LIB not in sys.path:
+    sys.path.insert(0, TRACEOS_LIB)
+
+from engagement import CANARY_NAME, CANARY_TEXT, build_playbook, list_playbooks
+from traceos_case import CaseError, CaseStore
+
+STORE = CaseStore()
+PURPLE = "/usr/local/bin/traceos-purple"
+ACTIVE_STEP_PROCESS: subprocess.Popen | None = None
+
+
+def die(message: str) -> None:
+    print(f"[TraceOS] {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def usage() -> None:
+    print(
+        """TraceOS engagement
+Usage:
+  traceos-engage list
+  traceos-engage show PLAYBOOK [TARGET] [SERVICE USERS PASSWORDS]
+  traceos-engage run PLAYBOOK [TARGET] [SERVICE USERS PASSWORDS]
+  traceos-engage canary
+
+run requires TRACEOS_ENGAGE_AUTHORIZED=1 and an active case.
+No playbook performs denial of service.
+"""
+    )
+
+
+def _print_steps(steps: list[dict]) -> None:
+    if not steps:
+        die("Engagement produced no steps.")
+    first = steps[0]
+    print(f"[TraceOS] {first['team']} / {first['title']}")
+    print(f"[TraceOS] Technique {first['technique']}")
+    print(f"[TraceOS] Expected detection: {first['expected']}")
+    for number, step in enumerate(steps, start=1):
+        rendered = " ".join(shlex.quote(part) for part in step["argv"])
+        print(f"{number}. {step['name']} ({step['timeout']}s)")
+        print(f"   {rendered}")
+
+
+def _plan(steps: list[dict], target: str) -> None:
+    first = steps[0]
+    subprocess.run(
+        [
+            sys.executable,
+            PURPLE,
+            "plan",
+            first["technique"],
+            target or "local",
+            first["expected"],
+        ],
+        check=True,
+    )
+
+
+def _case_log(playbook_id: str):
+    try:
+        case = STORE.current()
+    except CaseError as exc:
+        die(f"Cannot determine active case: {exc}")
+    if case is None:
+        die("No active case. Create or select a case first.")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe = "".join(character if character.isalnum() or character == "-" else "-" for character in playbook_id)
+    name = f"engagement-{stamp}-{safe}.log"
+    try:
+        notes_fd = STORE.open_required_dir(case.path, "notes")
+    except CaseError as exc:
+        die(f"Cannot open case notes: {exc}")
+    fd = None
+    try:
+        fd = os.open(
+            name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=notes_fd,
+        )
+    except OSError as exc:
+        os.close(notes_fd)
+        die(f"Cannot create the engagement record: {exc}")
+    return notes_fd, fd, str(case.path / "notes" / name)
+
+
+def _write_log(fd: int, text: str) -> None:
+    payload = text.encode("utf-8", errors="replace")
+    written = 0
+    while written < len(payload):
+        count = os.write(fd, payload[written:])
+        if count <= 0:
+            break
+        written += count
+
+
+def _process_group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _process_group_has_live_member(pgid: int) -> bool:
+    """Ignore zombies but fail closed if a process group cannot be inspected."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return True
+
+    found_member = False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", "r", encoding="utf-8") as handle:
+                stat_text = handle.read()
+        except OSError:
+            continue
+        marker = stat_text.rfind(")")
+        if marker < 0:
+            continue
+        fields = stat_text[marker + 2:].split()
+        if len(fields) >= 3 and fields[2] == str(pgid):
+            found_member = True
+            if fields[0] != "Z":
+                return True
+    return not found_member
+
+
+def _stop_process_group(
+    process: subprocess.Popen,
+    term_grace: float = 0.5,
+    kill_timeout: float = 5.0,
+) -> bool:
+    """Terminate and reap an isolated command plus any descendants it spawned."""
+    signal_failed = False
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        signal_failed = True
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+    else:
+        if term_grace > 0:
+            time.sleep(term_grace)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            signal_failed = True
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            signal_failed = True
+    try:
+        process.wait(timeout=kill_timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return not signal_failed
+
+
+def _handle_termination(signum, _frame) -> None:
+    """Clean up an active command group before the engagement runner exits."""
+    process = ACTIVE_STEP_PROCESS
+    if process is not None:
+        _stop_process_group(process)
+    raise SystemExit(128 + signum)
+
+
+def _run_steps(steps: list[dict], preserve_last: bool = False, log_fd: int | None = None) -> int:
+    global ACTIVE_STEP_PROCESS
+    last = 0
+
+    def emit(data: bytes) -> None:
+        if not data:
+            return
+        text = data.decode("utf-8", errors="replace")
+        print(text, end="", flush=True)
+        if log_fd is not None:
+            _write_log(log_fd, text)
+
+    for step in steps:
+        header = f"[TraceOS] START {step['name']}\n"
+        print(header, end="", flush=True)
+        if log_fd is not None:
+            _write_log(log_fd, header)
+        try:
+            completed = subprocess.Popen(
+                step["argv"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            message = f"[TraceOS] FAILED {step['name']}: {exc}\n"
+            print(message, end="", file=sys.stderr)
+            if log_fd is not None:
+                _write_log(log_fd, message)
+            return 127
+
+        ACTIVE_STEP_PROCESS = completed
+        deadline = time.monotonic() + step["timeout"]
+        selector = selectors.DefaultSelector()
+        pending = bytearray()
+        try:
+            assert completed.stdout is not None
+            selector.register(completed.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(step["argv"], step["timeout"])
+                if not selector.select(remaining):
+                    raise subprocess.TimeoutExpired(step["argv"], step["timeout"])
+
+                # os.read returns currently available bytes. TextIO.readline()
+                # can block past the deadline when a tool writes no newline.
+                chunk = os.read(completed.stdout.fileno(), 65536)
+                if not chunk:
+                    if pending:
+                        emit(bytes(pending))
+                        pending.clear()
+                    break
+
+                pending.extend(chunk)
+                while True:
+                    newline = pending.find(b"\n")
+                    if newline < 0:
+                        break
+                    emit(bytes(pending[: newline + 1]))
+                    del pending[: newline + 1]
+
+                # Bound memory if a tool emits a very long line or progress output
+                # without line breaks. The output stream remains fully recorded.
+                if len(pending) > 65536:
+                    emit(bytes(pending[:32768]))
+                    del pending[:32768]
+
+            remaining = deadline - time.monotonic()
+            last = completed.wait(timeout=max(0.0, remaining))
+        except subprocess.TimeoutExpired:
+            if pending:
+                emit(bytes(pending))
+                pending.clear()
+            cleanup_ok = _stop_process_group(completed)
+            message = f"[TraceOS] TIMEOUT {step['name']}\n"
+            print(message, end="", file=sys.stderr)
+            if log_fd is not None:
+                _write_log(log_fd, message)
+            if not cleanup_ok:
+                cleanup_message = (
+                    f"[TraceOS] CLEANUP FAILED {step['name']}: "
+                    "the command process group could not be fully reaped.\n"
+                )
+                print(cleanup_message, end="", file=sys.stderr)
+                if log_fd is not None:
+                    _write_log(log_fd, cleanup_message)
+                return 125
+            return 124
+        finally:
+            selector.close()
+            if ACTIVE_STEP_PROCESS is completed:
+                ACTIVE_STEP_PROCESS = None
+
+        if _process_group_has_live_member(completed.pid):
+            cleanup_ok = _stop_process_group(completed)
+            message = (
+                f"[TraceOS] UNEXPECTED CHILD PROCESS GROUP {step['name']}: "
+                "the command left live descendants after its leader exited.\n"
+            )
+            print(message, end="", file=sys.stderr)
+            if log_fd is not None:
+                _write_log(log_fd, message)
+            if not cleanup_ok:
+                failure = (
+                    f"[TraceOS] CLEANUP FAILED {step['name']}: "
+                    "the child process group could not be fully reaped.\n"
+                )
+                print(failure, end="", file=sys.stderr)
+                if log_fd is not None:
+                    _write_log(log_fd, failure)
+            return 125
+
+        footer = f"[TraceOS] EXIT {step['name']} {last}\n"
+        print(footer, end="", flush=True)
+        if log_fd is not None:
+            _write_log(log_fd, footer)
+        if last < 0 or last >= 126:
+            return last
+    return last
+
+
+def _write_canary() -> str:
+    try:
+        case = STORE.current()
+    except CaseError as exc:
+        die(f"Cannot determine active case: {exc}")
+    if case is None:
+        die("No active case. Create or select a case first.")
+    try:
+        notes_fd = STORE.open_required_dir(case.path, "notes")
+    except CaseError as exc:
+        die(f"Cannot open case notes: {exc}")
+    fd = None
+    try:
+        fd = os.open(
+            CANARY_NAME,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=notes_fd,
+        )
+        os.write(fd, CANARY_TEXT.encode("utf-8"))
+        os.fsync(fd)
+    except OSError as exc:
+        die(f"Cannot write the purple canary: {exc}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(notes_fd)
+    return str(case.path / "notes" / CANARY_NAME)
+
+
+def main(argv: list[str]) -> int:
+    signal.signal(signal.SIGTERM, _handle_termination)
+    signal.signal(signal.SIGINT, _handle_termination)
+    if len(argv) < 2 or argv[1] in {"-h", "--help", "help"}:
+        usage()
+        return 0
+    action = argv[1]
+    if action == "list":
+        for item in list_playbooks():
+            print(f"{item['id']}\t{item['team']}\t{item['title']}")
+        return 0
+    if action == "canary":
+        if os.environ.get("TRACEOS_ENGAGE_AUTHORIZED") != "1":
+            die("Set TRACEOS_ENGAGE_AUTHORIZED=1 after confirming this local detection test.")
+        canary = _write_canary()
+        steps = build_playbook("purple-canary", canary_path=canary)
+        _print_steps(steps)
+        _plan(steps, "case-local-canary")
+        status = _run_recorded("purple-canary", steps, preserve_last=True)
+        if status == 0:
+            outcome = "detected"
+        elif status == 1:
+            outcome = "missed"
+        else:
+            return status
+        subprocess.run(
+            [sys.executable, PURPLE, "result", "canary", outcome, "YARA canary scan"],
+            check=False,
+        )
+        return 0 if outcome == "detected" else 1
+    if action not in {"show", "run"} or len(argv) < 3:
+        die("Invalid arguments. Use --help.")
+    playbook_id = argv[2]
+    target = argv[3] if len(argv) > 3 else ""
+    service = argv[4] if len(argv) > 4 else "ssh"
+    users = argv[5] if len(argv) > 5 else ""
+    passwords = argv[6] if len(argv) > 6 else ""
+    try:
+        steps = build_playbook(playbook_id, target, users, passwords, service)
+    except ValueError as exc:
+        die(str(exc))
+    _print_steps(steps)
+    if action == "show":
+        return 0
+    if os.environ.get("TRACEOS_ENGAGE_AUTHORIZED") != "1":
+        die("Refusing to run. Confirm authorization in Control Centre first.")
+    try:
+        _plan(steps, target or "local")
+    except subprocess.CalledProcessError:
+        die("Purple plan was not recorded. Select a case, then run the engagement again.")
+    return _run_recorded(playbook_id, steps)
+
+
+def _run_recorded(playbook_id: str, steps: list[dict], preserve_last: bool = False) -> int:
+    notes_fd, log_fd, path = _case_log(playbook_id)
+    print(f"[TraceOS] Case record: {path}")
+    try:
+        _write_log(log_fd, f"[TraceOS] Case record: {path}\n")
+        return _run_steps(steps, preserve_last=preserve_last, log_fd=log_fd)
+    finally:
+        try:
+            os.fsync(log_fd)
+        finally:
+            os.close(log_fd)
+            os.close(notes_fd)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

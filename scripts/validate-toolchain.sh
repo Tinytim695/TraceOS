@@ -101,9 +101,9 @@ fi
 echo "[TraceOS] OSINT"
 for cmd in sherlock maigret h8mail holehe blackbird phoneinfoga ghunt theHarvester dnsrecon dnstwist subfinder whois dig; do check_cmd "$cmd"; done
 echo "[TraceOS] INFRASTRUCTURE RECON"
-for cmd in dnsx httpx naabu; do check_cmd "$cmd"; done
+for cmd in dnsx httpx naabu katana urlfinder amass; do check_cmd "$cmd"; done
 echo "[TraceOS] WEB APPLICATION ASSESSMENT"
-for cmd in nmap ffuf gobuster sqlmap whatweb wafw00f nuclei zap nikto dalfox; do check_cmd "$cmd"; done
+for cmd in nmap ffuf gobuster sqlmap whatweb wafw00f nuclei zap nikto dalfox testssl sslscan; do check_cmd "$cmd"; done
 echo "[TraceOS] BLOCK 6A OFFENSIVE OPERATIONS"
 for cmd in msfconsole msfvenom msfdb enum4linux-ng; do check_cmd "$cmd"; done
 echo "[TraceOS] BLOCK 6B AD / AUTHENTICATION ASSESSMENT"
@@ -113,10 +113,19 @@ for cmd in tcpdump tshark wireshark yara; do check_cmd "$cmd"; done
 for cmd in fls mmls tsk_recover; do check_cmd "$cmd"; done
 for cmd in plaso-log2timeline plaso-psort; do check_cmd "$cmd"; done
 for cmd in suricata suricata-update; do check_cmd "$cmd"; done
-for cmd in vol sigma; do check_cmd "$cmd"; done
+for cmd in vol sigma lynis rkhunter chkrootkit auditctl binwalk foremost steghide; do check_cmd "$cmd"; done
 echo "[TraceOS] ENTERPRISE / ACTIVE DIRECTORY"
-for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno; do check_cmd "$cmd"; done
+for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno nbtscan onesixtyone ike-scan hydra masscan proxychains4 socat ncat; do check_cmd "$cmd"; done
 for cmd in GetNPUsers.py GetUserSPNs.py GetADUsers.py; do check_cmd "$cmd"; done
 echo "[TraceOS] PURPLE"
 check_cmd traceos-purple
+check_cmd traceos-engage
+echo "[TraceOS] OFFLINE WORDLISTS"
+for wordlist in rockyou.txt 10k-most-common.txt xato-net-10-million-passwords-100000.txt seclists-web-common.txt subdomains-top1million-5000.txt; do
+  if [[ ! -s "$ROOT/usr/share/traceos/wordlists/$wordlist" ]]; then
+    printf '[MISSING] wordlist %s\n' "$wordlist" >&2
+    exit 1
+  fi
+  printf '[OK] wordlist %s\n' "$wordlist"
+done
 echo "[TraceOS] All required OSINT/Recon/Web/Red/Blue/DFIR/Enterprise/Purple command surfaces are packaged."

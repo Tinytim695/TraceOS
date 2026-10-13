@@ -61,6 +61,11 @@ class ValidateToolchainResolutionTests(unittest.TestCase):
         (self.root / "usr/bin/tool-loop").symlink_to("tool")
         self.assertNotEqual(self.resolve().returncode, 0)
 
+    def test_absolute_guest_symlink_loop_is_rejected(self):
+        (self.root / "usr/bin/tool").symlink_to("/usr/bin/tool-loop")
+        (self.root / "usr/bin/tool-loop").symlink_to("/usr/bin/tool")
+        self.assertNotEqual(self.resolve().returncode, 0)
+
     def test_directory_as_command_is_rejected(self):
         target = self.root / "usr/bin/tool"
         target.mkdir()

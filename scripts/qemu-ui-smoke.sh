@@ -92,6 +92,22 @@ EOF
 }
 
 
+assert_ui_matrix_status() {
+    local new_case_status="$1"
+    local image_status="$2"
+
+    if [[ "$new_case_status" != "PASS" ]]; then
+        echo "[TraceOS] QEMU New Case matrix is $new_case_status; GUI smoke cannot pass." >&2
+        return 1
+    fi
+    if [[ "$image_status" != "yes" ]]; then
+        echo "[TraceOS] QEMU image OSINT matrix did not reach a verified synthetic result." >&2
+        return 1
+    fi
+    return 0
+}
+
+
 cleanup() {
     if [[ -n "${QEMU_PID:-}" ]]; then
         kill "$QEMU_PID" 2>/dev/null || true
@@ -439,6 +455,22 @@ EOF
     reject_grub "missing username" "$fixture_dir/no-user.cfg"
 
     rm -rf "$fixture_dir"
+
+    # The GUI release gate must reject UNKNOWN as well as FAIL. Keep these
+    # fixtures here so the logic is checked even when no ISO has been built.
+    assert_ui_matrix_status PASS yes
+    if assert_ui_matrix_status UNKNOWN yes 2>/dev/null; then
+        echo "[TraceOS] Matrix gate accepted UNKNOWN New Case status." >&2
+        exit 1
+    fi
+    if assert_ui_matrix_status FAIL yes 2>/dev/null; then
+        echo "[TraceOS] Matrix gate accepted failed New Case status." >&2
+        exit 1
+    fi
+    if assert_ui_matrix_status PASS no 2>/dev/null; then
+        echo "[TraceOS] Matrix gate accepted missing image result." >&2
+        exit 1
+    fi
     echo "[TraceOS] QEMU GUI parser fixtures: PASS"
     exit 0
 fi
@@ -493,17 +525,35 @@ capture_workspace_page() {
         return 1
     fi
 
-    capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
-    convert "$ppm" -resize 1280x720 -strip "$png"
-    identify "$png"
-    test -s "$png"
-    local spread
-    spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+    # The page marker is emitted after idle drawing. Give the guest a few
+    # frames to put that page on the framebuffer, then reject a capture that
+    # is still the Dashboard.
+    local page_pixel_diff=""
+    local spread=""
+    local attempt
+    for attempt in $(seq 1 8); do
+        capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
+        convert "$ppm" -resize 1280x720 -strip "$png"
+        identify "$png"
+        test -s "$png"
+        page_pixel_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$png" null: 2>&1 || true)"
+        spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+        if [[ "$page_pixel_diff" =~ ^[0-9]+$ ]] && (( page_pixel_diff > 5000 )) && awk "BEGIN { exit !($spread > 0.02) }"; then
+            break
+        fi
+        echo "[TraceOS] $page framebuffer not ready (attempt $attempt, changed pixels: ${page_pixel_diff:-unknown})." >&2
+        sleep 1
+    done
+    if [[ ! "$page_pixel_diff" =~ ^[0-9]+$ ]] || (( page_pixel_diff <= 5000 )); then
+        echo "[TraceOS] $page screenshot is indistinguishable from the Dashboard (changed pixels: ${page_pixel_diff:-unknown})." >&2
+        return 1
+    fi
+    echo "[TraceOS] $page differs from Dashboard across $page_pixel_diff pixels."
     if ! awk "BEGIN { exit !($spread > 0.02) }"; then
         echo "[TraceOS] $page page screenshot is blank or static." >&2
         return 1
     fi
-    printf "%s_UI=PASS\n%s_SHA256=%s\n" "$label" "$label" "$(sha256sum "$png" | awk '{print $1}')" >>"$workspace_matrix"
+    printf "%s_UI=PASS\n%s_SHA256=%s\n%s_DASHBOARD_PIXEL_DIFF=%s\n" "$label" "$label" "$(sha256sum "$png" | awk '{print $1}')" "$label" "$page_pixel_diff" >>"$workspace_matrix"
     echo "[TraceOS] $page workspace rendered and captured."
 }
 
@@ -563,7 +613,21 @@ fi
 
 attempt=""
 if [[ -n "$gui_nonce" && -n "$gui_pid" ]]; then
-    attempt="$(extract_field "$(grep -F "stage=NEW_CASE_INPUT_RECEIVED" "$serial_log" 2>/dev/null | tail -n 1 || true)" attempt)"
+    # The GUI event logger writes to serial asynchronously after HMP accepts
+    # the key. Wait for the nonce/PID-scoped input marker before capturing its
+    # attempt number, otherwise a fast grep can race the event and default to
+    # attempt=1 while the actual dialog is attempt=2 (or later).
+    for _ in $(seq 1 15); do
+        input_line="$(grep -F "stage=NEW_CASE_INPUT_RECEIVED" "$serial_log" 2>/dev/null \
+            | grep -F "nonce=$gui_nonce" \
+            | grep -F "pid=$gui_pid" \
+            | tail -n 1 || true)"
+        if [[ -n "$input_line" ]]; then
+            attempt="$(extract_field "$input_line" attempt)"
+            break
+        fi
+        sleep 1
+    done
 fi
 [[ -n "$attempt" ]] || attempt="1"
 
@@ -894,6 +958,17 @@ fi
 
 echo "[TraceOS] New Case GUI diagnostic matrix:"
 cat "$new_case_matrix"
+
+# These matrices are release-gating tests, not optional diagnostics. Preserve
+# screenshots and logs on failure so the next investigation has real evidence.
+if ! assert_ui_matrix_status "$status" "$image_result_rendered"; then
+    echo "[TraceOS] New Case matrix:" >&2
+    cat "$new_case_matrix" >&2 || true
+    echo "[TraceOS] Image OSINT matrix:" >&2
+    cat "$image_matrix" >&2 || true
+    exit 1
+fi
+echo "[TraceOS] Required QEMU GUI interaction matrices: PASS"
 
 rm -f "$OUT"/*.ppm
 

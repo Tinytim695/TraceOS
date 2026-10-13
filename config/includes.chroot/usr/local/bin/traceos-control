@@ -8,6 +8,7 @@ import os
 import queue
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -56,6 +57,56 @@ def capture(args: list[str], timeout: int = 8) -> subprocess.CompletedProcess[st
 
 CASE_STORE = CaseStore()
 
+def terminate_process_group(
+    process: subprocess.Popen,
+    term_timeout: float = 0.75,
+    kill_timeout: float = 5.0,
+) -> bool:
+    """Terminate the task's owned process group, including child processes."""
+    group_available = True
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        group_available = False
+    except OSError:
+        group_available = False
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                return False
+
+    if process.poll() is None:
+        try:
+            process.wait(timeout=term_timeout)
+        except subprocess.TimeoutExpired:
+            pass
+
+    if group_available:
+        try:
+            # The leader may have exited while a child remained in the group.
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    return False
+    elif process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            return False
+
+    try:
+        process.wait(timeout=kill_timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
 def case_path() -> Path | None:
     try:
         record = CASE_STORE.current()
@@ -91,7 +142,14 @@ OSINT_TOOL_COMMANDS = {
     "Sherlock": "sherlock",
     "Maigret": "maigret",
     "h8mail": "h8mail",
+    "Holehe": "holehe",
+    "PhoneInfoga": "phoneinfoga",
+    "GHunt": "ghunt",
     "Blackbird": "blackbird",
+    "theHarvester": "theHarvester",
+    "Subfinder": "subfinder",
+    "dnsrecon": "dnsrecon",
+    "dnstwist": "dnstwist",
     "WHOIS": "whois",
     "DNS": "dig",
 }
@@ -111,12 +169,36 @@ def build_osint_command(name: str, target: str, extra: str = "") -> list[str]:
     if name == "Blackbird":
         if not target_args:
             raise ValueError("Enter Blackbird arguments first.")
-        return ["blackbird", *target_args, *extras]
+        if value.startswith("-"):
+            return ["blackbird", *target_args, *extras]
+        flag = "--email" if "@" in value else "--username"
+        return ["blackbird", flag, value, *extras]
     command = OSINT_TOOL_COMMANDS[name]
     if name in {"Sherlock", "Maigret"}:
         return [command, value, *extras]
     if name == "h8mail":
         return [command, "-t", value, *extras]
+    if name in {"Holehe", "GHunt", "PhoneInfoga", "theHarvester", "Subfinder", "dnsrecon", "dnstwist"}:
+        if value.startswith("-") or any(ch.isspace() for ch in value):
+            raise ValueError("Enter one target, without leading options.")
+    if name == "Holehe":
+        if "@" not in value:
+            raise ValueError("Enter one email address.")
+        return ["holehe", value, *extras]
+    if name == "GHunt":
+        if "@" not in value:
+            raise ValueError("Enter one email address.")
+        return ["ghunt", "email", value, *extras]
+    if name == "PhoneInfoga":
+        return ["phoneinfoga", "scan", "-n", value, *extras]
+    if name == "theHarvester":
+        return ["theHarvester", "-d", value, "-b", "crtsh,urlscan", *extras]
+    if name == "Subfinder":
+        return ["subfinder", "-d", value, "-silent", *extras]
+    if name == "dnsrecon":
+        return ["dnsrecon", "-d", value, *extras]
+    if name == "dnstwist":
+        return ["dnstwist", value, *extras]
     return [command, value, *extras]
 
 
@@ -253,6 +335,21 @@ def build_web_test_command(name: str, target: str, wordlist: str = WEB_WORDLIST)
     raise ValueError(f"Web Testing tool is not configured: {name}")
 
 
+def format_engagement_preview(playbook_id: str, steps: list[dict]) -> str:
+    """Render the exact confirmed command preview without requiring steps for local canary."""
+    if playbook_id == "purple-canary":
+        return (
+            "Write notes/purple-canary.txt in the active case, scan it with "
+            "the bundled YARA rule, and record detected or missed."
+        )
+    if not steps:
+        raise ValueError("Engagement produced no steps.")
+    return "\n".join(
+        " ".join(shlex.quote(part) for part in step["argv"])
+        for step in steps
+    )
+
+
 def require_web_test_tool(name: str) -> None:
     command = WEB_TEST_TOOL_COMMANDS.get(name)
     if command is None:
@@ -263,6 +360,159 @@ def require_web_test_tool(name: str) -> None:
         raise FileNotFoundError(
             f"Bundled Gobuster wordlist is missing: {WEB_WORDLIST}"
         )
+
+
+ASSESSMENT_TOOL_SPECS = {
+    "Nuclei Templates": {"command": "nuclei", "mode": "url", "ui": "job", "argv": ["-u", "{target}", "-silent", "-rl", "20", "-exclude-tags", "dos,fuzz,intrusive"]},
+    "Dalfox XSS Check": {"command": "dalfox", "mode": "url", "ui": "job", "argv": ["url", "{target}"]},
+    "ffuf Content Discovery": {"command": "ffuf", "mode": "url", "ui": "job", "argv": ["-u", "{fuzz}", "-w", "{wordlist}", "-rate", "20", "-mc", "200,204,301,302,307,401,403", "-s"]},
+    "WAF Fingerprint": {"command": "wafw00f", "mode": "url", "ui": "job", "argv": ["{target}"]},
+    "httpx Probe": {"command": "httpx", "mode": "url", "ui": "job", "argv": ["-silent", "-u", "{target}"]},
+    "dnsx Lookup": {"command": "dnsx", "mode": "domain", "ui": "job", "argv": ["-silent", "-d", "{target}"]},
+    "Naabu Port Discovery": {"command": "naabu", "mode": "host", "ui": "job", "argv": ["-host", "{target}", "-top-ports", "100"]},
+    "NetExec SMB": {"command": "nxc", "mode": "host", "ui": "job", "argv": ["smb", "{target}"]},
+    "enum4linux-ng": {"command": "enum4linux-ng", "mode": "host", "ui": "job", "argv": ["{target}"]},
+    "Amass": {"command": "amass", "mode": "domain", "ui": "job", "argv": ["enum", "-d", "{target}", "-silent", "-timeout", "3"]},
+    "Katana Crawl": {"command": "katana", "mode": "url", "ui": "job", "argv": ["-u", "{target}", "-d", "2", "-crawl-duration", "90s", "-timeout", "5", "-silent"]},
+    "URLFinder": {"command": "urlfinder", "mode": "domain", "ui": "job", "argv": ["-d", "{target}", "-silent", "-disable-update-check"]},
+    "NBTscan": {"command": "nbtscan", "mode": "host", "ui": "job", "argv": ["{target}"]},
+    "TLS testssl": {"command": "testssl", "mode": "url", "ui": "job", "argv": ["--quiet", "--color", "0", "{target}"]},
+    "SSLScan": {"command": "sslscan", "mode": "url", "ui": "job", "argv": ["{target}"]},
+    "IKE-scan": {"command": "ike-scan", "mode": "host", "ui": "job", "argv": ["{target}"]},
+    "Impacket AS-REP": {"command": "GetNPUsers.py", "mode": "identity", "ui": "terminal", "argv": ["{target}", "-no-pass"]},
+    "Impacket Kerberoast": {"command": "GetUserSPNs.py", "mode": "identity", "ui": "terminal", "argv": ["{target}"]},
+    "Impacket AD Users": {"command": "GetADUsers.py", "mode": "identity", "ui": "terminal", "argv": ["{target}", "-all"]},
+    "Certipy Find": {"command": "certipy", "mode": "identity", "ui": "terminal", "argv": ["find", "-u", "{target}"]},
+    "BloodHound Collector": {"command": "bloodhound-python", "mode": "identity", "ui": "terminal", "argv": ["-u", "{target}", "-c", "Default"]},
+    "Kerbrute Console": {"command": "kerbrute", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "kerbrute; exec bash"], "replace": True},
+    "Hashcat Console": {"command": "hashcat", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "hashcat --help; exec bash"], "replace": True},
+    "John Console": {"command": "john", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "john; exec bash"], "replace": True},
+}
+DEFENCE_TOOL_SPECS = {
+    "auditd status": {"command": "auditctl", "mode": "local", "ui": "job", "argv": ["-s"]},
+    "Lynis Quick Audit": {"command": "lynis", "mode": "local", "ui": "job", "argv": ["audit", "system", "--quick", "--no-colors"]},
+    "Rootkit Hunter": {"command": "rkhunter", "mode": "local", "ui": "job", "argv": ["--check", "--sk", "--nocolors", "--rwo"]},
+    "chkrootkit": {"command": "chkrootkit", "mode": "local", "ui": "job", "argv": ["-q"]},
+    "Binwalk": {"command": "binwalk", "mode": "file", "ui": "job", "argv": ["{target}"]},
+    "Foremost": {"command": "traceos-carve", "mode": "file", "ui": "job", "argv": ["{target}"]},
+    "Steghide Info": {"command": "steghide", "mode": "file", "ui": "terminal", "argv": ["info", "{target}"]},
+    "Wireshark": {"command": "wireshark", "mode": "launch", "ui": "gui", "argv": []},
+    "tcpdump Sample": {"command": "tcpdump", "mode": "local", "ui": "job", "argv": ["-i", "any", "-c", "50", "-n"]},
+    "tshark Sample": {"command": "tshark", "mode": "local", "ui": "job", "argv": ["-i", "any", "-c", "50", "-n"]},
+    "Suricata Config Test": {"command": "suricata", "mode": "local", "ui": "job", "argv": ["-T", "-c", "/etc/suricata/suricata.yaml"]},
+    "YARA Rules Scan": {"command": "yara", "mode": "two-files", "ui": "job", "argv": ["{rules}", "{target}"]},
+    "Sleuth Kit fls": {"command": "fls", "mode": "file", "ui": "job", "argv": ["{target}"]},
+    "Sleuth Kit mmls": {"command": "mmls", "mode": "file", "ui": "job", "argv": ["{target}"]},
+    "Volatility Banner": {"command": "vol", "mode": "file", "ui": "job", "argv": ["-f", "{target}", "banner"]},
+    "Sigma Convert": {"command": "sigma", "mode": "file", "ui": "job", "argv": ["convert", "{target}"]},
+}
+
+
+def _domain_labels(host: str) -> None:
+    try:
+        ascii_host = host.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError("Enter a valid domain.") from exc
+    labels = ascii_host.rstrip(".").split(".")
+    if (
+        not ascii_host
+        or len(ascii_host) > 253
+        or any(
+            not label
+            or len(label) > 63
+            or label.startswith("-")
+            or label.endswith("-")
+            or not all(ch.isalnum() or ch == "-" for ch in label)
+            for label in labels
+        )
+    ):
+        raise ValueError("Enter a valid domain.")
+
+
+def _regular_file(value: str) -> str:
+    path = Path(value).expanduser()
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Select an existing regular file, not a symbolic link.")
+    return str(path)
+
+
+def normalize_catalog_target(mode: str, target: str) -> str:
+    value = target.strip()
+    if mode in {"launch", "local"}:
+        return ""
+    if not value:
+        raise ValueError("Enter a target first.")
+    if value.startswith("-"):
+        raise ValueError("A target cannot start with an option.")
+    if mode == "url":
+        return normalize_web_target("WhatWeb Fingerprint", value)
+    if mode == "host":
+        return normalize_web_target("Nmap Quick Scan", value)
+    if mode == "domain":
+        if "://" in value or "/" in value or any(ch.isspace() for ch in value):
+            raise ValueError("Enter a domain, not a URL or a path.")
+        _domain_labels(value)
+        return value
+    if mode == "identity":
+        if any(ch.isspace() for ch in value):
+            raise ValueError("Enter one identity, such as user@domain.example.")
+        return value
+    if mode == "file":
+        return _regular_file(value)
+    if mode == "two-files":
+        try:
+            parts = shlex.split(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid file quoting: {exc}") from exc
+        if len(parts) != 2:
+            raise ValueError("Enter the rules file and the target file.")
+        return value
+    raise ValueError(f"Unknown target mode: {mode}")
+
+
+def build_catalog_command(specs: dict, name: str, target: str, wordlist: str = WEB_WORDLIST) -> list[str]:
+    spec = specs.get(name)
+    if spec is None:
+        raise ValueError(f"Unknown tool: {name}")
+    mode = spec["mode"]
+    if spec.get("replace"):
+        return list(spec["argv"])
+    if mode in {"launch", "local"}:
+        return [spec["command"], *spec["argv"]]
+    if mode == "two-files":
+        parts = shlex.split(target.strip())
+        if len(parts) != 2:
+            raise ValueError("Enter the rules file and the target file.")
+        rules, subject = _regular_file(parts[0]), _regular_file(parts[1])
+        slots = {"{rules}": rules, "{target}": subject}
+        return [spec["command"], *[slots.get(part, part) for part in spec["argv"]]]
+    value = normalize_catalog_target(mode, target)
+    fuzz = value if "FUZZ" in value else (value + "FUZZ" if value.endswith("/") else value + "/FUZZ")
+    rendered = []
+    for part in spec["argv"]:
+        if part == "{target}":
+            rendered.append(value)
+        elif part == "{fuzz}":
+            rendered.append(fuzz)
+        elif part == "{wordlist}":
+            if not wordlist.strip():
+                raise ValueError("Select a wordlist before starting this tool.")
+            rendered.append(wordlist)
+        else:
+            rendered.append(part)
+    return [spec["command"], *rendered]
+
+
+def require_catalog_tool(specs: dict, name: str, wordlist: str = WEB_WORDLIST) -> None:
+    spec = specs.get(name)
+    if spec is None:
+        raise ValueError(f"Unknown tool: {name}")
+    if shutil.which(spec["command"]) is None:
+        raise FileNotFoundError(f"{spec['command']} is not installed in this TraceOS image.")
+    if "{wordlist}" in spec["argv"] and not Path(wordlist).is_file():
+        raise FileNotFoundError(f"Bundled wordlist is missing: {wordlist}")
+
+
 def action_result_matches(
     active_action_id: uuid.UUID | None,
     result: ActionResult,
@@ -341,13 +591,14 @@ class TraceOSApp:
         self.root.bind_all("<Control-Shift-I>", self._image_shortcut)
 
         self.active_process: subprocess.Popen[str] | None = None
+        self.active_job_token: str | None = None
         self.active_job_label: str | None = None
         self.active_job_kind: str | None = None
         self.active_job_attempt: int | None = None
         self.active_action_id: uuid.UUID | None = None
         self.active_action_cancel: threading.Event | None = None
         self.action_queue: queue.Queue[ActionResult] = queue.Queue()
-        self.output_queue: queue.Queue[str | None] = queue.Queue()
+        self.output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
         self.job_output = ""
         self.output_widget: tk.Text | None = None
         self.welcome = welcome
@@ -360,7 +611,10 @@ class TraceOSApp:
             "evidence": self.evidence,
             "network": self.network,
             "web": self.web_testing,
+            "assessment": self.assessment,
+            "engagement": self.engagement,
             "osint": self.osint,
+            "defence": self.defence,
             "images": self.image_osint,
             "reports": self.reports,
             "timeline": self.timeline,
@@ -464,7 +718,17 @@ class TraceOSApp:
         return "break"
 
     def _web_testing_shortcut(self, event: tk.Event) -> str:
-        self.web_testing()
+        try:
+            self.web_testing()
+        except Exception as exc:
+            self._trace_diag(
+                "WEB_TESTING_PAGE_FAILED",
+                exc_type=type(exc).__name__,
+                message=str(exc),
+            )
+            raise
+        # Flush drawing without re-entering the key handler. root.update()
+        # can nest the event loop here and never reach the smoke marker.
         self.root.update_idletasks()
         self._trace_diag("WEB_TESTING_PAGE_RENDERED", page="web")
         return "break"
@@ -609,7 +873,10 @@ class TraceOSApp:
             ("▣  Evidence Vault", self.evidence),
             ("⌁  Network", self.network),
             ("⌑  Web Testing", self.web_testing),
+            ("⌖  Assessment", self.assessment),
+            ("⚔  Engagement", self.engagement),
             ("◎  Investigation Centre", self.osint),
+            ("◈  Defence", self.defence),
             ("▧  Image OSINT", self.image_osint),
             ("▤  Reports", self.reports),
             ("▥  Timeline", self.timeline),
@@ -880,35 +1147,43 @@ class TraceOSApp:
         self.active_job_label = label
         self.active_job_kind = kind
         self.active_job_attempt = attempt
+        job_token = uuid.uuid4().hex
+        self.active_job_token = job_token
         self.job_output = f"[TraceOS] Starting: {label}\n$ {' '.join(shlex.quote(x) for x in args)}\n\n"
         if self.output_widget:
             self.set_text(self.output_widget, self.job_output)
         try:
-            self.active_process = subprocess.Popen(
-                args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1
+            process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                start_new_session=True,
             )
+            self.active_process = process
             self._trace_diag(
                 "TASK_STARTED",
                 task=self.active_job_label or "unknown",
                 kind=self.active_job_kind or "generic",
-                pid=self.active_process.pid,
+                pid=process.pid,
                 attempt=self.active_job_attempt if self.active_job_attempt is not None else "none",
             )
             if self.active_job_kind == "image":
-                self._trace_diag("IMAGE_CLI_STARTED", pid=self.active_process.pid, attempt=self.active_job_attempt or 0, image_attempt=self.active_job_attempt or 0)
+                self._trace_diag("IMAGE_CLI_STARTED", pid=process.pid, attempt=self.active_job_attempt or 0, image_attempt=self.active_job_attempt or 0)
         except OSError as exc:
+            self.active_job_token = None
+            self.active_process = None
             self.job_output += f"[TraceOS] Unable to start task: {exc}\n"
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
             return
 
-        def reader() -> None:
-            assert self.active_process is not None
-            if self.active_process.stdout:
-                for line in self.active_process.stdout:
-                    self.output_queue.put(line)
-            self.output_queue.put(None)
+        def reader(task_process=process, token=job_token) -> None:
+            if task_process.stdout:
+                for line in task_process.stdout:
+                    self.output_queue.put((token, line))
+            self.output_queue.put((token, None))
 
         threading.Thread(target=reader, daemon=True).start()
         self.root.after(80, self.poll_job)
@@ -917,9 +1192,13 @@ class TraceOSApp:
         finished = False
         while True:
             try:
-                item = self.output_queue.get_nowait()
+                token, item = self.output_queue.get_nowait()
             except queue.Empty:
                 break
+            # Readers may finish after a later task has started. Never render
+            # stale output or let an old sentinel finish the new task.
+            if token != self.active_job_token:
+                continue
             if item is None:
                 finished = True
                 continue
@@ -932,6 +1211,13 @@ class TraceOSApp:
                 self.output_widget.insert("1.0", self.job_output)
                 self.output_widget.see("end")
                 self.output_widget.configure(state="disabled")
+        if finished and self.active_process is not None and self.active_process.poll() is None:
+            # A child can close stdout before the launcher exits. Keep the
+            # sentinel pending until the process is reaped so Stop still owns
+            # the process handle and exit status remains accurate.
+            self.output_queue.put((self.active_job_token, None))
+            self.root.after(80, self.poll_job)
+            return
         if finished:
             code = self.active_process.poll() if self.active_process else 0
             self.job_output += f"\n[TraceOS] Task finished with exit code {code}.\n"
@@ -995,11 +1281,14 @@ class TraceOSApp:
                         parse_error=parse_error or "unknown",
                     )
             self.active_process = None
+            self.active_job_token = None
             self.active_job_label = None
             self.active_job_kind = None
             self.active_job_attempt = None
             return
-        if self.active_process and self.active_process.poll() is None:
+        # Keep polling until the matching reader sentinel arrives. The process
+        # leader can exit before its reader thread has drained EOF and queued it.
+        if self.active_job_token is not None:
             self.root.after(80, self.poll_job)
 
     def stop_job(self) -> None:
@@ -1014,9 +1303,15 @@ class TraceOSApp:
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
             return
-        if self.active_process and self.active_process.poll() is None:
-            self.active_process.terminate()
-            self._trace_diag("TASK_STOPPED", task=self.active_job_label or "unknown", kind=self.active_job_kind or "generic", attempt=self.active_job_attempt if self.active_job_attempt is not None else "none")
+        if self.active_process is not None:
+            process = self.active_process
+            stopped = terminate_process_group(process)
+            self._trace_diag(
+                "TASK_STOPPED" if stopped else "TASK_STOP_INCOMPLETE",
+                task=self.active_job_label or "unknown",
+                kind=self.active_job_kind or "generic",
+                attempt=self.active_job_attempt if self.active_job_attempt is not None else "none",
+            )
             if self.active_job_kind == "image":
                 self._trace_diag("IMAGE_CLI_STOPPED", attempt=self.active_job_attempt or 0, image_attempt=self.active_job_attempt or 0)
             self.job_output += "\n[TraceOS] Task stopped by user.\n"
@@ -1112,7 +1407,10 @@ class TraceOSApp:
             ("→  Evidence Vault", self.evidence),
             ("→  Network Command Centre", self.network),
             ("→  Web Testing", self.web_testing),
+            ("→  Assessment", self.assessment),
+            ("→  Engagement", self.engagement),
             ("→  OSINT Centre", self.osint),
+            ("→  Defence", self.defence),
             ("→  Image OSINT", self.image_osint),
             ("→  Reports", self.reports),
             ("→  Timeline", self.timeline),
@@ -1736,6 +2034,7 @@ class TraceOSApp:
         start_button.bind("<Return>", lambda _event: (start_image(), "break")[1])
         start_button.bind("<space>", lambda _event: (start_image(), "break")[1])
 
+        # Flush drawing without nesting the Tk event loop from this callback.
         self.root.update_idletasks()
         source_entry.focus_set()
         self._trace_diag("image-osint-page-rendered", page="image")
@@ -1790,7 +2089,7 @@ class TraceOSApp:
 
         hint = tk.Label(
             self.content,
-            text="Username: Sherlock/Maigret • Email: h8mail • WHOIS/DNS: domain or IP • Blackbird: its command arguments",
+            text="Username: Sherlock/Maigret/Blackbird • Email: Holehe/h8mail/Blackbird • Phone: PhoneInfoga • GHunt needs one local login before an email search • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • WHOIS/DNS: domain or IP",
             bg=BG, fg=MUTED, font=("Sans", 8)
         )
         hint.pack(anchor="w", padx=30, pady=(0, 4))
@@ -1827,17 +2126,7 @@ class TraceOSApp:
                 )
                 return
 
-            try:
-                extras = shlex.split(extra.get()) if extra.get().strip() else []
-            except ValueError as exc:
-                messagebox.showerror(
-                    "OSINT",
-                    f"Invalid extra options quoting: {exc}",
-                    parent=self.root,
-                )
-                self._trace_diag("OSINT_ARGUMENT_PARSE_FAILED", tool=name)
-                return
-
+            value = target.get().strip()
             if name in {"WHOIS", "DNS"}:
                 lookup_tool = "whois" if name == "WHOIS" else "dns"
                 if extra.get().strip():
@@ -1850,22 +2139,6 @@ class TraceOSApp:
                     return
                 self.start_basic_lookup_action(lookup_tool, value)
                 return
-            if name in {"Sherlock", "Maigret"}:
-                args = [name.lower(), value, *extras]
-            elif name == "h8mail":
-                args = ["h8mail", "-t", value, *extras]
-            else:
-                try:
-                    value_args = shlex.split(value)
-                except ValueError as exc:
-                    messagebox.showerror(
-                        "OSINT",
-                        f"Invalid Blackbird arguments quoting: {exc}",
-                        parent=self.root,
-                    )
-                    self._trace_diag("OSINT_ARGUMENT_PARSE_FAILED", tool=name)
-                    return
-                args = ["blackbird", *value_args, *extras]
 
             if not shutil.which(args[0]):
                 messagebox.showerror(
@@ -1876,12 +2149,346 @@ class TraceOSApp:
                 self._trace_diag("OSINT_TOOL_UNAVAILABLE", tool=name, command=args[0])
                 return
 
+            if name == "GHunt":
+                creds = Path.home() / ".malfrats" / "ghunt"
+                if not creds.exists():
+                    messagebox.showinfo(
+                        "GHunt",
+                        "GHunt cannot search until you complete one local login. A terminal will open for that. The login stays on this machine.",
+                        parent=self.root,
+                    )
+                    self.open_terminal(["ghunt", "login"], "TraceOS GHunt login")
+                    return
+
             self.run_job(args, f"{name} investigation")
 
         self.action_button(bar, "START LOOKUP", start_osint, primary=True).pack(side="right")
         self.root.update_idletasks()
         self._trace_diag("osint-page-rendered", page="osint")
 
+
+    def _tool_catalogue_page(self, specs: dict, kicker: str, title: str, subtitle: str, warning: str) -> None:
+        self.heading(kicker, title, subtitle)
+        notice = self.card(self.content, padx=28, pady=7)
+        tk.Label(
+            notice, text="NOTHING RUNS UNTIL YOU CONFIRM",
+            bg=CARD, fg=WARN, font=("Sans", 9, "bold")
+        ).pack(anchor="w", padx=15, pady=(10, 1))
+        tk.Label(
+            notice, text=warning, bg=CARD, fg=MUTED, wraplength=820,
+            justify="left", font=("Sans", 9)
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        controls = self.card(self.content, padx=22, pady=8)
+        tk.Label(controls, text="TOOL", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(10, 4)
+        )
+        labels = [
+            name if shutil.which(spec["command"]) else f"{name} (not installed)"
+            for name, spec in specs.items()
+        ]
+        tool = ttk.Combobox(controls, state="readonly", values=tuple(labels), style="Trace.TCombobox")
+        tool.current(0)
+        tool.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+        target_label = tk.Label(
+            controls, text="AUTHORIZED TARGET", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")
+        )
+        target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
+        target = tk.Entry(
+            controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT,
+            relief="flat", font=("Monospace", 10)
+        )
+        target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
+        controls.grid_columnconfigure(0, weight=2)
+        controls.grid_columnconfigure(1, weight=4)
+
+        def selected_spec():
+            name = tool.get().removesuffix(" (not installed)")
+            return name, specs[name]
+
+        def refresh_target(_event=None) -> None:
+            _name, spec = selected_spec()
+            target.delete(0, "end")
+            if spec["mode"] in {"launch", "local"}:
+                target.configure(state="disabled")
+                target_label.configure(text="NO TARGET PRESELECTED")
+            elif spec["mode"] == "two-files":
+                target.configure(state="normal")
+                target_label.configure(text="RULES FILE AND TARGET FILE")
+            elif spec["mode"] == "file":
+                target.configure(state="normal")
+                target_label.configure(text="LOCAL FILE")
+            elif spec["mode"] == "identity":
+                target.configure(state="normal")
+                target_label.configure(text="IDENTITY")
+            else:
+                target.configure(state="normal")
+                target_label.configure(text="AUTHORIZED TARGET")
+
+        tool.bind("<<ComboboxSelected>>", refresh_target)
+        refresh_target()
+        authorized = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            controls,
+            text="I own this system or have explicit authorization to use this tool.",
+            variable=authorized,
+            bg=CARD, fg=WARN, activebackground=CARD, activeforeground=WARN,
+            selectcolor=BG2, font=("Sans", 9, "bold"),
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
+
+        output_panel = self.card(self.content, padx=22, pady=8, expand=True)
+        self.set_output(output_panel, height=16)
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 14))
+        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
+
+        def start_catalogue() -> None:
+            name, spec = selected_spec()
+            try:
+                require_catalog_tool(specs, name)
+                args = build_catalog_command(specs, name, target.get())
+            except (ValueError, FileNotFoundError) as exc:
+                messagebox.showerror(title, str(exc), parent=self.root)
+                return
+            if not authorized.get():
+                messagebox.showwarning(
+                    "Authorization required",
+                    "Confirm authorization before this tool starts.",
+                    parent=self.root,
+                )
+                return
+            shown = " ".join(shlex.quote(part) for part in args)
+            if spec["mode"] == "launch":
+                prompt = f"{name} will open without a target, scan, capture, or exploit selected.\n\n{shown}"
+            else:
+                prompt = f"{name} will run only this command.\n\n{shown}\n\nContinue only if this is authorized."
+            if not messagebox.askyesno("Confirm authorized action", prompt, parent=self.root):
+                return
+            if spec["ui"] == "gui":
+                try:
+                    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                except OSError as exc:
+                    messagebox.showerror(title, str(exc), parent=self.root)
+                return
+            if spec["ui"] == "terminal":
+                self.open_terminal(args, f"TraceOS {name}")
+                return
+            self.run_job(args, name)
+
+        self.action_button(bar, "START", start_catalogue, primary=True).pack(side="right")
+
+    def engagement(self) -> None:
+        from engagement import PLAYBOOKS, build_playbook
+
+        self.heading(
+            "RED / BLUE / PURPLE",
+            "Engagement",
+            "A full scoped exercise. Red checks attack only the target you enter. Blue checks this machine. Purple records what should have been detected.",
+        )
+        notice = self.card(self.content, padx=28, pady=7)
+        tk.Label(
+            notice, text="NO DENIAL-OF-SERVICE TOOLING",
+            bg=CARD, fg=WARN, font=("Sans", 9, "bold")
+        ).pack(anchor="w", padx=15, pady=(10, 1))
+        tk.Label(
+            notice,
+            text="Masscan is capped at 1000 packets per second. Password cracking uses the wordlists already stored in /usr/share/traceos/wordlists, starting with rockyou.txt, and does not download one. Nuclei excludes denial-of-service tags. Select a case first so the exercise is written to the purple ledger.",
+            bg=CARD, fg=MUTED, wraplength=820, justify="left", font=("Sans", 9)
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        controls = self.card(self.content, padx=22, pady=8)
+        labels = [f"{spec['team']}  {spec['title']}" for spec in PLAYBOOKS.values()]
+        ids = list(PLAYBOOKS)
+        tk.Label(controls, text="ENGAGEMENT", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(10, 4)
+        )
+        choice = ttk.Combobox(controls, state="readonly", values=tuple(labels), style="Trace.TCombobox")
+        choice.current(0)
+        choice.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+        target_label = tk.Label(controls, text="AUTHORIZED TARGET", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
+        target = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
+        service_label = tk.Label(controls, text="SERVICE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        service_label.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 4))
+        service = ttk.Combobox(
+            controls, state="readonly",
+            values=("ssh", "ftp", "smb", "rdp", "http-get", "https-get", "ldap2", "mssql"),
+            style="Trace.TCombobox",
+        )
+        service.current(0)
+        service.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 10))
+        users_label = tk.Label(controls, text="USERS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        users_label.grid(row=2, column=1, sticky="w", padx=8, pady=(0, 4))
+        users = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        users.grid(row=3, column=1, sticky="ew", padx=8, pady=(0, 10))
+        passwords_label = tk.Label(controls, text="PASSWORDS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
+        passwords_label.grid(row=4, column=0, sticky="w", padx=12, pady=(0, 4))
+        passwords = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        passwords.grid(row=5, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
+        controls.grid_columnconfigure(0, weight=2)
+        controls.grid_columnconfigure(1, weight=4)
+        detail = tk.Label(self.content, text="", bg=BG, fg=MUTED, justify="left", font=("Sans", 8), wraplength=860)
+        detail.pack(anchor="w", padx=30, pady=(0, 6))
+
+        def selected_id() -> str:
+            return ids[labels.index(choice.get())]
+
+        def refresh_detail(_event=None) -> None:
+            spec = PLAYBOOKS[selected_id()]
+            names = ", ".join(step["name"] for step in spec["steps"])
+            detail.configure(
+                text=f"{spec['technique']}  •  {spec['expected']}\nSteps: {names}"
+            )
+            local = spec["mode"] == "local"
+            files = spec["mode"] in {"auth", "crack"}
+            target.configure(state="disabled" if local or spec["mode"] == "crack" else "normal")
+            service.configure(state="normal" if spec["mode"] == "crack" else ("readonly" if files else "disabled"))
+            users.configure(state="normal" if files else "disabled")
+            passwords.configure(state="normal" if files else "disabled")
+            if spec["mode"] == "person":
+                target_label.configure(text="USERNAME")
+            elif spec["mode"] == "email":
+                target_label.configure(text="EMAIL")
+            elif spec["mode"] == "phone":
+                target_label.configure(text="PHONE NUMBER")
+            elif local or spec["mode"] == "crack":
+                target_label.configure(text="NO NETWORK TARGET")
+            else:
+                target_label.configure(text="AUTHORIZED TARGET")
+            if spec["mode"] == "crack":
+                service_label.configure(text="HASHCAT MODE")
+                users_label.configure(text="HASH FILE")
+                passwords_label.configure(text="WORDLIST")
+                if not passwords.get().strip():
+                    passwords.insert(0, "/usr/share/traceos/wordlists/rockyou.txt")
+            else:
+                service_label.configure(text="SERVICE")
+                users_label.configure(text="USERS FILE")
+                passwords_label.configure(text="PASSWORDS FILE")
+
+        choice.bind("<<ComboboxSelected>>", refresh_detail)
+        refresh_detail()
+        authorized = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            controls,
+            text="I own this target or have written authorization for this engagement.",
+            variable=authorized, bg=CARD, fg=WARN, activebackground=CARD,
+            activeforeground=WARN, selectcolor=BG2, font=("Sans", 9, "bold"),
+        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
+        output_panel = self.card(self.content, padx=22, pady=8, expand=True)
+        self.set_output(output_panel, height=12)
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 14))
+        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
+
+        def start_engagement() -> None:
+            playbook_id = selected_id()
+            if playbook_id == "purple-canary":
+                steps = []
+                title = "Purple detection canary"
+            else:
+                try:
+                    steps = build_playbook(
+                        playbook_id,
+                        target.get(),
+                        users.get(),
+                        passwords.get(),
+                        service.get() or "ssh",
+                    )
+                except ValueError as exc:
+                    messagebox.showerror("Engagement", str(exc), parent=self.root)
+                    return
+                title = steps[0]["title"]
+            shown = format_engagement_preview(playbook_id, steps)
+            if not authorized.get():
+                messagebox.showwarning(
+                    "Authorization required",
+                    "Confirm written authorization before this engagement starts.",
+                    parent=self.root,
+                )
+                return
+            if not messagebox.askyesno(
+                "Confirm engagement",
+                f"{title} will run these commands and record a purple exercise.\n\n{shown}",
+                parent=self.root,
+            ):
+                return
+            env = os.environ.copy()
+            env["TRACEOS_ENGAGE_AUTHORIZED"] = "1"
+            args = [
+                sys.executable,
+                "/usr/local/bin/traceos-engage",
+                "canary" if playbook_id == "purple-canary" else "run",
+                *([] if playbook_id == "purple-canary" else [
+                    playbook_id,
+                    target.get().strip(),
+                    service.get() or "ssh",
+                    users.get().strip(),
+                    passwords.get().strip(),
+                ]),
+            ]
+            if self.active_action_id is not None or (
+                self.active_process and self.active_process.poll() is None
+            ):
+                messagebox.showinfo("TraceOS", "A task is already running. Stop it before starting another.", parent=self.root)
+                return
+            job_token = uuid.uuid4().hex
+            self.active_job_token = job_token
+            self.active_job_label = title
+            self.active_job_kind = "engagement"
+            self.active_job_attempt = None
+            self.job_output = f"[TraceOS] Starting engagement: {title}\n\n"
+            if self.output_widget:
+                self.set_text(self.output_widget, self.job_output)
+            try:
+                process = subprocess.Popen(
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    env=env,
+                    start_new_session=True,
+                )
+                self.active_process = process
+            except OSError as exc:
+                self.active_job_token = None
+                self.active_process = None
+                messagebox.showerror("Engagement", str(exc), parent=self.root)
+                return
+            threading.Thread(
+                target=self._read_active_output,
+                args=(process, job_token),
+                daemon=True,
+            ).start()
+            self.root.after(80, self.poll_job)
+
+        self.action_button(bar, "RUN ENGAGEMENT", start_engagement, primary=True).pack(side="right")
+
+    def _read_active_output(self, process, token: str) -> None:
+        if process.stdout:
+            for line in process.stdout:
+                self.output_queue.put((token, line))
+        self.output_queue.put((token, None))
+
+    def assessment(self) -> None:
+        self._tool_catalogue_page(
+            ASSESSMENT_TOOL_SPECS,
+            "AUTHORIZED ASSESSMENT",
+            "Assessment",
+            "Deeper checks that are already installed. Each one waits for a target and a confirmation.",
+            "Nuclei, Dalfox, ffuf, NetExec and the Active Directory tools send traffic. Kerbrute, Hashcat and John open a console only. No password list, module, or exploit is selected for you.",
+        )
+
+    def defence(self) -> None:
+        self._tool_catalogue_page(
+            DEFENCE_TOOL_SPECS,
+            "DEFENCE",
+            "Defence",
+            "Local capture, disk, memory and detection tools. Nothing leaves this machine unless the tool itself is a local viewer.",
+            "tcpdump and tshark stop after 50 packets. Suricata only tests its configuration. Wireshark opens with no capture started. YARA needs a rules file and a local file.",
+        )
 
     def web_testing(self) -> None:
         self.heading(

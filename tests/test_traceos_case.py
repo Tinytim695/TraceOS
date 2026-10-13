@@ -318,6 +318,23 @@ class CaseStoreTests(unittest.TestCase):
             [],
         )
 
+    def test_evidence_refuses_hardlinked_ledger_without_modifying_other_file(self):
+        cli = self._load_cli_for_evidence_test("traceos_cli_hardlinked_ledger_test")
+        record = self.store.create("Hardlinked Ledger")
+        source = self.home / "hardlinked-ledger-source.txt"
+        source.write_text("synthetic evidence\n", encoding="utf-8")
+        ledger = record.path / "hashes" / "evidence.tsv"
+        outside = self.home / "outside-ledger-sentinel.tsv"
+        original = ledger.read_bytes()
+        outside.write_bytes(original)
+        ledger.unlink()
+        os.link(outside, ledger)
+
+        self.assertEqual(cli.add_evidence(str(source)), 1)
+        self.assertEqual(outside.read_bytes(), original)
+        self.assertEqual(ledger.read_bytes(), original)
+        self.assertEqual(list((record.path / "evidence").iterdir()), [])
+
     def test_evidence_ledger_fifo_is_rejected_without_blocking(self):
         cli = self._load_cli_for_evidence_test("traceos_cli_ledger_fifo_test")
         self.store.create("Ledger FIFO")
@@ -1251,6 +1268,8 @@ class CaseStoreTests(unittest.TestCase):
             "WEB_WORDLIST",
             "WEB_ACTIVE_TESTS",
             "REVERSE_IMAGE_SITES",
+            "ASSESSMENT_TOOL_SPECS",
+            "DEFENCE_TOOL_SPECS",
         }
         global_constants = [
             node for node in tree.body
@@ -1282,6 +1301,15 @@ class CaseStoreTests(unittest.TestCase):
                 "",
                 ["blackbird", "--username", "alice smith"],
             ),
+            ("Blackbird", "alice", "", ["blackbird", "--username", "alice"]),
+            ("Blackbird", "alice@example.test", "", ["blackbird", "--email", "alice@example.test"]),
+            ("Holehe", "alice@example.test", "", ["holehe", "alice@example.test"]),
+            ("GHunt", "alice@example.test", "", ["ghunt", "email", "alice@example.test"]),
+            ("PhoneInfoga", "+15555550100", "", ["phoneinfoga", "scan", "-n", "+15555550100"]),
+            ("theHarvester", "example.test", "", ["theHarvester", "-d", "example.test", "-b", "crtsh,urlscan"]),
+            ("Subfinder", "example.test", "", ["subfinder", "-d", "example.test", "-silent"]),
+            ("dnsrecon", "example.test", "", ["dnsrecon", "-d", "example.test"]),
+            ("dnstwist", "example.test", "", ["dnstwist", "example.test"]),
         )
         for name, target, extra, expected in cases:
             with self.subTest(name=name):
@@ -1291,11 +1319,73 @@ class CaseStoreTests(unittest.TestCase):
             ("Sherlock", "", ""),
             ("Blackbird", "   ", ""),
             ("Sherlock", "alice", "'unterminated"),
+            ("Holehe", "not-an-email", ""),
+            ("Subfinder", "-d example.test", ""),
             ("Unknown", "target", ""),
         ):
             with self.subTest(name=name, target=target, extra=extra):
                 with self.assertRaises(ValueError):
                     builder(name, target, extra)
+
+    def test_assessment_and_defence_commands_are_scoped(self):
+        normalizer, _ = self._load_control_helper("normalize_web_target")
+        domain, _ = self._load_control_helper("_domain_labels")
+        regular, _ = self._load_control_helper("_regular_file")
+        catalog_norm, _ = self._load_control_helper(
+            "normalize_catalog_target",
+            {
+                "normalize_web_target": normalizer,
+                "_domain_labels": domain,
+                "_regular_file": regular,
+            },
+        )
+        builder, namespace = self._load_control_helper(
+            "build_catalog_command",
+            {"normalize_catalog_target": catalog_norm, "_regular_file": regular},
+        )
+        assessment = namespace["ASSESSMENT_TOOL_SPECS"]
+        defence = namespace["DEFENCE_TOOL_SPECS"]
+        wordlist = "/tmp/synthetic-wordlist.txt"
+        expected = (
+            (assessment, "Nuclei Templates", "https://example.test", ["nuclei", "-u", "https://example.test", "-silent", "-rl", "20", "-exclude-tags", "dos,fuzz,intrusive"]),
+            (assessment, "Dalfox XSS Check", "https://example.test/a", ["dalfox", "url", "https://example.test/a"]),
+            (assessment, "ffuf Content Discovery", "https://example.test", ["ffuf", "-u", "https://example.test/FUZZ", "-w", wordlist, "-rate", "20", "-mc", "200,204,301,302,307,401,403", "-s"]),
+            (assessment, "NetExec SMB", "10.0.0.5", ["nxc", "smb", "10.0.0.5"]),
+            (assessment, "Impacket AS-REP", "corp.example/alice", ["GetNPUsers.py", "corp.example/alice", "-no-pass"]),
+            (assessment, "Kerbrute Console", "", ["bash", "-lc", "kerbrute; exec bash"]),
+            (defence, "tcpdump Sample", "", ["tcpdump", "-i", "any", "-c", "50", "-n"]),
+            (defence, "Wireshark", "", ["wireshark"]),
+            (defence, "Suricata Config Test", "", ["suricata", "-T", "-c", "/etc/suricata/suricata.yaml"]),
+        )
+        for specs, name, target, wanted in expected:
+            with self.subTest(name=name):
+                self.assertEqual(builder(specs, name, target, wordlist), wanted)
+        with tempfile.TemporaryDirectory() as directory:
+            rules = Path(directory) / "rules.yar"
+            subject = Path(directory) / "sample.txt"
+            rules.write_text("rule synthetic { condition: true }\n", encoding="utf-8")
+            subject.write_text("synthetic\n", encoding="utf-8")
+            quoted = f"{shlex.quote(str(rules))} {shlex.quote(str(subject))}"
+            self.assertEqual(
+                builder(defence, "YARA Rules Scan", quoted, wordlist),
+                ["yara", str(rules), str(subject)],
+            )
+        for specs, name, target in (
+            (assessment, "Nuclei Templates", "ftp://example.test"),
+            (assessment, "dnsx Lookup", "https://example.test"),
+            (assessment, "Naabu Port Discovery", "-p 22"),
+            (assessment, "Impacket AS-REP", "user name"),
+            (assessment, "Unknown", "https://example.test"),
+        ):
+            with self.subTest(name=name, target=target):
+                with self.assertRaises(ValueError):
+                    builder(specs, name, target, wordlist)
+        control = (
+            Path(__file__).parent.parent
+            / "config/includes.chroot/usr/local/bin/traceos-control"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Confirm authorized action", control)
+        self.assertIn("No password list, module, or exploit is selected", control)
 
     def test_osint_missing_tool_reports_an_explicit_error_without_launching(self):
         which = mock.Mock(return_value=None)
