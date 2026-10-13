@@ -529,13 +529,25 @@ capture_workspace_page() {
     convert "$ppm" -resize 1280x720 -strip "$png"
     identify "$png"
     test -s "$png"
+
+    # A render marker alone is not proof that the intended page reached the
+    # framebuffer. Reject a stale Dashboard capture even if the shortcut logs
+    # success. The Dashboard is the baseline from the same live QEMU session.
+    local page_pixel_diff
+    page_pixel_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$png" null: 2>&1 || true)"
+    if [[ ! "$page_pixel_diff" =~ ^[0-9]+$ ]] || (( page_pixel_diff <= 5000 )); then
+        echo "[TraceOS] $page screenshot is indistinguishable from the Dashboard (changed pixels: ${page_pixel_diff:-unknown})." >&2
+        return 1
+    fi
+    echo "[TraceOS] $page differs from Dashboard across $page_pixel_diff pixels."
+
     local spread
     spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
     if ! awk "BEGIN { exit !($spread > 0.02) }"; then
         echo "[TraceOS] $page page screenshot is blank or static." >&2
         return 1
     fi
-    printf "%s_UI=PASS\n%s_SHA256=%s\n" "$label" "$label" "$(sha256sum "$png" | awk '{print $1}')" >>"$workspace_matrix"
+    printf "%s_UI=PASS\n%s_SHA256=%s\n%s_DASHBOARD_PIXEL_DIFF=%s\n" "$label" "$label" "$(sha256sum "$png" | awk '{print $1}')" "$label" "$page_pixel_diff" >>"$workspace_matrix"
     echo "[TraceOS] $page workspace rendered and captured."
 }
 
