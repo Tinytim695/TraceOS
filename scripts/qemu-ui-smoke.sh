@@ -525,24 +525,30 @@ capture_workspace_page() {
         return 1
     fi
 
-    capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
-    convert "$ppm" -resize 1280x720 -strip "$png"
-    identify "$png"
-    test -s "$png"
-
-    # A render marker alone is not proof that the intended page reached the
-    # framebuffer. Reject a stale Dashboard capture even if the shortcut logs
-    # success. The Dashboard is the baseline from the same live QEMU session.
-    local page_pixel_diff
-    page_pixel_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$png" null: 2>&1 || true)"
+    # The page marker is emitted after idle drawing. Give the guest a few
+    # frames to put that page on the framebuffer, then reject a capture that
+    # is still the Dashboard.
+    local page_pixel_diff=""
+    local spread=""
+    local attempt
+    for attempt in $(seq 1 8); do
+        capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
+        convert "$ppm" -resize 1280x720 -strip "$png"
+        identify "$png"
+        test -s "$png"
+        page_pixel_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$png" null: 2>&1 || true)"
+        spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+        if [[ "$page_pixel_diff" =~ ^[0-9]+$ ]] && (( page_pixel_diff > 5000 )) && awk "BEGIN { exit !($spread > 0.02) }"; then
+            break
+        fi
+        echo "[TraceOS] $page framebuffer not ready (attempt $attempt, changed pixels: ${page_pixel_diff:-unknown})." >&2
+        sleep 1
+    done
     if [[ ! "$page_pixel_diff" =~ ^[0-9]+$ ]] || (( page_pixel_diff <= 5000 )); then
         echo "[TraceOS] $page screenshot is indistinguishable from the Dashboard (changed pixels: ${page_pixel_diff:-unknown})." >&2
         return 1
     fi
     echo "[TraceOS] $page differs from Dashboard across $page_pixel_diff pixels."
-
-    local spread
-    spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
     if ! awk "BEGIN { exit !($spread > 0.02) }"; then
         echo "[TraceOS] $page page screenshot is blank or static." >&2
         return 1
