@@ -15,6 +15,8 @@ TraceOS is a Debian-based Linux desktop project focused on digital investigation
 
 **0.1.0 foundation**
 
+**Automated candidate status (14 October 2026):** The integrated dependency/CI fix passed Build #456 and Security Checks #407, including ISO validation, QEMU live boot, graphical UI screenshots, synthetic case creation, CLI workflow, provenance and artifact uploads. The post-merge `main` ISO build is the release candidate to download; physical USB boot remains unverified until tested on hardware.
+
 The first milestone establishes a bootable Debian 13 "trixie" XFCE desktop image with a TraceOS launcher, core system utilities, OSINT, web-testing and image-analysis workflows, and GitHub Actions validation for the installed tools.
 
 ## Build locally
