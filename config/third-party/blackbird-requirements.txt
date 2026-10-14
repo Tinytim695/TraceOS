@@ -16,6 +16,6 @@ Pygments==2.21.0
 python-dotenv==1.2.4
 reportlab==5.0.1
 requests==2.34.2
-rich==14.0.0
+rich==15.0.0
 urllib3==2.8.0
 yarl==1.25.1
