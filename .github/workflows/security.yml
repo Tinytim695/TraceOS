@@ -59,6 +59,9 @@ jobs:
       - name: Blackbird dependency consistency
         shell: bash
         run: |
+          # build.sh treats the third-party lock as authoritative and generates this packaged copy.
+          install -D config/third-party/blackbird-requirements.txt \
+            config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
           cmp -s config/third-party/blackbird-requirements.txt \
             config/includes.chroot/usr/share/traceos/blackbird-requirements.txt
 
