@@ -31,6 +31,7 @@ jobs:
           shellcheck \
             build.sh \
             config/hooks/live/*.hook.chroot \
+            config/includes.chroot/usr/local/bin/traceos-control-launch \
             config/includes.chroot/usr/local/bin/traceos-osint \
             config/includes.chroot/usr/local/bin/traceos-session \
             config/includes.chroot/usr/local/bin/traceos-update \
