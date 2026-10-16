@@ -2,7 +2,8 @@
 Type=Application
 Name=TraceOS Control Centre
 Comment=TraceOS investigation cockpit
-Exec=/usr/local/bin/traceos-control
+Exec=/usr/local/bin/traceos-control-launch
+TryExec=/usr/local/bin/traceos-control-launch
 Icon=traceos
 Terminal=false
 Categories=System;Utility;Security;
