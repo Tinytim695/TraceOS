@@ -14,15 +14,45 @@ install_pipx_tool() {
     pipx install --global "$package==$version"
 }
 
-install_pipx_git_tool() {
-    name="$1"
-    source="$2"
-    echo "[TraceOS] Installing enterprise assessment tool: $name from $source"
-    pipx install --global "$source"
+install_netexec_release() {
+    commit="c7dc286ba65daf10402cdc470e531b84e6d3d911"
+    source_dir="$(mktemp -d /tmp/traceos-netexec.XXXXXX)"
+    trap 'rm -rf "$source_dir"' EXIT HUP INT TERM
+
+    echo "[TraceOS] Preparing NetExec v1.5.1 from pinned upstream commit $commit"
+    git clone --quiet --depth 1 --branch v1.5.1 \
+        https://github.com/Pennyw0rth/NetExec "$source_dir"
+
+    actual_commit="$(git -C "$source_dir" rev-parse HEAD)"
+    if [ "$actual_commit" != "$commit" ]; then
+        echo "[TraceOS] ERROR: NetExec tag resolved to unexpected commit $actual_commit" >&2
+        exit 1
+    fi
+
+    # NetExec v1.5.1 declares Certipy as an unpinned Git URL. pip fails to
+    # resolve that requirement in this build (certipy-ad is reported as
+    # "(unavailable)") even though the compatible pinned PyPI release exists.
+    # Substitute only that dependency source, retaining NetExec's security fix
+    # and all its other upstream dependency declarations.
+    certipy_git_requirement='"certipy-ad @ git+https://github.com/Pennyw0rth/Certipy"'
+    if ! grep -Fq "$certipy_git_requirement" "$source_dir/pyproject.toml"; then
+        echo "[TraceOS] ERROR: expected NetExec Certipy dependency was not found" >&2
+        exit 1
+    fi
+
+    sed -i 's|"certipy-ad @ git+https://github.com/Pennyw0rth/Certipy"|"certipy-ad==5.1.0"|' \
+        "$source_dir/pyproject.toml"
+    if grep -Fq "$certipy_git_requirement" "$source_dir/pyproject.toml"; then
+        echo "[TraceOS] ERROR: failed to replace NetExec's Certipy Git dependency" >&2
+        exit 1
+    fi
+
+    echo "[TraceOS] Using certipy-ad==5.1.0 from PyPI in NetExec's local build metadata"
+    pipx install --global "$source_dir"
 }
 
 install_pipx_tool impacket 0.13.1
-install_pipx_git_tool "netexec 1.5.1" "git+https://github.com/Pennyw0rth/NetExec@c7dc286ba65daf10402cdc470e531b84e6d3d911"
+install_netexec_release
 install_pipx_tool certipy-ad 5.1.0
 
 cat > /usr/share/traceos/enterprise-assessment-tools.txt <<'EOF'
