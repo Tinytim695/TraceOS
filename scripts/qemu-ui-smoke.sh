@@ -496,22 +496,33 @@ capture_page dashboard true
 
 # Capture the actual XFCE Applications menu so the branded TraceOS launchers
 # are represented in retained QEMU evidence, not inferred from desktop files.
-# Alt+F1 is XFCE's standard Applications-menu shortcut.
+# The guest's Alt+F1 binding is not firing in this image, so click the visible
+# Applications panel button through QEMU's relative mouse and button events.
 launcher_menu_ppm="$OUT/traceos-launcher-menu.ppm"
 launcher_menu_png="$OUT/traceos-launcher-menu.png"
-hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f1" "$STATE/monitor-launcher-menu-sendkey.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -500 -350" "$STATE/monitor-launcher-menu-mouse-move.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-mouse-down.log"
+sleep 0.2
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-launcher-menu-mouse-up.log"
 sleep 2
 capture_screendump "$STATE/monitor-dashboard.sock" "$launcher_menu_ppm" "$STATE/monitor-launcher-menu-screendump.log"
 convert "$launcher_menu_ppm" -resize 1280x720 -strip "$launcher_menu_png"
 identify "$launcher_menu_png"
 test -s "$launcher_menu_png"
-launcher_menu_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$launcher_menu_png" null: 2>&1 || true)"
+
+# Compare the panel/menu region, not merely the whole screen, so cursor motion
+# or an unrelated redraw cannot masquerade as a menu opening.
+launcher_dashboard_crop="$OUT/.traceos-dashboard-launcher-region.png"
+launcher_menu_crop="$OUT/.traceos-launcher-menu-region.png"
+convert "$OUT/traceos-dashboard.png" -crop 360x600+0+0 +repage "$launcher_dashboard_crop"
+convert "$launcher_menu_png" -crop 360x600+0+0 +repage "$launcher_menu_crop"
+launcher_menu_diff="$(compare -metric AE "$launcher_dashboard_crop" "$launcher_menu_crop" null: 2>&1 || true)"
 if [[ ! "$launcher_menu_diff" =~ ^[0-9]+$ ]] || (( launcher_menu_diff <= 5000 )); then
-    echo "[TraceOS] Applications-menu screenshot did not differ meaningfully from the Dashboard." >&2
+    echo "[TraceOS] Applications-menu region did not differ meaningfully from the Dashboard (changed pixels: ${launcher_menu_diff:-unknown})." >&2
     exit 1
 fi
-echo "[TraceOS] Applications-menu screenshot differs from Dashboard across $launcher_menu_diff pixels."
-rm -f "$launcher_menu_ppm"
+echo "[TraceOS] Applications-menu region differs from Dashboard across $launcher_menu_diff pixels."
+rm -f "$launcher_menu_ppm" "$launcher_dashboard_crop" "$launcher_menu_crop"
 
 # Capture both investigation workspaces through their real Control Centre shortcuts.
 # These page-only interactions do not start tools or external lookups.
