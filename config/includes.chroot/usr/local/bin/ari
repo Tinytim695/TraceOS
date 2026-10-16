@@ -1,4 +1,4 @@
-#!/bin/env python3
+#!/usr/bin/env python3
 """TraceOS Ari Local AI Assistant Interface.
 
 Connects to a local CPU inference engine (llama-server or Ollama) running
