@@ -60,11 +60,11 @@ cat > "$PIPX_GLOBAL_BIN_DIR/certipy" <<EOF
 #!/bin/sh
 set -eu
 python="$NETEXEC_PYTHON"
-if [ ! -x "$python" ]; then
-    echo "[TraceOS] ERROR: Certipy runtime is missing: $python" >&2
+if [ ! -x "\$python" ]; then
+    echo "[TraceOS] ERROR: Certipy runtime is missing: \$python" >&2
     exit 127
 fi
-exec "$python" -c 'import sys; sys.argv[0] = "certipy"; from certipy.entry import main; main()' "\$@"
+exec "\$python" -c 'import sys; sys.argv[0] = "certipy"; from certipy.entry import main; main()' "\$@"
 EOF
 chmod 0755 "$PIPX_GLOBAL_BIN_DIR/certipy"
 
