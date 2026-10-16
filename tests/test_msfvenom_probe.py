@@ -274,8 +274,10 @@ Options:
             start_new_session=True,
         )
         try:
-            time.sleep(0.3)
+            deadline = time.monotonic() + 2.0
             pgid = os.getpgid(proc.pid)
+            while time.monotonic() < deadline and "Z" not in states(pgid):
+                time.sleep(0.05)
             self.assertIn("Z", states(pgid))
             self.assertTrue(live(pgid))
             os.kill(proc.pid, signal.SIGKILL)
