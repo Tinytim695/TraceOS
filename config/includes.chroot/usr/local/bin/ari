@@ -1,0 +1,155 @@
+#!/bin/env python3
+"""TraceOS Ari Local AI Assistant Interface.
+
+Connects to a local CPU inference engine (llama-server or Ollama) running
+quantized abliterated LLM models (e.g. Llama-3.2-1B-Instruct-abliterated or
+Qwen2.5-1.5B-Instruct-abliterated) on localhost without external API dependencies.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+API_URL = os.environ.get("ARI_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
+HEALTH_URL = os.environ.get("ARI_HEALTH_URL", "http://127.0.0.1:8080/health")
+MODEL_PATH = os.environ.get(
+    "ARI_MODEL_PATH",
+    "/usr/share/traceos/models/ari-abliterated-model.gguf"
+)
+
+SYSTEM_PROMPT = (
+    "You are Ari, the local AI assistant for TraceOS digital investigation workstation. "
+    "You assist forensic analysts, incident responders, and OSINT investigators with "
+    "command usage, syntax, evidence verification, and investigation workflows locally."
+)
+
+
+def is_server_running():
+    try:
+        req = urllib.request.Request(HEALTH_URL, headers={"User-Agent": "TraceOS-Ari/1.0"})
+        with urllib.request.urlopen(req, timeout=1) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def start_local_server():
+    if is_server_running():
+        return True
+
+    llama_server = shutil.which("llama-server") or shutil.which("llama-cli")
+    if not llama_server:
+        print("[TraceOS Ari] Local inference engine (llama-server) is not installed.", file=sys.stderr)
+        print("Install llama.cpp or set ARI_API_URL to an active local server endpoint.", file=sys.stderr)
+        return False
+
+    if not os.path.isfile(MODEL_PATH):
+        print(f"[TraceOS Ari] Local model file not found at: {MODEL_PATH}", file=sys.stderr)
+        print("To use Ari locally, place a GGUF model file at that location or set ARI_MODEL_PATH.", file=sys.stderr)
+        return False
+
+    print(f"[TraceOS Ari] Starting local CPU inference server using {MODEL_PATH}...")
+    cpu_cores = max(1, (os.cpu_count() or 2) - 1)
+    cmd = [
+        llama_server,
+        "-m", MODEL_PATH,
+        "-c", "2048",
+        "--host", "127.0.0.1",
+        "--port", "8080",
+        "-t", str(cpu_cores),
+    ]
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        print(f"[TraceOS Ari] Failed to launch llama-server: {exc}", file=sys.stderr)
+        return False
+
+    # Wait up to 5 seconds for local server to bind and become healthy
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if is_server_running():
+            return True
+        time.sleep(0.2)
+    return is_server_running()
+
+
+def query_ari(prompt_text, conversation=None):
+    if conversation is None:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt_text},
+        ]
+    else:
+        messages = conversation
+
+    payload = {
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 1024,
+        "stream": False,
+    }
+
+    req = urllib.request.Request(
+        API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "TraceOS-Ari/1.0"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            return res_data["choices"][0]["message"]["content"].strip()
+    except urllib.error.URLError as exc:
+        return f"[TraceOS Ari Error] Could not connect to local AI engine at {API_URL}: {exc}"
+    except Exception as exc:
+        return f"[TraceOS Ari Error] Inference request failed: {exc}"
+
+
+def main():
+    print("TraceOS Ari - Local Digital Investigation Assistant")
+    print("───────────────────────────────────────────────────")
+    print("Local CPU inference mode | No external API calls or telemetry\n")
+
+    if not is_server_running():
+        if not start_local_server():
+            print("[TraceOS Ari] Server unavailable. Running in fallback mode.")
+
+    if len(sys.argv) > 1:
+        query = " ".join(sys.argv[1:])
+        response = query_ari(query)
+        print(f"\nAri: {response}\n")
+        return
+
+    conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
+    print("Type your query or 'exit' to quit.\n")
+    while True:
+        try:
+            user_input = input("Ari > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting Ari.")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in {"exit", "quit", "q"}:
+            print("Goodbye.")
+            break
+
+        conversation.append({"role": "user", "content": user_input})
+        answer = query_ari(user_input, conversation=conversation)
+        conversation.append({"role": "assistant", "content": answer})
+        print(f"\n{answer}\n")
+
+
+if __name__ == "__main__":
+    main()

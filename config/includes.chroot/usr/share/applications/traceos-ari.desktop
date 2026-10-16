@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ari - TraceOS AI Assistant
+Comment=Local-first digital investigation AI assistant
+Exec=/usr/local/bin/traceos-ari-gui
+Icon=traceos
+Terminal=false
+Categories=System;Utility;Security;Development;
+StartupNotify=true

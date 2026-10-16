@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+echo "[TraceOS] Installing Ari local AI assistant infrastructure..."
+
+mkdir -p /usr/share/traceos/models
+mkdir -p /etc/traceos
+
+LLAMA_VERSION="b3800"
+LLAMA_URL="https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip"
+
+echo "[TraceOS] Fetching llama-server binary (${LLAMA_VERSION})..."
+if command -v wget >/dev/null 2>&1; then
+    wget -qO /tmp/llama.zip "$LLAMA_URL"
+else
+    curl -sSL "$LLAMA_URL" -o /tmp/llama.zip
+fi
+
+unzip -q /tmp/llama.zip -d /tmp/llama_out
+BINARY_FILE="$(find /tmp/llama_out -type f -name "llama-server" | head -n 1)"
+if [ -n "$BINARY_FILE" ] && [ -f "$BINARY_FILE" ]; then
+    mv "$BINARY_FILE" /usr/local/bin/llama-server
+    chmod 755 /usr/local/bin/llama-server
+else
+    echo "[TraceOS WARNING] llama-server binary was not found in release archive." >&2
+fi
+rm -rf /tmp/llama.zip /tmp/llama_out
+
+cat > /etc/traceos/ari.conf <<'EOF'
+# TraceOS Ari Local AI Assistant Configuration
+# Default local endpoint for llama.cpp / llama-server
+ARI_API_URL="http://127.0.0.1:8080/v1/chat/completions"
+ARI_HEALTH_URL="http://127.0.0.1:8080/health"
+ARI_MODEL_PATH="/usr/share/traceos/models/ari-abliterated-model.gguf"
+EOF
+
+chmod 644 /etc/traceos/ari.conf
+
+cat > /usr/share/traceos/ari-tools.txt <<'EOF'
+# TraceOS Block: Ari Local AI Assistant
+# project|version|command|purpose|license|mode|provenance
+ggerganov/llama.cpp|b3800|llama-server|Local CPU inference engine for quantized GGUF models|MIT|authorized|GitHub release b3800
+traceos/ari|0.1.0|ari|TraceOS local AI assistant wrapper and CLI query tool|GPL-3.0|authorized|TraceOS local integration
+EOF
+
+echo "[TraceOS] Ari local AI assistant infrastructure installed."

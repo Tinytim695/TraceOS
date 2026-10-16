@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""TraceOS Ari Modern GUI Chat Application.
+
+Provides a modern desktop chat interface for conversing with Ari, the local
+digital investigation AI assistant running via llama.cpp / llama-server.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import tkinter as tk
+from tkinter import ttk, scrolledtext
+import urllib.error
+import urllib.request
+
+API_URL = os.environ.get("ARI_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
+HEALTH_URL = os.environ.get("ARI_HEALTH_URL", "http://127.0.0.1:8080/health")
+MODEL_PATH = os.environ.get(
+    "ARI_MODEL_PATH",
+    "/usr/share/traceos/models/ari-abliterated-model.gguf"
+)
+
+SYSTEM_PROMPT = (
+    "You are Ari, the local AI assistant for TraceOS digital investigation workstation. "
+    "You assist forensic analysts, incident responders, and OSINT investigators with "
+    "command usage, syntax, evidence verification, and investigation workflows locally."
+)
+
+# Dark theme palette
+BG_DARK = "#090d16"
+PANEL_BG = "#101827"
+CHAT_BG = "#0b121e"
+USER_BUBBLE = "#1e293b"
+ASSISTANT_BUBBLE = "#0f172a"
+ACCENT_BLUE = "#38bdf8"
+TEXT_COLOR = "#f8fafc"
+MUTED_TEXT = "#94a3b8"
+
+
+class AriChatApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Ari - TraceOS Local AI Assistant")
+        self.geometry("850x650")
+        self.configure(bg=BG_DARK)
+        self.minsize(600, 450)
+
+        self.conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.is_generating = False
+
+        self._build_ui()
+        self.after(500, self._check_server_status)
+
+    def _build_ui(self):
+        # Top Header Bar
+        header = tk.Frame(self, bg=PANEL_BG, height=50)
+        header.pack(fill=tk.X, side=tk.TOP)
+        header.pack_propagate(False)
+
+        title_lbl = tk.Label(
+            header,
+            text="ARI // LOCAL AI ASSISTANT",
+            font=("DejaVu Sans", 12, "bold"),
+            bg=PANEL_BG,
+            fg=ACCENT_BLUE,
+            padx=15,
+        )
+        title_lbl.pack(side=tk.LEFT)
+
+        self.status_lbl = tk.Label(
+            header,
+            text="● Checking local engine...",
+            font=("DejaVu Sans", 9),
+            bg=PANEL_BG,
+            fg=MUTED_TEXT,
+            padx=15,
+        )
+        self.status_lbl.pack(side=tk.RIGHT)
+
+        # Main Chat Area
+        chat_frame = tk.Frame(self, bg=BG_DARK, padx=10, pady=10)
+        chat_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.chat_display = scrolledtext.ScrolledText(
+            chat_frame,
+            wrap=tk.WORD,
+            font=("DejaVu Sans", 10),
+            bg=CHAT_BG,
+            fg=TEXT_COLOR,
+            insertbackground=TEXT_COLOR,
+            relief=tk.FLAT,
+            padx=12,
+            pady=12,
+        )
+        self.chat_display.pack(fill=tk.BOTH, expand=True)
+        self.chat_display.config(state=tk.DISABLED)
+
+        # Style text tags
+        self.chat_display.tag_config("user_header", foreground=ACCENT_BLUE, font=("DejaVu Sans", 10, "bold"))
+        self.chat_display.tag_config("ari_header", foreground="#a855f7", font=("DejaVu Sans", 10, "bold"))
+        self.chat_display.tag_config("msg_body", foreground=TEXT_COLOR, font=("DejaVu Sans", 10))
+        self.chat_display.tag_config("sys_msg", foreground=MUTED_TEXT, font=("DejaVu Sans", 9, "italic"))
+
+        # Welcome message
+        self._append_message("System", "Ari interface initialized. All queries remain strictly local (no telemetry).", tag="sys_msg")
+
+        # Bottom Input Bar
+        input_frame = tk.Frame(self, bg=PANEL_BG, pady=8, padx=10)
+        input_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+        self.input_entry = tk.Entry(
+            input_frame,
+            font=("DejaVu Sans", 11),
+            bg="#1e293b",
+            fg=TEXT_COLOR,
+            insertbackground=TEXT_COLOR,
+            relief=tk.FLAT,
+        )
+        self.input_entry.pack(fill=tk.X, side=tk.LEFT, expand=True, ipady=6, padx=(0, 8))
+        self.input_entry.bind("<Return>", self._on_send)
+
+        self.send_btn = tk.Button(
+            input_frame,
+            text="Send Prompt",
+            font=("DejaVu Sans", 10, "bold"),
+            bg=ACCENT_BLUE,
+            fg="#0f172a",
+            activebackground="#7dd3fc",
+            activeforeground="#0f172a",
+            relief=tk.FLAT,
+            padx=15,
+            command=self._on_send,
+        )
+        self.send_btn.pack(side=tk.RIGHT)
+
+    def _append_message(self, sender, text, tag="msg_body"):
+        self.chat_display.config(state=tk.NORMAL)
+        if sender == "You":
+            self.chat_display.insert(tk.END, "\nYou\n", "user_header")
+        elif sender == "Ari":
+            self.chat_display.insert(tk.END, "\nAri\n", "ari_header")
+        elif sender == "System":
+            self.chat_display.insert(tk.END, f"\n[{text}]\n", "sys_msg")
+            self.chat_display.config(state=tk.DISABLED)
+            self.chat_display.see(tk.END)
+            return
+
+        self.chat_display.insert(tk.END, f"{text}\n", tag)
+        self.chat_display.config(state=tk.DISABLED)
+        self.chat_display.see(tk.END)
+
+    def _check_server_status(self):
+        def worker():
+            try:
+                req = urllib.request.Request(HEALTH_URL, headers={"User-Agent": "TraceOS-Ari/1.0"})
+                with urllib.request.urlopen(req, timeout=1) as resp:
+                    if resp.status == 200:
+                        self.after(0, lambda: self.status_lbl.config(text="● Engine Active (Local CPU)", fg="#4ade80"))
+                        return
+            except Exception:
+                pass
+            self.after(0, lambda: self.status_lbl.config(text="○ Engine Standby (GGUF Model Required)", fg="#facc15"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_send(self, event=None):
+        if self.is_generating:
+            return
+        prompt = self.input_entry.get().strip()
+        if not prompt:
+            return
+
+        self.input_entry.delete(0, tk.END)
+        self._append_message("You", prompt)
+        self.conversation.append({"role": "user", "content": prompt})
+
+        self.is_generating = True
+        self.send_btn.config(state=tk.DISABLED, text="Thinking...")
+        self.status_lbl.config(text="● Ari is thinking...", fg=ACCENT_BLUE)
+
+        threading.Thread(target=self._query_worker, daemon=True).start()
+
+    def _query_worker(self):
+        payload = {
+            "messages": self.conversation,
+            "temperature": 0.3,
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        req = urllib.request.Request(
+            API_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "TraceOS-Ari/1.0"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                reply = res_data["choices"][0]["message"]["content"].strip()
+                self.conversation.append({"role": "assistant", "content": reply})
+                self.after(0, lambda r=reply: self._finish_generation("Ari", r))
+        except Exception as exc:
+            err_msg = (
+                f"[Local Engine Standby]\nCould not connect to local server at {API_URL}.\n"
+                f"Ensure a GGUF model is present at {MODEL_PATH} or run 'ari' in terminal."
+            )
+            self.after(0, lambda e=err_msg: self._finish_generation("Ari", e))
+
+    def _finish_generation(self, sender, text):
+        self._append_message(sender, text)
+        self.is_generating = False
+        self.send_btn.config(state=tk.NORMAL, text="Send Prompt")
+        self.status_lbl.config(text="● Engine Active", fg="#4ade80")
+
+
+if __name__ == "__main__":
+    app = AriChatApp()
+    app.mainloop()
