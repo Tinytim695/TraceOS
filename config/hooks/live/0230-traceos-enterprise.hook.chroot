@@ -15,52 +15,68 @@ install_pipx_tool() {
 }
 
 install_netexec_release() {
-    commit="c7dc286ba65daf10402cdc470e531b84e6d3d911"
+    # This upstream commit replaces the renamed Certipy Git dependency with
+    # certipy-nxc==5.1.0.post1, whose metadata is compatible with Python 3.13.
+    # Pin the full commit SHA so the build does not depend on a moving tag.
+    commit="0602ef43676bff614369037d966c42dcaeace5b1"
     source_dir="$(mktemp -d /tmp/traceos-netexec.XXXXXX)"
     trap 'rm -rf "$source_dir"' EXIT HUP INT TERM
 
-    echo "[TraceOS] Preparing NetExec v1.5.1 from pinned upstream commit $commit"
-    git clone --quiet --depth 1 --branch v1.5.1 \
-        https://github.com/Pennyw0rth/NetExec "$source_dir"
+    echo "[TraceOS] Preparing NetExec from pinned upstream commit $commit"
+    git clone --quiet https://github.com/Pennyw0rth/NetExec "$source_dir"
+    git -C "$source_dir" checkout --quiet --detach "$commit"
 
     actual_commit="$(git -C "$source_dir" rev-parse HEAD)"
     if [ "$actual_commit" != "$commit" ]; then
-        echo "[TraceOS] ERROR: NetExec tag resolved to unexpected commit $actual_commit" >&2
+        echo "[TraceOS] ERROR: NetExec checkout resolved to unexpected commit $actual_commit" >&2
         exit 1
     fi
 
-    # NetExec v1.5.1 declares Certipy as an unpinned Git URL. pip fails to
-    # resolve that requirement in this build (certipy-ad is reported as
-    # "(unavailable)") even though the compatible pinned PyPI release exists.
-    # Substitute only that dependency source, retaining NetExec's security fix
-    # and all its other upstream dependency declarations.
-    certipy_git_requirement='"certipy-ad @ git+https://github.com/Pennyw0rth/Certipy"'
-    if ! grep -Fq "$certipy_git_requirement" "$source_dir/pyproject.toml"; then
-        echo "[TraceOS] ERROR: expected NetExec Certipy dependency was not found" >&2
+    if ! grep -Fq '"certipy-nxc>=5.1.0.post1"' "$source_dir/pyproject.toml"; then
+        echo "[TraceOS] ERROR: pinned NetExec metadata does not declare certipy-nxc>=5.1.0.post1" >&2
+        exit 1
+    fi
+    if grep -Fq 'certipy-ad @ git+https://github.com/Pennyw0rth/Certipy' "$source_dir/pyproject.toml"; then
+        echo "[TraceOS] ERROR: pinned NetExec metadata still declares the obsolete Certipy Git dependency" >&2
         exit 1
     fi
 
-    sed -i 's|"certipy-ad @ git+https://github.com/Pennyw0rth/Certipy"|"certipy-ad==5.1.0"|' \
-        "$source_dir/pyproject.toml"
-    if grep -Fq "$certipy_git_requirement" "$source_dir/pyproject.toml"; then
-        echo "[TraceOS] ERROR: failed to replace NetExec's Certipy Git dependency" >&2
-        exit 1
-    fi
-
-    echo "[TraceOS] Using certipy-ad==5.1.0 from PyPI in NetExec's local build metadata"
+    echo "[TraceOS] Installing NetExec with its upstream certipy-nxc dependency metadata"
     pipx install --global "$source_dir"
 }
 
 install_pipx_tool impacket 0.13.1
 install_netexec_release
-install_pipx_tool certipy-ad 5.1.0
+# certipy-nxc is a library dependency and intentionally has no pipx app entry point.
+# NetExec's pinned environment already contains it; expose its upstream CLI entry
+# point through a small wrapper instead of asking pipx to install a library as an app.
+NETEXEC_PYTHON="$PIPX_GLOBAL_HOME/venvs/netexec/bin/python"
+if [ ! -x "$NETEXEC_PYTHON" ]; then
+    echo "[TraceOS] ERROR: NetExec virtualenv Python not found at $NETEXEC_PYTHON" >&2
+    exit 1
+fi
+
+cat > "$PIPX_GLOBAL_BIN_DIR/certipy" <<EOF
+#!/bin/sh
+set -eu
+python="$NETEXEC_PYTHON"
+if [ ! -x "\$python" ]; then
+    echo "[TraceOS] ERROR: Certipy runtime is missing: \$python" >&2
+    exit 127
+fi
+exec "\$python" -c 'import sys; sys.argv[0] = "certipy"; from certipy.entry import main; main()' "\$@"
+EOF
+chmod 0755 "$PIPX_GLOBAL_BIN_DIR/certipy"
+
+echo "[TraceOS] Validating Certipy CLI from NetExec's dependency environment"
+"$PIPX_GLOBAL_BIN_DIR/certipy" --version
 
 cat > /usr/share/traceos/enterprise-assessment-tools.txt <<'EOF'
 # TraceOS Block 4: Enterprise / Active Directory / Internal Assessment
 # project|version|command|purpose|license|mode|provenance
 fortra/impacket|0.13.1|impacket-*|SMB/RPC/LDAP/Kerberos protocol assessment and enumeration|Impacket modified Apache 1.1|authorized|PyPI impacket-0.13.1
-Pennyw0rth/NetExec|1.5.1|nxc|authorized SMB/LDAP/WinRM/MSSQL/SSH enumeration and assessment|BSD-3-Clause|authorized|GitHub commit c7dc286ba65daf10402cdc470e531b84e6d3d911 (v1.5.1)
-ly4k/Certipy|5.1.0|certipy|AD CS discovery and certificate-service assessment|MIT|authorized|PyPI certipy-ad-5.1.0
+Pennyw0rth/NetExec|1.5.1+0602ef43676b|nxc|authorized SMB/LDAP/WinRM/MSSQL/SSH enumeration and assessment|BSD-2-Clause|authorized|GitHub commit 0602ef43676bff614369037d966c42dcaeace5b1
+Pennyw0rth/Certipy|5.1.0.post1|certipy|AD CS discovery and certificate-service assessment|MIT|authorized|PyPI certipy-nxc-5.1.0.post1 in pinned NetExec venv; TraceOS certipy CLI wrapper uses certipy.entry
 debian/openldap|installed|ldapsearch|LDAP directory querying and inspection|OpenLDAP license|authorized|Debian Trixie package
 debian/samba-client|installed|smbclient|SMB share and protocol inspection|GPL|authorized|Debian Trixie package
 debian/samba-common-bin|installed|rpcclient|MS-RPC enumeration|GPL|authorized|Debian Trixie package
