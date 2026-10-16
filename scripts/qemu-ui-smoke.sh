@@ -496,11 +496,12 @@ capture_page dashboard true
 
 # Capture the actual XFCE Applications menu so the branded TraceOS launchers
 # are represented in retained QEMU evidence, not inferred from desktop files.
-# The guest's Alt+F1 binding is not firing in this image, so click the visible
-# Applications panel button through QEMU's relative mouse and button events.
+# QEMU HMP mouse_move is RELATIVE: first clamp to the top-left, then move into
+# the center of the Applications button instead of clicking the screen corner.
 launcher_menu_ppm="$OUT/traceos-launcher-menu.ppm"
 launcher_menu_png="$OUT/traceos-launcher-menu.png"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -500 -350" "$STATE/monitor-launcher-menu-mouse-move.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -500 -350" "$STATE/monitor-launcher-menu-reset-pointer.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 45 10" "$STATE/monitor-launcher-menu-target-button.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-mouse-down.log"
 sleep 0.2
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-launcher-menu-mouse-up.log"
@@ -510,18 +511,28 @@ convert "$launcher_menu_ppm" -resize 1280x720 -strip "$launcher_menu_png"
 identify "$launcher_menu_png"
 test -s "$launcher_menu_png"
 
-# Compare the panel/menu region, not merely the whole screen, so cursor motion
-# or an unrelated redraw cannot masquerade as a menu opening.
+# Compare the expected popup area, not the whole screen. The old whole-screen
+# threshold accepted ordinary cursor/time changes while the menu was not open.
 launcher_dashboard_crop="$OUT/.traceos-dashboard-launcher-region.png"
 launcher_menu_crop="$OUT/.traceos-launcher-menu-region.png"
-convert "$OUT/traceos-dashboard.png" -crop 360x600+0+0 +repage "$launcher_dashboard_crop"
-convert "$launcher_menu_png" -crop 360x600+0+0 +repage "$launcher_menu_crop"
+convert "$OUT/traceos-dashboard.png" -crop 300x500+0+24 +repage "$launcher_dashboard_crop"
+convert "$launcher_menu_png" -crop 300x500+0+24 +repage "$launcher_menu_crop"
 launcher_menu_diff="$(compare -metric AE "$launcher_dashboard_crop" "$launcher_menu_crop" null: 2>&1 || true)"
-if [[ ! "$launcher_menu_diff" =~ ^[0-9]+$ ]] || (( launcher_menu_diff <= 5000 )); then
-    echo "[TraceOS] Applications-menu region did not differ meaningfully from the Dashboard (changed pixels: ${launcher_menu_diff:-unknown})." >&2
+if [[ ! "$launcher_menu_diff" =~ ^[0-9]+$ ]] || (( launcher_menu_diff <= 25000 )); then
+    echo "[TraceOS] Applications menu was not visibly open in the expected popup region (changed pixels: ${launcher_menu_diff:-unknown})." >&2
     exit 1
 fi
-echo "[TraceOS] Applications-menu region differs from Dashboard across $launcher_menu_diff pixels."
+echo "[TraceOS] Applications menu visible in popup region; $launcher_menu_diff pixels changed."
+
+# Close the popup and return keyboard focus to the actual Control Centre window.
+# Without this, the following Tk shortcut can be consumed by the XFCE panel.
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-launcher-menu-dismiss.log"
+sleep 0.5
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 500 200" "$STATE/monitor-launcher-menu-refocus-move.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-refocus-down.log"
+sleep 0.2
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-launcher-menu-refocus-up.log"
+sleep 0.5
 rm -f "$launcher_menu_ppm" "$launcher_dashboard_crop" "$launcher_menu_crop"
 
 # Capture both investigation workspaces through their real Control Centre shortcuts.
