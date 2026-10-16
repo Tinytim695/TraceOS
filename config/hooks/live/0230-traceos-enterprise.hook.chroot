@@ -47,14 +47,36 @@ install_netexec_release() {
 
 install_pipx_tool impacket 0.13.1
 install_netexec_release
-install_pipx_tool certipy-nxc 5.1.0.post1
+# certipy-nxc is a library dependency and intentionally has no pipx app entry point.
+# NetExec's pinned environment already contains it; expose its upstream CLI entry
+# point through a small wrapper instead of asking pipx to install a library as an app.
+NETEXEC_PYTHON="$PIPX_GLOBAL_HOME/venvs/netexec/bin/python"
+if [ ! -x "$NETEXEC_PYTHON" ]; then
+    echo "[TraceOS] ERROR: NetExec virtualenv Python not found at $NETEXEC_PYTHON" >&2
+    exit 1
+fi
+
+cat > "$PIPX_GLOBAL_BIN_DIR/certipy" <<EOF
+#!/bin/sh
+set -eu
+python="$NETEXEC_PYTHON"
+if [ ! -x "$python" ]; then
+    echo "[TraceOS] ERROR: Certipy runtime is missing: $python" >&2
+    exit 127
+fi
+exec "$python" -c 'import sys; sys.argv[0] = "certipy"; from certipy.entry import main; main()' "\$@"
+EOF
+chmod 0755 "$PIPX_GLOBAL_BIN_DIR/certipy"
+
+echo "[TraceOS] Validating Certipy CLI from NetExec's dependency environment"
+"$PIPX_GLOBAL_BIN_DIR/certipy" --version
 
 cat > /usr/share/traceos/enterprise-assessment-tools.txt <<'EOF'
 # TraceOS Block 4: Enterprise / Active Directory / Internal Assessment
 # project|version|command|purpose|license|mode|provenance
 fortra/impacket|0.13.1|impacket-*|SMB/RPC/LDAP/Kerberos protocol assessment and enumeration|Impacket modified Apache 1.1|authorized|PyPI impacket-0.13.1
 Pennyw0rth/NetExec|1.5.1+0602ef43676b|nxc|authorized SMB/LDAP/WinRM/MSSQL/SSH enumeration and assessment|BSD-2-Clause|authorized|GitHub commit 0602ef43676bff614369037d966c42dcaeace5b1
-Pennyw0rth/Certipy|5.1.0.post1|certipy|AD CS discovery and certificate-service assessment|MIT|authorized|PyPI certipy-nxc-5.1.0.post1 from NetExec upstream dependency fix
+Pennyw0rth/Certipy|5.1.0.post1|certipy|AD CS discovery and certificate-service assessment|MIT|authorized|PyPI certipy-nxc-5.1.0.post1 in pinned NetExec venv; TraceOS certipy CLI wrapper uses certipy.entry
 debian/openldap|installed|ldapsearch|LDAP directory querying and inspection|OpenLDAP license|authorized|Debian Trixie package
 debian/samba-client|installed|smbclient|SMB share and protocol inspection|GPL|authorized|Debian Trixie package
 debian/samba-common-bin|installed|rpcclient|MS-RPC enumeration|GPL|authorized|Debian Trixie package
