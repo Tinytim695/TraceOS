@@ -494,6 +494,25 @@ assert_generated_grub "$OUT/traceos-generated-grub.cfg"
 # diagnostic interaction so the Dashboard remains the baseline gate.
 capture_page dashboard true
 
+# Capture the actual XFCE Applications menu so the branded TraceOS launchers
+# are represented in retained QEMU evidence, not inferred from desktop files.
+# Alt+F1 is XFCE's standard Applications-menu shortcut.
+launcher_menu_ppm="$OUT/traceos-launcher-menu.ppm"
+launcher_menu_png="$OUT/traceos-launcher-menu.png"
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f1" "$STATE/monitor-launcher-menu-sendkey.log"
+sleep 2
+capture_screendump "$STATE/monitor-dashboard.sock" "$launcher_menu_ppm" "$STATE/monitor-launcher-menu-screendump.log"
+convert "$launcher_menu_ppm" -resize 1280x720 -strip "$launcher_menu_png"
+identify "$launcher_menu_png"
+test -s "$launcher_menu_png"
+launcher_menu_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$launcher_menu_png" null: 2>&1 || true)"
+if [[ ! "$launcher_menu_diff" =~ ^[0-9]+$ ]] || (( launcher_menu_diff <= 5000 )); then
+    echo "[TraceOS] Applications-menu screenshot did not differ meaningfully from the Dashboard." >&2
+    exit 1
+fi
+echo "[TraceOS] Applications-menu screenshot differs from Dashboard across $launcher_menu_diff pixels."
+rm -f "$launcher_menu_ppm"
+
 # Capture both investigation workspaces through their real Control Centre shortcuts.
 # These page-only interactions do not start tools or external lookups.
 monitor="$STATE/monitor-dashboard.sock"
