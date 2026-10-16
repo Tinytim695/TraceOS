@@ -16,12 +16,73 @@ from tkinter import ttk, scrolledtext
 import urllib.error
 import urllib.request
 
+def load_config():
+    conf_file = "/etc/traceos/ari.conf"
+    if os.path.isfile(conf_file):
+        try:
+            with open(conf_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip().strip('"').strip("'")
+                        if k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+load_config()
+
 API_URL = os.environ.get("ARI_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
 HEALTH_URL = os.environ.get("ARI_HEALTH_URL", "http://127.0.0.1:8080/health")
 MODEL_PATH = os.environ.get(
     "ARI_MODEL_PATH",
-    "/usr/share/traceos/models/ari-abliterated-model.gguf"
+    "/usr/share/traceos/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
 )
+
+
+def is_server_running():
+    try:
+        req = urllib.request.Request(HEALTH_URL, headers={"User-Agent": "TraceOS-Ari/1.0"})
+        with urllib.request.urlopen(req, timeout=1) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def start_local_server():
+    if is_server_running():
+        return True
+
+    llama_server = shutil.which("llama-server") or shutil.which("llama-cli")
+    if not llama_server or not os.path.isfile(MODEL_PATH):
+        return False
+
+    cpu_cores = max(1, (os.cpu_count() or 2) - 1)
+    cmd = [
+        llama_server,
+        "-m", MODEL_PATH,
+        "-c", "2048",
+        "--host", "127.0.0.1",
+        "--port", "8080",
+        "-t", str(cpu_cores),
+    ]
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        return False
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if is_server_running():
+            return True
+        time.sleep(0.2)
+    return is_server_running()
 
 SYSTEM_PROMPT = (
     "You are Ari, the local AI assistant for TraceOS digital investigation workstation. "
@@ -154,15 +215,12 @@ class AriChatApp(tk.Tk):
 
     def _check_server_status(self):
         def worker():
-            try:
-                req = urllib.request.Request(HEALTH_URL, headers={"User-Agent": "TraceOS-Ari/1.0"})
-                with urllib.request.urlopen(req, timeout=1) as resp:
-                    if resp.status == 200:
-                        self.after(0, lambda: self.status_lbl.config(text="● Engine Active (Local CPU)", fg="#4ade80"))
-                        return
-            except Exception:
-                pass
-            self.after(0, lambda: self.status_lbl.config(text="○ Engine Standby (GGUF Model Required)", fg="#facc15"))
+            if not is_server_running():
+                start_local_server()
+            if is_server_running():
+                self.after(0, lambda: self.status_lbl.config(text="● Engine Active (Local CPU)", fg="#4ade80"))
+            else:
+                self.after(0, lambda: self.status_lbl.config(text="○ Engine Standby (GGUF Model Required)", fg="#facc15"))
 
         threading.Thread(target=worker, daemon=True).start()
 

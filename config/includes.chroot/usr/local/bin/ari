@@ -14,11 +14,28 @@ import time
 import urllib.error
 import urllib.request
 
+def load_config():
+    conf_file = "/etc/traceos/ari.conf"
+    if os.path.isfile(conf_file):
+        try:
+            with open(conf_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip().strip('"').strip("'")
+                        if k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+load_config()
+
 API_URL = os.environ.get("ARI_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
 HEALTH_URL = os.environ.get("ARI_HEALTH_URL", "http://127.0.0.1:8080/health")
 MODEL_PATH = os.environ.get(
     "ARI_MODEL_PATH",
-    "/usr/share/traceos/models/ari-abliterated-model.gguf"
+    "/usr/share/traceos/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
 )
 
 SYSTEM_PROMPT = (
