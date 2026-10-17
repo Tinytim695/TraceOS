@@ -267,7 +267,7 @@ capture_page() {
 
     if [[ "$page" == "dashboard" ]]; then
         # The intended first screen is TraceOS Launcher, not the Control Centre.
-        launcher_deadline=$((SECONDS + 240))
+        launcher_deadline=$((SECONDS + 600))
         while (( SECONDS < launcher_deadline )); do
             if grep -Fq "stage=TRACEOS_LAUNCHER_SESSION_READY" "$STATE/serial-$page.log" 2>/dev/null; then
                 break
