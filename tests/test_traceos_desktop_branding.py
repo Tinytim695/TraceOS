@@ -72,7 +72,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn("QEMU HMP mouse_move sends relative deltas",qemu)
         self.assertEqual(qemu.count("mouse_move -2048 -1536"),4)
         self.assertNotIn("mouse_move -500 -350",qemu)
-        self.assertIn('mouse_move 207 392',qemu)
+        self.assertIn('mouse_move 414 784',qemu)
+        self.assertIn('traceos-launcher-control-centre-target.png',qemu)
 
     def test_qemu_captures_launcher_and_uncovered_desktop(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")

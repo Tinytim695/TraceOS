@@ -310,7 +310,16 @@ capture_page() {
         # Click its visual centre in the 1152x720 QEMU guest framebuffer.
                 # Screenshot is 1152x720; primary button bounds are x=46..368, y=377..407.
         # Click inside its centre rather than below the button.
-        hmp_command "$monitor" "mouse_move 207 392" "$STATE/monitor-launcher-control-centre-target.log"
+                # In the captured QEMU PS/2 session, an HMP delta of 1100,690 moved
+        # the visible cursor about half that distance. Double the CTA offset
+        # to place the cursor at the button centre (207,392) after the reset.
+        hmp_command "$monitor" "mouse_move 414 784" "$STATE/monitor-launcher-control-centre-target.log"
+        launcher_click_ppm="$OUT/traceos-launcher-control-centre-target.ppm"
+        launcher_click_png="$OUT/traceos-launcher-control-centre-target.png"
+        capture_screendump "$monitor" "$launcher_click_ppm" "$STATE/monitor-launcher-control-centre-target-screendump.log"
+        convert "$launcher_click_ppm" -strip "$launcher_click_png"
+        identify "$launcher_click_png"
+        test -s "$launcher_click_png"
         hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-launcher-control-centre-down.log"
         sleep 0.2
         hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-launcher-control-centre-up.log"
