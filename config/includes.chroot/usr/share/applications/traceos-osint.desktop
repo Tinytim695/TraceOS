@@ -1,9 +1,12 @@
 [Desktop Entry]
 Type=Application
 Name=TraceOS OSINT Centre
+GenericName=OSINT workbench
 Comment=User-invoked OSINT workbench
-Exec=/usr/local/bin/traceos-control --osint
-Icon=traceos
+Exec=/usr/local/bin/traceos-control-launch --osint
+TryExec=/usr/local/bin/traceos-control-launch
+Icon=traceos-osint
 Terminal=false
-Categories=Utility;Security;
+Categories=TraceOS;Utility;Security;
 StartupNotify=true
+X-TraceOS-Managed=true

@@ -9,11 +9,13 @@ import stat
 import time
 from pathlib import Path
 
-LOG = Path("/home/traceos/.cache/traceos/control-centre-ui.log")
+LOGS = (Path("/home/traceos/.cache/traceos/control-centre-ui.log"), Path("/home/traceos/.cache/traceos/traceos-launcher.log"))
 SERIAL = "/dev/ttyS0"
 EXPECTED_TITLE = "qemucase"
 ALLOWED_STAGES = {
     "CONTROL_CENTRE_SESSION_READY",
+    "TRACEOS_LAUNCHER_SESSION_READY",
+    "TRACEOS_LAUNCHER_ACTION_INVOKED",
     "NEW_CASE_INPUT_RECEIVED",
     "NEW_CASE_DIALOG_OPENED",
     "NEW_CASE_CREATE_CALLBACK_ENTERED",
@@ -117,39 +119,34 @@ def fields_from(line: str) -> dict[str, str]:
 
 def main() -> int:
     emit("[TraceOS] QEMU_UI_DIAG_READY")
-    offset = 0
+    offsets = {path: 0 for path in LOGS}
     while True:
-        try:
-            if LOG.exists():
-                with LOG.open("r", encoding="utf-8", errors="replace") as handle:
-                    handle.seek(offset)
+        for log_path in LOGS:
+            try:
+                if not log_path.exists():
+                    continue
+                with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+                    handle.seek(offsets.get(log_path, 0))
                     while True:
                         line = handle.readline()
                         if not line:
-                            offset = handle.tell()
+                            offsets[log_path] = handle.tell()
                             break
-                        offset = handle.tell()
+                        offsets[log_path] = handle.tell()
                         fields = fields_from(line)
                         stage = fields.get("stage")
                         if stage not in ALLOWED_STAGES:
                             continue
-                        safe = (
-                            "[TraceOS] QEMU_UI_DIAG "
-                            + line[line.find("UI_DIAG"):]
-                        ).rstrip("\n")
+                        safe = ("[TraceOS] QEMU_UI_DIAG " + line[line.find("UI_DIAG"):]).rstrip("\n")
                         emit(safe)
                         if stage == "NEW_CASE_CREATED":
                             match = UUID_RE.search(line)
                             if match:
-                                probe(
-                                    match.group(1),
-                                    fields.get("nonce", "unknown"),
-                                    fields.get("pid", "unknown"),
-                                    fields.get("uid", "unknown"),
-                                    fields.get("attempt", "unknown"),
-                                )
-        except OSError:
-            pass
+                                probe(match.group(1), fields.get("nonce", "unknown"),
+                                      fields.get("pid", "unknown"), fields.get("uid", "unknown"),
+                                      fields.get("attempt", "unknown"))
+            except OSError:
+                pass
         time.sleep(0.25)
 
 

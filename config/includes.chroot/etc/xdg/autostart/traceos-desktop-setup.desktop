@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TraceOS Desktop Branding Setup
+Comment=Apply the TraceOS wallpaper, panel branding and desktop shortcuts
+Exec=/usr/local/bin/traceos-desktop-setup
+TryExec=/usr/local/bin/traceos-desktop-setup
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=1

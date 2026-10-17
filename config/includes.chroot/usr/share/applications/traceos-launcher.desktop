@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=TraceOS Launcher
+GenericName=TraceOS home screen
+Comment=Branded home screen for TraceOS tools and workspaces
+Exec=/usr/local/bin/traceos-launcher
+TryExec=/usr/local/bin/traceos-launcher
+Icon=traceos-launcher
+Terminal=false
+Categories=TraceOS;System;Utility;
+StartupNotify=true
+X-TraceOS-Managed=true
