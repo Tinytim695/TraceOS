@@ -365,6 +365,7 @@ capture_page() {
             fi
             tail -n 220 "$STATE/serial-$page.log" >&2 || true
             exit 1
+        fi
     fi
 
     # TCG is slow and shared CI runners vary. Wait for the real Control Centre
