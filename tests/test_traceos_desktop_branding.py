@@ -66,6 +66,14 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         for name in ("show-home","show-filesystem","show-trash","show-removable"):
             self.assertIn(name,names)
 
+
+    def test_qemu_pointer_resets_are_large_enough_to_clamp_relative_motion(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("QEMU HMP mouse_move sends relative deltas",qemu)
+        self.assertEqual(qemu.count("mouse_move -2048 -1536"),4)
+        self.assertNotIn("mouse_move -500 -350",qemu)
+        self.assertIn('mouse_move 207 392',qemu)
+
     def test_qemu_captures_launcher_and_uncovered_desktop(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         for expected in ("traceos-launcher-home.png","traceos-desktop-home.png",

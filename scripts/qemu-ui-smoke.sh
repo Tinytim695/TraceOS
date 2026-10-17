@@ -287,7 +287,7 @@ capture_page() {
 
         launcher_home_ppm="$OUT/traceos-launcher-home.ppm"
         launcher_home_png="$OUT/traceos-launcher-home.png"
-        hmp_command "$monitor" "mouse_move -500 -350" "$STATE/monitor-launcher-home-pointer-reset.log"
+        hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-launcher-home-pointer-reset.log"
         hmp_command "$monitor" "mouse_move 1100 690" "$STATE/monitor-launcher-home-pointer-park.log"
         capture_screendump "$monitor" "$launcher_home_ppm" "$STATE/monitor-launcher-home-screendump.log"
         convert "$launcher_home_ppm" -resize 1280x720 -strip "$launcher_home_png"
@@ -303,8 +303,10 @@ capture_page() {
         echo "[TraceOS] Branded TraceOS Launcher home screen is visible."
 
         # Click the real primary tile and verify it starts the Control Centre.
-        hmp_command "$monitor" "mouse_move -500 -350" "$STATE/monitor-launcher-control-centre-reset.log"
-                # The primary CTA is bottom-anchored in the first launcher tile.
+        # HMP movement is relative; the large negative delta clamps the parked
+        # pointer to the top-left before the target displacement below.
+        hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-launcher-control-centre-reset.log"
+        # The primary CTA is bottom-anchored in the first launcher tile.
         # Click its visual centre in the 1152x720 QEMU guest framebuffer.
                 # Screenshot is 1152x720; primary button bounds are x=46..368, y=377..407.
         # Click inside its centre rather than below the button.
@@ -559,11 +561,12 @@ capture_page dashboard true
 
 # Capture the actual XFCE Applications menu so the branded TraceOS launchers
 # are represented in retained QEMU evidence, not inferred from desktop files.
-# QEMU HMP mouse_move is RELATIVE: first clamp to the top-left, then move into
-# the center of the Applications button instead of clicking the screen corner.
+# QEMU HMP mouse_move sends relative deltas. A small negative delta does not
+# reset a pointer parked near the lower-right; use a delta larger than the guest
+# framebuffer, then move from the clamped top-left into the Applications button.
 launcher_menu_ppm="$OUT/traceos-launcher-menu.ppm"
 launcher_menu_png="$OUT/traceos-launcher-menu.png"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -500 -350" "$STATE/monitor-launcher-menu-reset-pointer.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-launcher-menu-reset-pointer.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 45 10" "$STATE/monitor-launcher-menu-target-button.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-mouse-down.log"
 sleep 0.2
@@ -1081,8 +1084,8 @@ wait "$QEMU_PID" 2>/dev/null || true
 unset QEMU_PID
 
 # Capture the desktop underneath the Launcher/Control Centre after all other GUI
-# checks. This provides evidence of wallpaper branding and curated desktop icons.
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -500 -350" "$STATE/monitor-desktop-home-pointer-reset.log"
+# checks. The same large negative relative delta makes pointer placement repeatable.
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-desktop-home-pointer-reset.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 1100 690" "$STATE/monitor-desktop-home-pointer-park.log"
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f9" "$STATE/monitor-desktop-home-minimize.log"
 sleep 2
