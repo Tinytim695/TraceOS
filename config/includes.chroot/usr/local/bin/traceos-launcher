@@ -59,12 +59,15 @@ class TraceOSLauncher:
         self.build()
         self.root.bind("<Control-q>",lambda _event:self.root.destroy())
         self.root.bind("<Escape>",lambda _event:self.root.iconify())
-        # Log raw pointer delivery and provide deterministic keyboard activation.
-        # bind_all runs before widget/class bindings; returning "break" prevents
-        # a focused Button from invoking the same action a second time.
+        # Log raw pointer delivery. Keyboard activation is bound directly to
+        # the focused Button (before Tk's class binding) so "break" prevents
+        # duplicate command execution; top-level bindings are a focus fallback.
         self.root.bind_all("<ButtonPress-1>",self.raw_click,add="+")
-        self.root.bind_all("<Return>",self.keyboard_control_centre,add="+")
-        self.root.bind_all("<space>",self.keyboard_control_centre,add="+")
+        if self.primary_button is not None:
+            self.primary_button.bind("<Return>",self.keyboard_control_centre)
+            self.primary_button.bind("<space>",self.keyboard_control_centre)
+        self.root.bind("<Return>",self.keyboard_control_centre)
+        self.root.bind("<space>",self.keyboard_control_centre)
         self.root.after(450,self.ready_marker)
 
     def diagnostic(self,stage: str,**fields: object) -> None:
