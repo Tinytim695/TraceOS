@@ -79,7 +79,9 @@ class CaseStoreTests(unittest.TestCase):
         path = self.home / "race.txt"
         path.write_text("regular", encoding="utf-8")
         original_lstat = os.lstat
+        original_open = os.open
         swapped = False
+        observed_flags = []
 
         def swap_after_lstat(candidate, *args, **kwargs):
             nonlocal swapped
@@ -90,9 +92,19 @@ class CaseStoreTests(unittest.TestCase):
                 os.mkfifo(path)
             return info
 
-        with mock.patch("traceos_case.os.lstat", side_effect=swap_after_lstat):
+        def require_nonblocking(candidate, flags, *args, **kwargs):
+            if Path(candidate) == path:
+                observed_flags.append(flags)
+                if not flags & getattr(os, "O_NONBLOCK", 0):
+                    raise OSError("O_NONBLOCK required to reject a raced FIFO safely")
+            return original_open(candidate, flags, *args, **kwargs)
+
+        with mock.patch("traceos_case.os.lstat", side_effect=swap_after_lstat), \
+             mock.patch("traceos_case.os.open", side_effect=require_nonblocking):
             with self.assertRaises(CorruptCase):
                 _read_regular_text(path, 16)
+        self.assertEqual(len(observed_flags), 1)
+        self.assertTrue(observed_flags[0] & getattr(os, "O_NONBLOCK", 0))
 
     def test_required_directory_open_rejects_case_swap_after_manifest_read(self):
         record = self.store.create("Identity Anchor")
