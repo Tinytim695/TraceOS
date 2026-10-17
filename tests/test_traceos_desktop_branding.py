@@ -1,4 +1,6 @@
 from __future__ import annotations
+import ast
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import unittest
@@ -67,12 +69,36 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
             self.assertIn(name,names)
 
 
-    def test_qemu_pointer_resets_are_large_enough_to_clamp_relative_motion(self):
+    def test_qemu_hmp_error_regex_rejects_real_error_responses(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("QEMU HMP mouse_move sends relative deltas",qemu)
-        self.assertEqual(qemu.count("mouse_move -2048 -1536"),4)
-        self.assertNotIn("mouse_move -500 -350",qemu)
-        self.assertIn('mouse_move 207 392',qemu)
+        embedded=qemu.split("python3 - \"$monitor\" \"$command\" \"$log_path\" <<'PY'\n",1)[1].split("\nPY\n}",1)[0]
+        module=ast.parse(embedded)
+        pattern=None
+        for node in ast.walk(module):
+            if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="error_pattern" for t in node.targets):
+                pattern=ast.literal_eval(node.value.args[0])
+                break
+        self.assertIsNotNone(pattern)
+        compiled=re.compile(pattern)
+        self.assertIsNotNone(compiled.search("Error: unknown command 'mouse_move'"))
+        self.assertIsNotNone(compiled.search("  invalid parameter"))
+        self.assertIsNone(compiled.search("succeeded"))
+        self.assertIsNone(compiled.search("command accepted"))
+
+    def test_qemu_launcher_uses_real_focused_button_keyboard_activation(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        launcher=(INCLUDES/"usr/local/bin/traceos-launcher").read_text(encoding="utf-8")
+        self.assertIn('hmp_command "$monitor" "sendkey ret"',qemu)
+        self.assertIn('self.primary_button.bind("<Return>",self.keyboard_control_centre)',launcher)
+        self.assertIn('self.primary_button.bind("<space>",self.keyboard_control_centre)',launcher)
+        self.assertIn('return "break"',launcher)
+        self.assertIn("primary_button.focus_set()",launcher)
+        self.assertIn("TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM",launcher)
+        self.assertNotIn("-device usb-tablet",qemu)
+        self.assertNotIn("abs_x=$(( (px * 32767) / screen_w ))",qemu)
+        self.assertIn("launcher_action_seen",qemu)
+        self.assertIn("nonce=$expected_nonce",qemu)
+        self.assertIn("traceos-launcher-control-centre-failure.png",qemu)
 
     def test_qemu_captures_launcher_and_uncovered_desktop(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")

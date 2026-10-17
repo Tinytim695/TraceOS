@@ -55,9 +55,19 @@ class TraceOSLauncher:
                 pass
         self.nonce=uuid.uuid4().hex
         self.attempt=0
+        self.primary_button: tk.Button | None = None
         self.build()
         self.root.bind("<Control-q>",lambda _event:self.root.destroy())
         self.root.bind("<Escape>",lambda _event:self.root.iconify())
+        # Log raw pointer delivery. Keyboard activation is bound directly to
+        # the focused Button (before Tk's class binding) so "break" prevents
+        # duplicate command execution; top-level bindings are a focus fallback.
+        self.root.bind_all("<ButtonPress-1>",self.raw_click,add="+")
+        if self.primary_button is not None:
+            self.primary_button.bind("<Return>",self.keyboard_control_centre)
+            self.primary_button.bind("<space>",self.keyboard_control_centre)
+        self.root.bind("<Return>",self.keyboard_control_centre)
+        self.root.bind("<space>",self.keyboard_control_centre)
         self.root.after(450,self.ready_marker)
 
     def diagnostic(self,stage: str,**fields: object) -> None:
@@ -73,9 +83,40 @@ class TraceOSLauncher:
             with log.open("a",encoding="utf-8") as handle: handle.write(line+"\n")
         except OSError: pass
 
+    def raw_click(self, event: tk.Event) -> None:
+        try:
+            widget_class=event.widget.winfo_class()
+        except tk.TclError:
+            widget_class="unknown"
+        self.diagnostic("TRACEOS_LAUNCHER_RAW_CLICK",x_root=event.x_root,
+                        y_root=event.y_root,widget=widget_class)
+
+    def keyboard_control_centre(self, _event: tk.Event) -> str:
+        self.invoke_control_centre()
+        return "break"
+
+    def invoke_control_centre(self) -> None:
+        self.launch("control-centre",["/usr/local/bin/traceos-control-launch"])
+
     def ready_marker(self) -> None:
-        try: self.root.update_idletasks()
-        except tk.TclError: return
+        try:
+            self.root.update_idletasks()
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+            if self.primary_button is None:
+                self.diagnostic("TRACEOS_LAUNCHER_READY_FAILED",reason="primary-button-missing")
+                return
+            self.primary_button.focus_set()
+            self.root.update_idletasks()
+            tx=self.primary_button.winfo_rootx() + self.primary_button.winfo_width() // 2
+            ty=self.primary_button.winfo_rooty() + self.primary_button.winfo_height() // 2
+            self.diagnostic("TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM",center_x=tx,center_y=ty,
+                            screen_w=self.root.winfo_screenwidth(),
+                            screen_h=self.root.winfo_screenheight())
+        except tk.TclError as exc:
+            self.diagnostic("TRACEOS_LAUNCHER_READY_FAILED",reason=type(exc).__name__)
+            return
         self.diagnostic("TRACEOS_LAUNCHER_SESSION_READY",page="home")
 
     def launch(self,action: str,argv: list[str]) -> None:
@@ -110,7 +151,7 @@ class TraceOSLauncher:
         return canvas
 
     def tile(self,parent: tk.Widget,row: int,column: int,number: str,title: str,
-             description: str,accent: str,action_label: str,command,primary: bool=False) -> None:
+             description: str,accent: str,action_label: str,command,primary: bool=False) -> tk.Button:
         card=tk.Frame(parent,bg=CARD,highlightthickness=1,
                       highlightbackground=accent if primary else BORDER,bd=0)
         card.grid(row=row,column=column,sticky="nsew",padx=7,pady=7)
@@ -127,12 +168,16 @@ class TraceOSLauncher:
         tk.Label(inside,text=description,bg=CARD,fg=MUTED,
                  font=("DejaVu Sans",9),anchor="w",justify="left",wraplength=290
                  ).pack(fill="x",pady=(0,10))
-        tk.Button(inside,text=action_label,command=command,
-                  bg=accent if primary else CARD_HOVER,fg=BG if primary else TEXT,
-                  activebackground=TEXT if primary else accent,activeforeground=BG,
-                  relief="flat",bd=0,highlightthickness=0,
-                  font=("DejaVu Sans",9,"bold"),anchor="w",padx=12,pady=8,
-                  cursor="hand2").pack(fill="x",side="bottom")
+        button=tk.Button(inside,text=action_label,command=command,
+                         bg=accent if primary else CARD_HOVER,fg=BG if primary else TEXT,
+                         activebackground=TEXT if primary else accent,activeforeground=BG,
+                         relief="flat",bd=0,highlightthickness=0,
+                         font=("DejaVu Sans",9,"bold"),anchor="w",padx=12,pady=8,
+                         cursor="hand2")
+        button.pack(fill="x",side="bottom")
+        if primary:
+            self.primary_button=button
+        return button
 
     def build(self) -> None:
         outer=tk.Frame(self.root,bg=BG)
@@ -166,7 +211,7 @@ class TraceOSLauncher:
         self.tile(grid,0,0,"01","Control Centre",
           "Cases, evidence, investigations, reporting and system status.",
           ACCENT,"OPEN CONTROL CENTRE  →",
-          lambda:self.launch("control-centre",["/usr/local/bin/traceos-control-launch"]),True)
+          self.invoke_control_centre,True)
         self.tile(grid,0,1,"02","OSINT Centre",
           "User-invoked public-source and identity investigation tools.",
           BLUE,"OPEN OSINT WORKSPACE  →",
