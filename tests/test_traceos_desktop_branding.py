@@ -88,6 +88,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_qemu_launcher_click_uses_measured_geometry_and_absolute_tablet(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         self.assertIn("-device usb-tablet",qemu)
+        self.assertIn('mouse_move 32767 32767',qemu)
+        self.assertIn('pointer_args=(-usb -device usb-tablet)',qemu)
         self.assertIn("TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM",qemu)
         self.assertIn("abs_x=$(( (px * 32767) / screen_w ))",qemu)
         self.assertIn("abs_y=$(( (py * 32767) / screen_h ))",qemu)
