@@ -32,6 +32,7 @@ from traceos_case import (
     CorruptCase,
     CorruptCaseState,
     UnsafeCasePath,
+    _read_regular_text,
     _rename_no_replace,
 )
 
@@ -54,6 +55,77 @@ class CaseStoreTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_regular_text_read_rejects_growth_after_fstat(self):
+        path = self.home / "bounded.txt"
+        path.write_text("small", encoding="utf-8")
+        original_fstat = os.fstat
+        appended = False
+
+        def grow_after_stat(fd):
+            nonlocal appended
+            info = original_fstat(fd)
+            if not appended:
+                appended = True
+                with path.open("ab") as handle:
+                    handle.write(b"x" * 128)
+            return info
+
+        with mock.patch("traceos_case.os.fstat", side_effect=grow_after_stat):
+            with self.assertRaisesRegex(CorruptCase, "too large"):
+                _read_regular_text(path, 16)
+
+    def test_regular_text_open_is_nonblocking_for_fifo_race(self):
+        path = self.home / "race.txt"
+        path.write_text("regular", encoding="utf-8")
+        original_lstat = os.lstat
+        original_open = os.open
+        swapped = False
+        observed_flags = []
+
+        def swap_after_lstat(candidate, *args, **kwargs):
+            nonlocal swapped
+            info = original_lstat(candidate, *args, **kwargs)
+            if Path(candidate) == path and not swapped:
+                swapped = True
+                path.unlink()
+                os.mkfifo(path)
+            return info
+
+        def require_nonblocking(candidate, flags, *args, **kwargs):
+            if Path(candidate) == path:
+                observed_flags.append(flags)
+                if not flags & getattr(os, "O_NONBLOCK", 0):
+                    raise OSError("O_NONBLOCK required to reject a raced FIFO safely")
+            return original_open(candidate, flags, *args, **kwargs)
+
+        with mock.patch("traceos_case.os.lstat", side_effect=swap_after_lstat), \
+             mock.patch("traceos_case.os.open", side_effect=require_nonblocking):
+            with self.assertRaises(CorruptCase):
+                _read_regular_text(path, 16)
+        self.assertEqual(len(observed_flags), 1)
+        self.assertTrue(observed_flags[0] & getattr(os, "O_NONBLOCK", 0))
+
+    def test_required_directory_open_rejects_case_swap_after_manifest_read(self):
+        record = self.store.create("Identity Anchor")
+        case_path = record.path
+        replacement = self.store.cases_root / ".replacement-case"
+        original_read = self.store.read
+        swapped = False
+
+        def read_then_swap(path):
+            nonlocal swapped
+            result = original_read(path)
+            if not swapped:
+                swapped = True
+                case_path.rename(replacement)
+                case_path.mkdir(mode=0o700)
+                (case_path / "working").mkdir(mode=0o700)
+            return result
+
+        with mock.patch.object(self.store, "read", side_effect=read_then_swap):
+            with self.assertRaisesRegex(CorruptCase, "changed during secure open"):
+                self.store.open_required_dirs(case_path, ("working",))
 
     def test_two_cases_collision_and_selection_agreement(self):
         first = self.store.create("Alice Case", "first case")

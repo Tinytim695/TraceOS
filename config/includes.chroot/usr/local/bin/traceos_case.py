@@ -117,7 +117,8 @@ def _read_regular_text(path: Path, max_bytes: int) -> str:
             path,
             os.O_RDONLY
             | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0),
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
         )
     except OSError as exc:
         raise CorruptCase(f"Unable to open required file: {path}") from exc
@@ -136,11 +137,19 @@ def _read_regular_text(path: Path, max_bytes: int) -> str:
             raise CorruptCase(
                 f"Required file is too large: {path} ({info.st_size} bytes)"
             )
-        with os.fdopen(fd, "r", encoding="utf-8") as handle:
+        with os.fdopen(fd, "rb") as handle:
             fd = None
-            return handle.read()
-    except UnicodeError as exc:
-        raise CorruptCase(f"Required file is not valid UTF-8: {path}") from exc
+            raw = handle.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            raise CorruptCase(
+                f"Required file is too large: {path} (more than {max_bytes} bytes)"
+            )
+        try:
+            return raw.decode("utf-8")
+        except UnicodeError as exc:
+            raise CorruptCase(
+                f"Required file is not valid UTF-8: {path}"
+            ) from exc
     finally:
         if fd is not None:
             os.close(fd)
@@ -431,14 +440,17 @@ class CaseStore:
             raise ValueError("Unsupported case directory")
         if len(set(names)) != len(names):
             raise ValueError("Duplicate case directory")
-        record = self.read(path)
+        case_path = self.validate_path(path)
         root = self._ensure_cases_root()
         try:
-            expected_info = os.lstat(record.path)
+            # Anchor the directory identity before reading its manifest. If the
+            # path is swapped while read() runs, the later FD comparison rejects it.
+            expected_info = os.lstat(case_path)
         except OSError as exc:
             raise CorruptCase(
-                f"Unable to inspect case directory boundary: {record.path}"
+                f"Unable to inspect case directory boundary: {case_path}"
             ) from exc
+        record = self.read(case_path)
 
         flags = (
             os.O_RDONLY
@@ -666,13 +678,11 @@ class CaseStore:
             )
         if not state.exists():
             return None
-        if not state.is_file():
-            raise CorruptCaseState(
-                "Current-case state is not a regular file."
-            )
         try:
-            raw = state.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            # State contains only one filesystem path; bound reads and retain
+            # the no-follow, regular-file and inode checks used for manifests.
+            raw = _read_regular_text(state, 16 * 1024)
+        except (OSError, UnicodeError, CorruptCase) as exc:
             raise CorruptCaseState(
                 f"Unable to read current-case state: {state}"
             ) from exc
