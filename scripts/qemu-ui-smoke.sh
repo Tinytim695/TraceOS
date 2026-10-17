@@ -227,6 +227,13 @@ capture_page() {
 
     echo "[TraceOS] QEMU graphical page: $page"
 
+    # The launcher dashboard uses absolute tablet coordinates. Keep the
+    # established PS/2 input path for the other pages' existing interactions.
+    local -a pointer_args=()
+    if [[ "$page" == "dashboard" ]]; then
+        pointer_args=(-usb -device usb-tablet)
+    fi
+
     # Boot the actual ISO through its El Torito boot path. Do not use
     # QEMU -append here: that option is for direct kernel boot and is not
     # the way to pass arguments through an ISO's GRUB bootloader.
@@ -236,8 +243,7 @@ capture_page() {
         -m 3072 \
         -smp 2 \
         -vga std \
-        -usb \
-        -device usb-tablet \
+        "${pointer_args[@]}" \
         -nic none \
         -fw_cfg name=opt/traceos/ui-image-e2e,string=1 \
         -drive "file=$ISO,media=cdrom,readonly=on,format=raw" \
@@ -295,8 +301,7 @@ capture_page() {
 
         launcher_home_ppm="$OUT/traceos-launcher-home.ppm"
         launcher_home_png="$OUT/traceos-launcher-home.png"
-        hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-launcher-home-pointer-reset.log"
-        hmp_command "$monitor" "mouse_move 1100 690" "$STATE/monitor-launcher-home-pointer-park.log"
+        hmp_command "$monitor" "mouse_move 32767 32767" "$STATE/monitor-launcher-home-pointer-park.log"
         capture_screendump "$monitor" "$launcher_home_ppm" "$STATE/monitor-launcher-home-screendump.log"
         convert "$launcher_home_ppm" -resize 1280x720 -strip "$launcher_home_png"
         identify "$launcher_home_png"
