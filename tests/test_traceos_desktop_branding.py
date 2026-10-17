@@ -67,13 +67,16 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
             self.assertIn(name,names)
 
 
-    def test_qemu_pointer_resets_are_large_enough_to_clamp_relative_motion(self):
+    def test_qemu_launcher_click_uses_measured_geometry_and_absolute_tablet(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("QEMU HMP mouse_move sends relative deltas",qemu)
-        self.assertEqual(qemu.count("mouse_move -2048 -1536"),4)
-        self.assertNotIn("mouse_move -500 -350",qemu)
-        self.assertIn('mouse_move 414 784',qemu)
-        self.assertIn('traceos-launcher-control-centre-target.png',qemu)
+        self.assertIn("-device usb-tablet",qemu)
+        self.assertIn("TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM",qemu)
+        self.assertIn("abs_x=$(( (px * 32767) / screen_w ))",qemu)
+        self.assertIn("abs_y=$(( (py * 32767) / screen_h ))",qemu)
+        self.assertNotIn('mouse_move 414 784',qemu)
+        self.assertIn("launcher_action_seen",qemu)
+        self.assertIn("nonce=$expected_nonce",qemu)
+        self.assertIn("traceos-launcher-control-centre-failure.png",qemu)
 
     def test_qemu_captures_launcher_and_uncovered_desktop(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
