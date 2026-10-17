@@ -16,7 +16,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         launcher=INCLUDES/"usr/local/bin/traceos-launcher"
         self.assertTrue(launcher.is_file())
         text=launcher.read_text(encoding="utf-8")
-        for expected in ("TraceOS Launcher","TRACEOS_LAUNCHER_SESSION_READY",
+        for expected in ("TraceOS Launcher", 'self.root.attributes("-fullscreen", True)',
+                         "TRACEOS_LAUNCHER_SESSION_READY",
                          "TRACEOS_LAUNCHER_ACTION_INVOKED","OPEN CONTROL CENTRE",
                          "#050811","#72f1e8"):
             self.assertIn(expected,text)

@@ -42,8 +42,17 @@ class TraceOSLauncher:
         width,height=self.root.winfo_screenwidth(),self.root.winfo_screenheight()
         self.root.geometry(f"{width}x{height}+0+0")
         self.root.minsize(980,620)
-        try: self.root.state("zoomed")
-        except tk.TclError: pass
+        # Tk's `zoomed` state is not portable on Linux/X11. It was raising
+        # TclError here, leaving the XFCE panel and window title bar visible
+        # and shifting the primary button away from the QEMU click coordinates.
+        try:
+            self.root.attributes("-fullscreen", True)
+        except tk.TclError:
+            # Retain a usable fallback on window managers without fullscreen support.
+            try:
+                self.root.state("zoomed")
+            except tk.TclError:
+                pass
         self.nonce=uuid.uuid4().hex
         self.attempt=0
         self.build()
