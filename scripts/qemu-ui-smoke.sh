@@ -308,9 +308,9 @@ capture_page() {
         hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-launcher-control-centre-reset.log"
         # The primary CTA is bottom-anchored in the first launcher tile.
         # Click its visual centre in the 1152x720 QEMU guest framebuffer.
-                # Screenshot is 1152x720; primary button bounds are x=46..368, y=377..407.
+        # Screenshot is 1152x720; primary button bounds are x=46..368, y=377..407.
         # Click inside its centre rather than below the button.
-                # In the captured QEMU PS/2 session, an HMP delta of 1100,690 moved
+        # In the captured QEMU PS/2 session, an HMP delta of 1100,690 moved
         # the visible cursor about half that distance. Double the CTA offset
         # to place the cursor at the button centre (207,392) after the reset.
         hmp_command "$monitor" "mouse_move 414 784" "$STATE/monitor-launcher-control-centre-target.log"
