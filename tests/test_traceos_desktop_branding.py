@@ -1,4 +1,6 @@
 from __future__ import annotations
+import ast
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import unittest
@@ -66,6 +68,22 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         for name in ("show-home","show-filesystem","show-trash","show-removable"):
             self.assertIn(name,names)
 
+
+    def test_qemu_hmp_error_regex_rejects_real_error_responses(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        embedded=qemu.split("python3 - \"$monitor\" \"$command\" \"$log_path\" <<'PY'\n",1)[1].split("\nPY\n}",1)[0]
+        module=ast.parse(embedded)
+        pattern=None
+        for node in ast.walk(module):
+            if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="error_pattern" for t in node.targets):
+                pattern=ast.literal_eval(node.value.args[0])
+                break
+        self.assertIsNotNone(pattern)
+        compiled=re.compile(pattern)
+        self.assertIsNotNone(compiled.search("Error: unknown command 'mouse_move'"))
+        self.assertIsNotNone(compiled.search("  invalid parameter"))
+        self.assertIsNone(compiled.search("succeeded"))
+        self.assertIsNone(compiled.search("command accepted"))
 
     def test_qemu_launcher_click_uses_measured_geometry_and_absolute_tablet(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
