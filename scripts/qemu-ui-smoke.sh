@@ -162,7 +162,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
 
 banner_text = banner.decode("utf-8", "replace")
 response_text = response.decode("utf-8", "replace")
-error_pattern = re.compile(r"(?im)^\\s*(?:Error:|unknown command|invalid parameter|command .* failed|failed to .*|could not .*|HMP .*error)")
+error_pattern = re.compile(r"(?im)^\s*(?:Error:|unknown command|invalid parameter|command .* failed|failed to .*|could not .*|HMP .*error)")
 error_match = error_pattern.search(response_text)
 
 with open(log_path, "w", encoding="utf-8") as handle:
@@ -236,6 +236,8 @@ capture_page() {
         -m 3072 \
         -smp 2 \
         -vga std \
+        -usb \
+        -device usb-tablet \
         -nic none \
         -fw_cfg name=opt/traceos/ui-image-e2e,string=1 \
         -drive "file=$ISO,media=cdrom,readonly=on,format=raw" \
@@ -284,6 +286,12 @@ capture_page() {
             tail -n 220 "$STATE/serial-$page.log" >&2 || true
             exit 1
         fi
+        launcher_ready_line="$(grep -m1 -F 'stage=TRACEOS_LAUNCHER_SESSION_READY' "$STATE/serial-$page.log")"
+        launcher_nonce="$(extract_field "$launcher_ready_line" nonce)"
+        if [[ -z "$launcher_nonce" ]]; then
+            echo "[TraceOS] Launcher readiness record has no nonce; cannot correlate action evidence." >&2
+            exit 1
+        fi
 
         launcher_home_ppm="$OUT/traceos-launcher-home.ppm"
         launcher_home_png="$OUT/traceos-launcher-home.png"
@@ -302,41 +310,61 @@ capture_page() {
         fi
         echo "[TraceOS] Branded TraceOS Launcher home screen is visible."
 
-        # Click the real primary tile and verify it starts the Control Centre.
-        # HMP movement is relative; the large negative delta clamps the parked
-        # pointer to the top-left before the target displacement below.
-        hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-launcher-control-centre-reset.log"
-        # The primary CTA is bottom-anchored in the first launcher tile.
-        # Click its visual centre in the 1152x720 QEMU guest framebuffer.
-        # Screenshot is 1152x720; primary button bounds are x=46..368, y=377..407.
-        # Click inside its centre rather than below the button.
-        # In the captured QEMU PS/2 session, an HMP delta of 1100,690 moved
-        # the visible cursor about half that distance. Double the CTA offset
-        # to place the cursor at the button centre (207,392) after the reset.
-        hmp_command "$monitor" "mouse_move 414 784" "$STATE/monitor-launcher-control-centre-target.log"
+        # Use the launcher's measured button centre and an absolute USB tablet.
+        # Never infer screen coordinates from relative PS/2 deltas or calibration.
+        geom_line="$(grep -m1 -F 'stage=TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM' "$STATE/serial-$page.log" || true)"
+        if [[ -z "$geom_line" ]]; then
+            echo "[TraceOS] Launcher geometry telemetry was not observed." >&2
+            tail -n 220 "$STATE/serial-$page.log" >&2 || true
+            exit 1
+        fi
+        px="$(extract_field "$geom_line" center_x)"
+        py="$(extract_field "$geom_line" center_y)"
+        screen_w="$(extract_field "$geom_line" screen_w)"
+        screen_h="$(extract_field "$geom_line" screen_h)"
+        if [[ ! "$px" =~ ^[0-9]+$ || ! "$py" =~ ^[0-9]+$ ||
+              ! "$screen_w" =~ ^[1-9][0-9]*$ || ! "$screen_h" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[TraceOS] Launcher geometry telemetry is malformed: $geom_line" >&2
+            exit 1
+        fi
+        abs_x=$(( (px * 32767) / screen_w ))
+        abs_y=$(( (py * 32767) / screen_h ))
+        echo "[TraceOS] Launcher button pixel centre=($px,$py), screen=${screen_w}x${screen_h}, USB tablet=($abs_x,$abs_y)"
+        hmp_command "$monitor" "mouse_move $abs_x $abs_y" "$STATE/monitor-launcher-control-centre-target.log"
+        sleep 0.2
         launcher_click_ppm="$OUT/traceos-launcher-control-centre-target.ppm"
         launcher_click_png="$OUT/traceos-launcher-control-centre-target.png"
         capture_screendump "$monitor" "$launcher_click_ppm" "$STATE/monitor-launcher-control-centre-target-screendump.log"
         convert "$launcher_click_ppm" -strip "$launcher_click_png"
         identify "$launcher_click_png"
         test -s "$launcher_click_png"
+        sleep 0.2
         hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-launcher-control-centre-down.log"
         sleep 0.2
         hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-launcher-control-centre-up.log"
         action_deadline=$((SECONDS + 45))
         while (( SECONDS < action_deadline )); do
-            if grep -Fq "stage=TRACEOS_LAUNCHER_ACTION_INVOKED" "$STATE/serial-$page.log" 2>/dev/null && \
-               grep -Fq "action=control-centre" "$STATE/serial-$page.log" 2>/dev/null; then
+            if launcher_action_seen "$STATE/serial-$page.log" "$launcher_nonce"; then
                 break
             fi
             sleep 1
         done
-        if ! grep -Fq "stage=TRACEOS_LAUNCHER_ACTION_INVOKED" "$STATE/serial-$page.log" 2>/dev/null || \
-           ! grep -Fq "action=control-centre" "$STATE/serial-$page.log" 2>/dev/null; then
-            echo "[TraceOS] Launcher primary tile did not invoke the Control Centre." >&2
+        if ! launcher_action_seen "$STATE/serial-$page.log" "$launcher_nonce"; then
+            echo "[TraceOS] Launcher mouse activation did not produce a correlated Control Centre action for nonce=$launcher_nonce." >&2
+            if grep -Fq 'stage=TRACEOS_LAUNCHER_RAW_CLICK' "$STATE/serial-$page.log"; then
+                echo "[TraceOS] Raw launcher click telemetry was observed." >&2
+            else
+                echo "[TraceOS] No raw launcher click telemetry was observed." >&2
+            fi
+            failure_ppm="$OUT/traceos-launcher-control-centre-failure.ppm"
+            failure_png="$OUT/traceos-launcher-control-centre-failure.png"
+            capture_screendump "$monitor" "$failure_ppm" "$STATE/monitor-launcher-control-centre-failure-screendump.log" || true
+            if [[ -s "$failure_ppm" ]]; then
+                convert "$failure_ppm" -strip "$failure_png" || true
+                rm -f "$failure_ppm"
+            fi
             tail -n 220 "$STATE/serial-$page.log" >&2 || true
             exit 1
-        fi
     fi
 
     # TCG is slow and shared CI runners vary. Wait for the real Control Centre
@@ -438,6 +466,14 @@ extract_field() {
 
 
 
+launcher_action_seen() {
+    local serial_log="$1"
+    local expected_nonce="$2"
+    grep -F 'stage=TRACEOS_LAUNCHER_ACTION_INVOKED' "$serial_log" 2>/dev/null |
+        grep -F 'action=control-centre' |
+        grep -F "nonce=$expected_nonce" >/dev/null
+}
+
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
     matching="case_id=${test_case_id} id_prefix=01234567"
@@ -463,6 +499,21 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     matching_cr="$(printf 'case_id=%s id_prefix=01234567\r' "$test_case_id")"
     [[ "$(extract_field "$matching_cr" case_id)" == "$test_case_id" ]]
     [[ "$(extract_field "$matching_cr" id_prefix)" == "01234567" ]]
+
+    # Action evidence must correlate stage, action and the current launcher nonce
+    # on one record. Independent grep hits and stale nonces must not pass.
+    action_log="$STATE/launcher-action-fixture.log"
+    printf '%s\n' \
+        '[TraceOS] UI_DIAG stage=TRACEOS_LAUNCHER_ACTION_INVOKED nonce=stale action=control-centre' \
+        '[TraceOS] UI_DIAG stage=TRACEOS_LAUNCHER_ACTION_INVOKED nonce=fixture action=browser' \
+        '[TraceOS] UI_DIAG stage=TRACEOS_LAUNCHER_SESSION_READY nonce=fixture page=home' >"$action_log"
+    if launcher_action_seen "$action_log" fixture; then
+        echo "[TraceOS] Correlation fixture accepted split/stale action records." >&2
+        exit 1
+    fi
+    printf '%s\n' '[TraceOS] UI_DIAG stage=TRACEOS_LAUNCHER_ACTION_INVOKED nonce=fixture action=control-centre' >>"$action_log"
+    launcher_action_seen "$action_log" fixture
+    rm -f "$action_log"
 
     # Synthetic generated GRUB configs. These do not require an ISO and must
     # reject unresolved placeholders, a bad failsafe entry, unresolved
