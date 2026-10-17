@@ -85,15 +85,15 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIsNone(compiled.search("succeeded"))
         self.assertIsNone(compiled.search("command accepted"))
 
-    def test_qemu_launcher_click_uses_measured_geometry_and_absolute_tablet(self):
+    def test_qemu_launcher_uses_real_focused_button_keyboard_activation(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("-device usb-tablet",qemu)
-        self.assertIn('mouse_move 32767 32767',qemu)
-        self.assertIn('pointer_args=(-usb -device usb-tablet)',qemu)
-        self.assertIn("TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM",qemu)
-        self.assertIn("abs_x=$(( (px * 32767) / screen_w ))",qemu)
-        self.assertIn("abs_y=$(( (py * 32767) / screen_h ))",qemu)
-        self.assertNotIn('mouse_move 414 784',qemu)
+        launcher=(INCLUDES/"usr/local/bin/traceos-launcher").read_text(encoding="utf-8")
+        self.assertIn('hmp_command "$monitor" "sendkey ret"',qemu)
+        self.assertIn("keyboard_control_centre",launcher)
+        self.assertIn("primary_button.focus_set()",launcher)
+        self.assertIn("TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM",launcher)
+        self.assertNotIn("-device usb-tablet",qemu)
+        self.assertNotIn("abs_x=$(( (px * 32767) / screen_w ))",qemu)
         self.assertIn("launcher_action_seen",qemu)
         self.assertIn("nonce=$expected_nonce",qemu)
         self.assertIn("traceos-launcher-control-centre-failure.png",qemu)
