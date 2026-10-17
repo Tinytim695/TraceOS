@@ -265,6 +265,71 @@ capture_page() {
         exit 1
     fi
 
+    if [[ "$page" == "dashboard" ]]; then
+        # The intended first screen is TraceOS Launcher, not the Control Centre.
+        launcher_deadline=$((SECONDS + 600))
+        while (( SECONDS < launcher_deadline )); do
+            if grep -Fq "stage=TRACEOS_LAUNCHER_SESSION_READY" "$STATE/serial-$page.log" 2>/dev/null; then
+                break
+            fi
+            if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+                echo "[TraceOS] QEMU exited before the TraceOS Launcher became ready." >&2
+                tail -n 220 "$STATE/serial-$page.log" >&2 || true
+                exit 1
+            fi
+            sleep 1
+        done
+        if ! grep -Fq "stage=TRACEOS_LAUNCHER_SESSION_READY" "$STATE/serial-$page.log" 2>/dev/null; then
+            echo "[TraceOS] TraceOS Launcher readiness marker was not observed." >&2
+            tail -n 220 "$STATE/serial-$page.log" >&2 || true
+            exit 1
+        fi
+
+        launcher_home_ppm="$OUT/traceos-launcher-home.ppm"
+        launcher_home_png="$OUT/traceos-launcher-home.png"
+        hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-launcher-home-pointer-reset.log"
+        hmp_command "$monitor" "mouse_move 1100 690" "$STATE/monitor-launcher-home-pointer-park.log"
+        capture_screendump "$monitor" "$launcher_home_ppm" "$STATE/monitor-launcher-home-screendump.log"
+        convert "$launcher_home_ppm" -resize 1280x720 -strip "$launcher_home_png"
+        identify "$launcher_home_png"
+        test -s "$launcher_home_png"
+        launcher_spread="$(convert "$launcher_home_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+        launcher_accent="$(convert "$launcher_home_png" -fuzz 10% -fill white -opaque "#72F1E8" -fill black +opaque white -format "%[fx:mean]" info:)"
+        launcher_bg="$(convert "$launcher_home_png" -fuzz 10% -fill white -opaque "#050811" -fill black +opaque white -format "%[fx:mean]" info:)"
+        if ! awk "BEGIN { exit !($launcher_spread > 0.02 && $launcher_accent > 0.0005 && $launcher_bg > 0.005) }"; then
+            echo "[TraceOS] Launcher home screenshot is blank or missing the TraceOS visual signature." >&2
+            exit 1
+        fi
+        echo "[TraceOS] Branded TraceOS Launcher home screen is visible."
+
+        # Click the real primary tile and verify it starts the Control Centre.
+        # HMP movement is relative; the large negative delta clamps the parked
+        # pointer to the top-left before the target displacement below.
+        hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-launcher-control-centre-reset.log"
+        # The primary CTA is bottom-anchored in the first launcher tile.
+        # Click its visual centre in the 1152x720 QEMU guest framebuffer.
+                # Screenshot is 1152x720; primary button bounds are x=46..368, y=377..407.
+        # Click inside its centre rather than below the button.
+        hmp_command "$monitor" "mouse_move 207 392" "$STATE/monitor-launcher-control-centre-target.log"
+        hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-launcher-control-centre-down.log"
+        sleep 0.2
+        hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-launcher-control-centre-up.log"
+        action_deadline=$((SECONDS + 45))
+        while (( SECONDS < action_deadline )); do
+            if grep -Fq "stage=TRACEOS_LAUNCHER_ACTION_INVOKED" "$STATE/serial-$page.log" 2>/dev/null && \
+               grep -Fq "action=control-centre" "$STATE/serial-$page.log" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+        if ! grep -Fq "stage=TRACEOS_LAUNCHER_ACTION_INVOKED" "$STATE/serial-$page.log" 2>/dev/null || \
+           ! grep -Fq "action=control-centre" "$STATE/serial-$page.log" 2>/dev/null; then
+            echo "[TraceOS] Launcher primary tile did not invoke the Control Centre." >&2
+            tail -n 220 "$STATE/serial-$page.log" >&2 || true
+            exit 1
+        fi
+    fi
+
     # TCG is slow and shared CI runners vary. Wait for the real Control Centre
     # session marker instead of burning a fixed five minutes, but retain a
     # 300-second hard ceiling before declaring the graphical desktop absent.
@@ -496,11 +561,12 @@ capture_page dashboard true
 
 # Capture the actual XFCE Applications menu so the branded TraceOS launchers
 # are represented in retained QEMU evidence, not inferred from desktop files.
-# QEMU HMP mouse_move is RELATIVE: first clamp to the top-left, then move into
-# the center of the Applications button instead of clicking the screen corner.
+# QEMU HMP mouse_move sends relative deltas. A small negative delta does not
+# reset a pointer parked near the lower-right; use a delta larger than the guest
+# framebuffer, then move from the clamped top-left into the Applications button.
 launcher_menu_ppm="$OUT/traceos-launcher-menu.ppm"
 launcher_menu_png="$OUT/traceos-launcher-menu.png"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -500 -350" "$STATE/monitor-launcher-menu-reset-pointer.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-launcher-menu-reset-pointer.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 45 10" "$STATE/monitor-launcher-menu-target-button.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-mouse-down.log"
 sleep 0.2
@@ -1016,6 +1082,31 @@ rm -f "$OUT"/*.ppm
 kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true
 unset QEMU_PID
+
+# Capture the desktop underneath the Launcher/Control Centre after all other GUI
+# checks. The same large negative relative delta makes pointer placement repeatable.
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-desktop-home-pointer-reset.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 1100 690" "$STATE/monitor-desktop-home-pointer-park.log"
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f9" "$STATE/monitor-desktop-home-minimize.log"
+sleep 2
+desktop_home_ppm="$OUT/traceos-desktop-home.ppm"
+desktop_home_png="$OUT/traceos-desktop-home.png"
+capture_screendump "$STATE/monitor-dashboard.sock" "$desktop_home_ppm" "$STATE/monitor-desktop-home-screendump.log"
+convert "$desktop_home_ppm" -resize 1280x720 -strip "$desktop_home_png"
+identify "$desktop_home_png"
+test -s "$desktop_home_png"
+desktop_home_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$desktop_home_png" null: 2>&1 || true)"
+desktop_home_spread="$(convert "$desktop_home_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+if [[ ! "$desktop_home_diff" =~ ^[0-9]+$ ]] || (( desktop_home_diff <= 100000 )); then
+    echo "[TraceOS] Minimizing Control Centre did not reveal a distinct desktop home screen." >&2
+    exit 1
+fi
+if ! awk "BEGIN { exit !($desktop_home_spread > 0.02) }"; then
+    echo "[TraceOS] The uncovered desktop is blank or static." >&2
+    exit 1
+fi
+echo "[TraceOS] Uncovered TraceOS desktop home screen captured; changed pixels: $desktop_home_diff."
+rm -f "$desktop_home_ppm"
 
 echo "[TraceOS] QEMU screenshots and diagnostics ready:"
 find "$OUT" -maxdepth 1 -type f \( -name '*.png' -o -name '*.cfg' -o -name '*.log' -o -name '*.txt' \) -print -exec ls -lh {} +

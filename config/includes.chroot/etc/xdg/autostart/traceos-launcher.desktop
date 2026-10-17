@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TraceOS Launcher
+Comment=Open the branded TraceOS home screen
+Exec=/usr/local/bin/traceos-launcher
+TryExec=/usr/local/bin/traceos-launcher
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=4

@@ -27,6 +27,13 @@ REQUIRED_FILES=(
     config/includes.chroot/usr/share/traceos/projectdiscovery-tools.txt
     config/includes.chroot/usr/share/traceos/web-assessment-tools.txt
     config/includes.chroot/usr/local/bin/traceos_case.py
+    config/includes.chroot/usr/local/bin/traceos-launcher
+    config/includes.chroot/usr/local/bin/traceos-desktop-setup
+    config/includes.chroot/usr/share/applications/traceos-launcher.desktop
+    config/includes.chroot/usr/share/desktop-directories/traceos.directory
+    config/includes.chroot/usr/share/icons/hicolor/scalable/apps/traceos-launcher.svg
+    config/includes.chroot/etc/xdg/autostart/traceos-launcher.desktop
+    tests/test_traceos_desktop_branding.py
     config/includes.chroot/usr/local/bin/traceos-purple
     scripts/validate-toolchain.sh
     scripts/validate-grub-config.py
@@ -122,6 +129,7 @@ echo "[TraceOS] Targeted host fixtures"
 python3 -m unittest discover -s tests -p 'test_validate_toolchain.py' -v
 python3 -m unittest discover -s tests -p 'test_traceos_purple.py' -v
 python3 -m unittest discover -s tests -p 'test_generated_wrappers.py' -v
+python3 -m unittest discover -s tests -p 'test_traceos_desktop_branding.py' -v
 
 echo "[TraceOS] Whitespace check for the PR diff"
 if [[ -n "${TRACEOS_PR_BASE_SHA:-}" ]]; then

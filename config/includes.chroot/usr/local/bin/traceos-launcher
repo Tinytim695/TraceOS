@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Branded TraceOS home screen for the local-first investigation workstation."""
+from __future__ import annotations
+import datetime as dt
+import os
+import shutil
+import subprocess
+import tkinter as tk
+import uuid
+from pathlib import Path
+from tkinter import messagebox
+
+BG="#050811"; PANEL="#091321"; CARD="#0d1928"; CARD_HOVER="#102238"
+TEXT="#eaf6ff"; MUTED="#7895b5"; ACCENT="#72f1e8"; BLUE="#50b8ff"
+PURPLE="#9c7bff"; GOOD="#72e6a7"; BORDER="#1b3550"
+
+def run_text(argv: list[str], fallback: str) -> str:
+    try:
+        result=subprocess.run(argv,capture_output=True,text=True,check=False,timeout=3)
+    except (OSError,subprocess.SubprocessError):
+        return fallback
+    value=(result.stdout or "").strip()
+    return value.splitlines()[0] if value else fallback
+
+def session_mode() -> str:
+    value=run_text(["/usr/local/bin/traceos-session","mode"],"SESSION UNKNOWN").upper()
+    if "AMNESIC" in value or "NOPERSISTENCE" in value: return "AMNESIC LIVE SESSION"
+    if "PERSIST" in value: return "PERSISTENT SESSION"
+    return value[:34]
+
+def network_mode() -> str:
+    value=run_text(["nmcli","-t","-f","STATE","general"],"UNKNOWN").upper()
+    if value.startswith("CONNECTED"): return "NETWORK CONNECTED"
+    if "CONNECTING" in value: return "NETWORK CONNECTING"
+    return "NETWORK DISCONNECTED"
+
+class TraceOSLauncher:
+    def __init__(self) -> None:
+        self.root=tk.Tk()
+        self.root.title("TraceOS Launcher")
+        self.root.configure(bg=BG)
+        width,height=self.root.winfo_screenwidth(),self.root.winfo_screenheight()
+        self.root.geometry(f"{width}x{height}+0+0")
+        self.root.minsize(980,620)
+        # Tk's `zoomed` state is not portable on Linux/X11. It was raising
+        # TclError here, leaving the XFCE panel and window title bar visible
+        # and shifting the primary button away from the QEMU click coordinates.
+        try:
+            self.root.attributes("-fullscreen", True)
+        except tk.TclError:
+            # Retain a usable fallback on window managers without fullscreen support.
+            try:
+                self.root.state("zoomed")
+            except tk.TclError:
+                pass
+        self.nonce=uuid.uuid4().hex
+        self.attempt=0
+        self.build()
+        self.root.bind("<Control-q>",lambda _event:self.root.destroy())
+        self.root.bind("<Escape>",lambda _event:self.root.iconify())
+        self.root.after(450,self.ready_marker)
+
+    def diagnostic(self,stage: str,**fields: object) -> None:
+        values=[f"stage={stage}",f"nonce={self.nonce}",f"pid={os.getpid()}",
+                f"uid={os.getuid()}",f"attempt={self.attempt}"]
+        for key,value in fields.items():
+            safe=" ".join(str(value).replace("\n"," ").replace("\r"," ").split())
+            values.append(f"{key}={safe}")
+        line=f"[TraceOS] UI_DIAG {dt.datetime.now().astimezone().isoformat()} "+" ".join(values)
+        log=Path.home()/".cache"/"traceos"/"traceos-launcher.log"
+        try:
+            log.parent.mkdir(parents=True,exist_ok=True)
+            with log.open("a",encoding="utf-8") as handle: handle.write(line+"\n")
+        except OSError: pass
+
+    def ready_marker(self) -> None:
+        try: self.root.update_idletasks()
+        except tk.TclError: return
+        self.diagnostic("TRACEOS_LAUNCHER_SESSION_READY",page="home")
+
+    def launch(self,action: str,argv: list[str]) -> None:
+        self.diagnostic("TRACEOS_LAUNCHER_ACTION_INVOKED",action=action)
+        try: subprocess.Popen(argv,close_fds=True)
+        except OSError as exc:
+            self.diagnostic("TRACEOS_LAUNCHER_ACTION_FAILED",action=action,
+                            error=type(exc).__name__,detail=str(exc))
+            messagebox.showerror("TraceOS could not launch this tool",
+                                 f"{action} could not be started.\n\n{exc}",parent=self.root)
+            return
+        self.root.iconify()
+
+    def open_cases(self) -> None:
+        cases=Path.home()/"Cases"
+        self.launch("case-files",["thunar",str(cases if cases.is_dir() else Path.home())])
+
+    def open_browser(self) -> None:
+        browser=shutil.which("firefox-esr") or shutil.which("firefox")
+        if not browser:
+            messagebox.showwarning("Browser unavailable",
+              "No packaged browser executable was found in this image.",parent=self.root)
+            return
+        self.launch("browser",[browser])
+
+    def logo(self,parent: tk.Widget) -> tk.Canvas:
+        canvas=tk.Canvas(parent,width=60,height=60,bg=BG,highlightthickness=0,bd=0)
+        canvas.create_rectangle(2,2,58,58,fill=PANEL,outline=ACCENT,width=2)
+        canvas.create_oval(11,11,49,49,outline=BLUE,width=2)
+        canvas.create_text(30,30,text="T",fill=ACCENT,font=("DejaVu Sans",29,"bold"))
+        canvas.create_oval(25,27,35,37,fill=TEXT,outline=TEXT)
+        return canvas
+
+    def tile(self,parent: tk.Widget,row: int,column: int,number: str,title: str,
+             description: str,accent: str,action_label: str,command,primary: bool=False) -> None:
+        card=tk.Frame(parent,bg=CARD,highlightthickness=1,
+                      highlightbackground=accent if primary else BORDER,bd=0)
+        card.grid(row=row,column=column,sticky="nsew",padx=7,pady=7)
+        inside=tk.Frame(card,bg=CARD)
+        inside.pack(fill="both",expand=True,padx=18,pady=14)
+        heading=tk.Frame(inside,bg=CARD)
+        heading.pack(fill="x")
+        tk.Label(heading,text=number,bg=CARD,fg=accent,
+                 font=("DejaVu Sans",11,"bold")).pack(side="left")
+        tk.Label(heading,text="TRACEOS WORKSPACE",bg=CARD,fg=MUTED,
+                 font=("DejaVu Sans",8,"bold")).pack(side="right")
+        tk.Label(inside,text=title,bg=CARD,fg=TEXT,
+                 font=("DejaVu Sans",16,"bold"),anchor="w").pack(fill="x",pady=(11,4))
+        tk.Label(inside,text=description,bg=CARD,fg=MUTED,
+                 font=("DejaVu Sans",9),anchor="w",justify="left",wraplength=290
+                 ).pack(fill="x",pady=(0,10))
+        tk.Button(inside,text=action_label,command=command,
+                  bg=accent if primary else CARD_HOVER,fg=BG if primary else TEXT,
+                  activebackground=TEXT if primary else accent,activeforeground=BG,
+                  relief="flat",bd=0,highlightthickness=0,
+                  font=("DejaVu Sans",9,"bold"),anchor="w",padx=12,pady=8,
+                  cursor="hand2").pack(fill="x",side="bottom")
+
+    def build(self) -> None:
+        outer=tk.Frame(self.root,bg=BG)
+        outer.pack(fill="both",expand=True,padx=26,pady=16)
+        header=tk.Frame(outer,bg=BG)
+        header.pack(fill="x")
+        self.logo(header).pack(side="left",padx=(0,14))
+        wordmark=tk.Frame(header,bg=BG)
+        wordmark.pack(side="left",fill="y",pady=3)
+        tk.Label(wordmark,text="TRACEOS",bg=BG,fg=TEXT,
+                 font=("DejaVu Sans",24,"bold")).pack(anchor="w")
+        tk.Label(wordmark,text="DIGITAL INVESTIGATION WORKSTATION  /  0.1.0",
+                 bg=BG,fg=MUTED,font=("DejaVu Sans",9,"bold")).pack(anchor="w",pady=(2,0))
+        status=tk.Frame(header,bg=PANEL,highlightthickness=1,highlightbackground=BORDER)
+        status.pack(side="right",anchor="center",padx=(12,0))
+        tk.Label(status,text=session_mode(),bg=PANEL,fg=PURPLE,
+                 font=("DejaVu Sans",9,"bold"),padx=14,pady=8).pack()
+        tk.Label(header,text=network_mode(),bg=BG,fg=GOOD,
+                 font=("DejaVu Sans",9,"bold")).pack(side="right",padx=8)
+        tk.Frame(outer,bg=BORDER,height=1).pack(fill="x",pady=(15,15))
+        hero=tk.Frame(outer,bg=BG)
+        hero.pack(fill="x",pady=(0,8))
+        tk.Label(hero,text="Your investigation workspace.",bg=BG,fg=TEXT,
+                 font=("DejaVu Sans",24,"bold")).pack(anchor="w")
+        tk.Label(hero,text="Choose a workspace below. External actions only happen when you launch them.",
+                 bg=BG,fg=MUTED,font=("DejaVu Sans",10)).pack(anchor="w",pady=(4,0))
+        grid=tk.Frame(outer,bg=BG)
+        grid.pack(fill="both",expand=True)
+        for column in range(3): grid.grid_columnconfigure(column,weight=1,uniform="traceos-launcher-column")
+        for row in range(2): grid.grid_rowconfigure(row,weight=1,uniform="traceos-launcher-row")
+        self.tile(grid,0,0,"01","Control Centre",
+          "Cases, evidence, investigations, reporting and system status.",
+          ACCENT,"OPEN CONTROL CENTRE  →",
+          lambda:self.launch("control-centre",["/usr/local/bin/traceos-control-launch"]),True)
+        self.tile(grid,0,1,"02","OSINT Centre",
+          "User-invoked public-source and identity investigation tools.",
+          BLUE,"OPEN OSINT WORKSPACE  →",
+          lambda:self.launch("osint-centre",["/usr/local/bin/traceos-control-launch","--osint"]))
+        self.tile(grid,0,2,"03","Quick Shade",
+          "Local status, session mode, network state and quick system actions.",
+          PURPLE,"OPEN QUICK SHADE  →",
+          lambda:self.launch("quick-shade",["/usr/local/bin/traceos-shade"]))
+        self.tile(grid,1,0,"04","TraceOS Console",
+          "Native TraceOS status and diagnostic command line.",
+          BLUE,"OPEN CONSOLE  →",
+          lambda:self.launch("console",["xfce4-terminal","--title=TraceOS Console",
+                                       "--execute","/usr/local/bin/traceos","status"]))
+        self.tile(grid,1,1,"05","Case Files",
+          "Browse the local case workspace. Does not acquire or export evidence.",
+          ACCENT,"OPEN CASE FOLDER  →",self.open_cases)
+        self.tile(grid,1,2,"06","Web Browser",
+          "Open the packaged browser only when you deliberately need a web session.",
+          PURPLE,"OPEN BROWSER  →",self.open_browser)
+        footer=tk.Frame(outer,bg=BG)
+        footer.pack(fill="x",pady=(10,0))
+        tk.Label(footer,text="TRACEOS  •  LOCAL-FIRST  •  CASE DATA STAYS ON THIS MACHINE",
+                 bg=BG,fg=ACCENT,font=("DejaVu Sans",8,"bold")).pack(side="left")
+        tk.Label(footer,text="Move to a tool only when you choose it.",
+                 bg=BG,fg=MUTED,font=("DejaVu Sans",8)).pack(side="right")
+
+if __name__ == "__main__":
+    TraceOSLauncher().root.mainloop()

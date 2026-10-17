@@ -1,0 +1,81 @@
+#!/bin/sh
+set -eu
+LOG_DIR="$HOME/.cache/traceos"
+mkdir -p "$LOG_DIR"
+exec >>"$LOG_DIR/desktop-setup.log" 2>&1
+echo "[TraceOS] desktop branding setup started: $(date -Is)"
+set_property() {
+    channel="$1"; path="$2"; type="$3"; value="$4"
+    if ! command -v xfconf-query >/dev/null 2>&1; then
+        echo "[TraceOS] xfconf-query unavailable: $path"; return 0
+    fi
+    if xfconf-query -c "$channel" -p "$path" >/dev/null 2>&1; then
+        xfconf-query -c "$channel" -p "$path" -s "$value" || echo "[TraceOS] update failed: $path"
+    else
+        xfconf-query -c "$channel" -p "$path" -n -t "$type" -s "$value" || echo "[TraceOS] create failed: $path"
+    fi
+}
+dump=""; paths=""; attempt=0
+while [ "$attempt" -lt 15 ]; do
+    dump="$(xfconf-query -c xfce4-desktop -lv 2>/dev/null || true)"
+    paths="$(printf '%s\n' "$dump" | awk '$1 ~ /^\/backdrop\/screen[0-9]+\/monitor[^/]+\/workspace[0-9]+\/last-image$/ {print $1}')"
+    [ -n "$paths" ] && break
+    attempt=$((attempt + 1)); sleep 1
+done
+[ -n "$paths" ] || paths="/backdrop/screen0/monitor0/workspace0/last-image"
+wallpaper="/usr/share/backgrounds/traceos/traceos-wallpaper.png"
+if [ -s "$wallpaper" ]; then
+    for path in $paths; do
+        current="$(xfconf-query -c xfce4-desktop -p "$path" 2>/dev/null || true)"
+        case "$current" in
+            ""|*/backgrounds/xfce/*|*/backgrounds/xfce4/*|*/xfce-blue.jpg|*/xfce4-wallpaper*)
+                set_property xfce4-desktop "$path" string "$wallpaper"
+                style_path="$(printf '%s' "$path" | sed 's#/last-image$#/image-style#')"
+                set_property xfce4-desktop "$style_path" int 5
+                echo "[TraceOS] applied TraceOS wallpaper to $path" ;;
+            "$wallpaper")
+                style_path="$(printf '%s' "$path" | sed 's#/last-image$#/image-style#')"
+                set_property xfce4-desktop "$style_path" int 5 ;;
+            *) echo "[TraceOS] preserving user wallpaper at $path: $current" ;;
+        esac
+    done
+fi
+set_property xfce4-desktop /desktop-icons/file-icons/show-home bool false
+set_property xfce4-desktop /desktop-icons/file-icons/show-filesystem bool false
+set_property xfce4-desktop /desktop-icons/file-icons/show-trash bool false
+set_property xfce4-desktop /desktop-icons/file-icons/show-removable bool false
+panel_dump="$(xfconf-query -c xfce4-panel -lv 2>/dev/null || true)"
+menu_plugins="$(printf '%s\n' "$panel_dump" | awk '$1 ~ /^\/plugins\/plugin-[0-9]+$/ && $2 == "applicationsmenu" {print $1}')"
+if [ -n "$menu_plugins" ]; then
+    for base in $menu_plugins; do
+        set_property xfce4-panel "$base/button-title" string TraceOS
+        set_property xfce4-panel "$base/button-icon" string traceos
+        set_property xfce4-panel "$base/show-button-title" bool true
+        set_property xfce4-panel "$base/show-button-icon" bool true
+    done
+else
+    echo "[TraceOS] WARNING: applicationsmenu plugin not found"
+fi
+desktop_dir="$HOME/Desktop"
+mkdir -p "$desktop_dir"
+install_shortcut() {
+    source_file="$1"; target_file="$2"
+    if [ ! -s "$source_file" ]; then echo "[TraceOS] launcher source missing: $source_file"; return 0; fi
+    if [ ! -e "$target_file" ] || grep -Fq 'X-TraceOS-Managed=true' "$target_file" 2>/dev/null; then
+        if ! cmp -s "$source_file" "$target_file"; then cp "$source_file" "$target_file"; fi
+        chmod 0755 "$target_file"
+        if command -v gio >/dev/null 2>&1; then gio set "$target_file" metadata::trusted true >/dev/null 2>&1 || true; fi
+        echo "[TraceOS] launcher installed: $target_file"
+    else
+        echo "[TraceOS] preserving user desktop entry: $target_file"
+    fi
+}
+install_shortcut /usr/share/applications/traceos-launcher.desktop "$desktop_dir/TraceOS Launcher.desktop"
+install_shortcut /usr/share/applications/traceos-control.desktop "$desktop_dir/TraceOS Control Centre.desktop"
+install_shortcut /usr/share/applications/traceos-osint.desktop "$desktop_dir/TraceOS OSINT Centre.desktop"
+install_shortcut /usr/share/applications/traceos-shade.desktop "$desktop_dir/TraceOS Quick Shade.desktop"
+install_shortcut /usr/share/applications/traceos.desktop "$desktop_dir/TraceOS Console.desktop"
+command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+xfdesktop --reload >/dev/null 2>&1 || true
+echo "[TraceOS] desktop branding setup complete."

@@ -98,6 +98,24 @@ jobs:
           test -L /tmp/traceos-root/etc/systemd/system/graphical.target.wants/traceos-qemu-ui-diagnostics.service
           echo "[TraceOS] QEMU graphics bootstrap and GUI diagnostic collector are present and enabled in the final squashfs."
 
+          # Validate branded launcher/home-screen components from the built squashfs.
+          test -x /tmp/traceos-root/usr/local/bin/traceos-launcher
+          test -x /tmp/traceos-root/usr/local/bin/traceos-desktop-setup
+          test -s /tmp/traceos-root/usr/share/backgrounds/traceos/traceos-wallpaper.png
+          test -s /tmp/traceos-root/etc/xdg/autostart/traceos-launcher.desktop
+          grep -Fq 'Exec=/usr/local/bin/traceos-launcher' /tmp/traceos-root/etc/xdg/autostart/traceos-launcher.desktop
+          grep -Fq 'Hidden=true' /tmp/traceos-root/etc/xdg/autostart/traceos-control.desktop
+          test -s /tmp/traceos-root/etc/xdg/menus/xfce-applications.menu
+          grep -Fq '<Menuname>TraceOS</Menuname>' /tmp/traceos-root/etc/xdg/menus/xfce-applications.menu
+          grep -Fq '<Category>TraceOS</Category>' /tmp/traceos-root/etc/xdg/menus/xfce-applications.menu
+          for app in traceos-launcher traceos-control traceos-osint traceos-shade traceos-console; do
+            test -s "/tmp/traceos-root/usr/share/icons/hicolor/scalable/apps/$app.svg"
+          done
+          for desktop in traceos-launcher traceos-control traceos-osint traceos-shade traceos; do
+            grep -Fq 'Categories=TraceOS;' "/tmp/traceos-root/usr/share/applications/$desktop.desktop"
+          done
+          echo "[TraceOS] Branded launcher, application category, custom icons and desktop setup are packaged."
+
           echo "[TraceOS] Checking Investigation Centre tools inside the final squashfs."
           for tool in sherlock maigret h8mail blackbird whois dig; do
             tool_path="$(sudo chroot /tmp/traceos-root /bin/sh -c 'command -v "$1"' sh "$tool")"
