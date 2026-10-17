@@ -227,13 +227,6 @@ capture_page() {
 
     echo "[TraceOS] QEMU graphical page: $page"
 
-    # The launcher dashboard uses absolute tablet coordinates. Keep the
-    # established PS/2 input path for the other pages' existing interactions.
-    local -a pointer_args=()
-    if [[ "$page" == "dashboard" ]]; then
-        pointer_args=(-usb -device usb-tablet)
-    fi
-
     # Boot the actual ISO through its El Torito boot path. Do not use
     # QEMU -append here: that option is for direct kernel boot and is not
     # the way to pass arguments through an ISO's GRUB bootloader.
@@ -243,7 +236,6 @@ capture_page() {
         -m 3072 \
         -smp 2 \
         -vga std \
-        "${pointer_args[@]}" \
         -nic none \
         -fw_cfg name=opt/traceos/ui-image-e2e,string=1 \
         -drive "file=$ISO,media=cdrom,readonly=on,format=raw" \
@@ -301,7 +293,6 @@ capture_page() {
 
         launcher_home_ppm="$OUT/traceos-launcher-home.ppm"
         launcher_home_png="$OUT/traceos-launcher-home.png"
-        hmp_command "$monitor" "mouse_move 32767 32767" "$STATE/monitor-launcher-home-pointer-park.log"
         capture_screendump "$monitor" "$launcher_home_ppm" "$STATE/monitor-launcher-home-screendump.log"
         convert "$launcher_home_ppm" -resize 1280x720 -strip "$launcher_home_png"
         identify "$launcher_home_png"
@@ -315,38 +306,14 @@ capture_page() {
         fi
         echo "[TraceOS] Branded TraceOS Launcher home screen is visible."
 
-        # Use the launcher's measured button centre and an absolute USB tablet.
-        # Never infer screen coordinates from relative PS/2 deltas or calibration.
-        geom_line="$(grep -m1 -F 'stage=TRACEOS_LAUNCHER_PRIMARY_TILE_GEOM' "$STATE/serial-$page.log" || true)"
-        if [[ -z "$geom_line" ]]; then
-            echo "[TraceOS] Launcher geometry telemetry was not observed." >&2
-            tail -n 220 "$STATE/serial-$page.log" >&2 || true
-            exit 1
-        fi
-        px="$(extract_field "$geom_line" center_x)"
-        py="$(extract_field "$geom_line" center_y)"
-        screen_w="$(extract_field "$geom_line" screen_w)"
-        screen_h="$(extract_field "$geom_line" screen_h)"
-        if [[ ! "$px" =~ ^[0-9]+$ || ! "$py" =~ ^[0-9]+$ ||
-              ! "$screen_w" =~ ^[1-9][0-9]*$ || ! "$screen_h" =~ ^[1-9][0-9]*$ ]]; then
-            echo "[TraceOS] Launcher geometry telemetry is malformed: $geom_line" >&2
-            exit 1
-        fi
-        abs_x=$(( (px * 32767) / screen_w ))
-        abs_y=$(( (py * 32767) / screen_h ))
-        echo "[TraceOS] Launcher button pixel centre=($px,$py), screen=${screen_w}x${screen_h}, USB tablet=($abs_x,$abs_y)"
-        hmp_command "$monitor" "mouse_move $abs_x $abs_y" "$STATE/monitor-launcher-control-centre-target.log"
+        # HMP mouse_move is a relative event, even when a USB tablet exists.
+        # Do not pass screen pixels or 0..32767 tablet coordinates to it.
+        # The real primary button receives focus before SESSION_READY; activate
+        # it through the guest keyboard so this smoke test proves the real
+        # Tk callback path without pretending to verify pointer delivery.
+        echo "[TraceOS] Activating the focused Control Centre button via guest keyboard."
+        hmp_command "$monitor" "sendkey ret" "$STATE/monitor-launcher-control-centre-keyboard.log"
         sleep 0.2
-        launcher_click_ppm="$OUT/traceos-launcher-control-centre-target.ppm"
-        launcher_click_png="$OUT/traceos-launcher-control-centre-target.png"
-        capture_screendump "$monitor" "$launcher_click_ppm" "$STATE/monitor-launcher-control-centre-target-screendump.log"
-        convert "$launcher_click_ppm" -strip "$launcher_click_png"
-        identify "$launcher_click_png"
-        test -s "$launcher_click_png"
-        sleep 0.2
-        hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-launcher-control-centre-down.log"
-        sleep 0.2
-        hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-launcher-control-centre-up.log"
         action_deadline=$((SECONDS + 45))
         while (( SECONDS < action_deadline )); do
             if launcher_action_seen "$STATE/serial-$page.log" "$launcher_nonce"; then
