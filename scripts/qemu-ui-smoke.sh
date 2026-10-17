@@ -502,7 +502,7 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
 
     # Action evidence must correlate stage, action and the current launcher nonce
     # on one record. Independent grep hits and stale nonces must not pass.
-    action_log="$STATE/launcher-action-fixture.log"
+    action_log="$(mktemp)"
     printf '%s\n' \
         '[TraceOS] UI_DIAG stage=TRACEOS_LAUNCHER_ACTION_INVOKED nonce=stale action=control-centre' \
         '[TraceOS] UI_DIAG stage=TRACEOS_LAUNCHER_ACTION_INVOKED nonce=fixture action=browser' \
