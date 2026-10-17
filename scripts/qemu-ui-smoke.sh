@@ -304,7 +304,9 @@ capture_page() {
 
         # Click the real primary tile and verify it starts the Control Centre.
         hmp_command "$monitor" "mouse_move -500 -350" "$STATE/monitor-launcher-control-centre-reset.log"
-        hmp_command "$monitor" "mouse_move 190 350" "$STATE/monitor-launcher-control-centre-target.log"
+                # The primary CTA is bottom-anchored in the first launcher tile.
+        # Click its visual centre in the 1152x720 QEMU guest framebuffer.
+        hmp_command "$monitor" "mouse_move 190 415" "$STATE/monitor-launcher-control-centre-target.log"
         hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-launcher-control-centre-down.log"
         sleep 0.2
         hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-launcher-control-centre-up.log"
