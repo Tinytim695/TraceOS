@@ -119,6 +119,10 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "image-style", "xfdesktop", "TRACEOS_DESKTOP_BRANDING_RESULT"):
             self.assertIn(expected,runtime)
 
+    def test_diagnostic_filter_uses_real_regex_escapes(self):
+        diagnostics=(INCLUDES/"usr/local/sbin/traceos-qemu-ui-diagnostics").read_text(encoding="utf-8")
+        self.assertIn(r"(?:gtk\.css|\btheme\b|\bCSS\b)", diagnostics)
+
     def test_qemu_retains_packaged_wallpaper_and_native_gtk_evidence(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         for expected in ("traceos-packaged-wallpaper.png","TRACEOS_PACKAGED_WALLPAPER_SHA256",

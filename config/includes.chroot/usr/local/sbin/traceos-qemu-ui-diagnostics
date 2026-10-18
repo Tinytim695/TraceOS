@@ -126,7 +126,7 @@ def probe(case_id: str, nonce: str, pid: str, uid: str, attempt: str) -> None:
 
 def is_gtk_theme_error(line: str) -> bool:
     """Match only GTK/CSS/theme-related warnings or errors, not arbitrary session output."""
-    theme_related = re.search(r"(?:gtk\\.css|\\btheme\\b|\\bCSS\\b)", line, re.IGNORECASE)
+    theme_related = re.search(r"(?:gtk\.css|\btheme\b|\bCSS\b)", line, re.IGNORECASE)
     failure_related = re.search(r"(?:warning|error|failed|cannot|could not|parse)", line, re.IGNORECASE)
     return bool(theme_related and failure_related)
 
