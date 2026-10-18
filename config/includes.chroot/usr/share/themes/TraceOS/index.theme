@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=TraceOS
+Type=X-GNOME-Metatheme
+Comment=TraceOS dark navy and cyan desktop theme
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=TraceOS
+MetacityTheme=TraceOS
+IconTheme=Adwaita
+CursorTheme=Adwaita
