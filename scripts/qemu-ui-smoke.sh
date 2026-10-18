@@ -1113,12 +1113,10 @@ echo "[TraceOS] Required QEMU GUI interaction matrices: PASS"
 
 rm -f "$OUT"/*.ppm
 
-kill "$QEMU_PID" 2>/dev/null || true
-wait "$QEMU_PID" 2>/dev/null || true
-unset QEMU_PID
-
 # Capture the desktop underneath the Launcher/Control Centre after all other GUI
-# checks. The same large negative relative delta makes pointer placement repeatable.
+# checks. Keep QEMU alive until this final screenshot has been captured because
+# the capture uses the still-open HMP monitor socket. The same large negative
+# relative delta makes pointer placement repeatable.
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-desktop-home-pointer-reset.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 1100 690" "$STATE/monitor-desktop-home-pointer-park.log"
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f9" "$STATE/monitor-desktop-home-minimize.log"
@@ -1141,6 +1139,10 @@ if ! awk "BEGIN { exit !($desktop_home_spread > 0.02) }"; then
 fi
 echo "[TraceOS] Uncovered TraceOS desktop home screen captured; changed pixels: $desktop_home_diff."
 rm -f "$desktop_home_ppm"
+
+kill "$QEMU_PID" 2>/dev/null || true
+wait "$QEMU_PID" 2>/dev/null || true
+unset QEMU_PID
 
 echo "[TraceOS] QEMU screenshots and diagnostics ready:"
 find "$OUT" -maxdepth 1 -type f \( -name '*.png' -o -name '*.cfg' -o -name '*.log' -o -name '*.txt' \) -print -exec ls -lh {} +
