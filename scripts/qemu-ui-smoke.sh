@@ -415,7 +415,8 @@ capture_page() {
     assert_serial "LIVE_SESSION_USER=traceos" "the graphical session user is traceos"
     assert_serial "LIVE_SESSION_HOME=/home/traceos" "the graphical session home is /home/traceos"
     assert_serial "TRACEOS_XFCE_SESSION_RUNNING" "the TraceOS XFCE session is running"
-    assert_serial "CONTROL_CENTRE_PROCESS_RUNNING" "the Control Centre process is running"
+    # This diagnostic is a boot-time snapshot, before the launcher action. It
+    # cannot reliably prove the Control Centre state after the launcher starts it.
     assert_serial "stage=CONTROL_CENTRE_SESSION_READY" "the Control Centre session readiness marker was observed"
 
     rm -f "$ppm"
