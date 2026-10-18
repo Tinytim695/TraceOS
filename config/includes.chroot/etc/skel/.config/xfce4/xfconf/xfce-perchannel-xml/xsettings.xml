@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xsettings" version="1.0">
   <property name="Net" type="empty">
-    <property name="ThemeName" type="string" value="Adwaita-dark"/>
+    <property name="ThemeName" type="string" value="TraceOS"/>
     <property name="IconThemeName" type="string" value="Adwaita"/>
     <property name="SoundThemeName" type="string" value="freedesktop"/>
     <property name="EnableEventSounds" type="bool" value="false"/>
@@ -13,6 +13,6 @@
     <property name="ToolbarIconSize" type="int" value="3"/>
     <property name="MenuImages" type="bool" value="false"/>
     <property name="ButtonImages" type="bool" value="false"/>
-    <property name="EnableAnimations" type="bool" value="true"/>
+    <property name="EnableAnimations" type="bool" value="false"/>
   </property>
 </channel>

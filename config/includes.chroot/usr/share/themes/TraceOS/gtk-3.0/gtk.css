@@ -1,0 +1,172 @@
+/* TraceOS GTK 3 visual foundation. Keep controls legible; use cyan as an accent, not a floodlight. */
+@define-color trace_bg #080e18;
+@define-color trace_surface #101b2b;
+@define-color trace_surface_alt #15253a;
+@define-color trace_border #2b4057;
+@define-color trace_text #e6edf7;
+@define-color trace_muted #9aacc2;
+@define-color trace_accent #4dd8e8;
+@define-color trace_accent_hover #7be7f0;
+
+* {
+  -gtk-secondary-caret-color: @trace_accent;
+  outline-color: alpha(@trace_accent, 0.65);
+}
+
+window,
+.background {
+  background-color: @trace_bg;
+  color: @trace_text;
+}
+
+dialog,
+messagedialog,
+popover,
+.menu,
+.context-menu {
+  background-color: @trace_surface;
+  color: @trace_text;
+  border: 1px solid @trace_border;
+}
+
+headerbar,
+.titlebar,
+toolbar {
+  background-image: none;
+  background-color: @trace_surface;
+  color: @trace_text;
+  border-color: @trace_border;
+  box-shadow: none;
+}
+
+button,
+menubutton > button,
+splitbutton > button {
+  background-image: none;
+  background-color: @trace_surface_alt;
+  color: @trace_text;
+  border: 1px solid @trace_border;
+  border-radius: 5px;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+button:hover,
+menubutton > button:hover,
+splitbutton > button:hover {
+  background-color: #1c344a;
+  border-color: @trace_accent;
+}
+
+button:active,
+button:checked,
+togglebutton:checked {
+  background-image: none;
+  background-color: #123b49;
+  border-color: @trace_accent;
+  color: #f3fdff;
+}
+
+button:disabled {
+  color: alpha(@trace_muted, 0.55);
+  background-color: #0b111b;
+}
+
+entry,
+textview,
+spinbutton,
+combobox > box,
+searchbar,
+.inline-toolbar {
+  background-color: #070c14;
+  color: @trace_text;
+  border-color: @trace_border;
+  caret-color: @trace_accent;
+  box-shadow: none;
+}
+
+entry:focus,
+textview:focus,
+spinbutton:focus {
+  border-color: @trace_accent;
+}
+
+selection,
+.view:selected,
+treeview.view:selected,
+row:selected {
+  background-color: #16485a;
+  color: #ffffff;
+}
+
+.view,
+treeview.view,
+list,
+row {
+  background-color: @trace_bg;
+  color: @trace_text;
+}
+
+.view:hover,
+row:hover {
+  background-color: #122338;
+}
+
+label,
+checkbutton,
+radiobutton {
+  color: @trace_text;
+}
+
+.dim-label,
+label:disabled {
+  color: @trace_muted;
+}
+
+menubar,
+menubar > menuitem {
+  background-color: @trace_surface;
+  color: @trace_text;
+}
+
+menubar > menuitem:hover {
+  background-color: @trace_surface_alt;
+  box-shadow: inset 0 -2px @trace_accent;
+}
+
+notebook > header {
+  background-color: @trace_surface;
+  border-color: @trace_border;
+}
+
+notebook > header tab {
+  background-color: @trace_bg;
+  color: @trace_muted;
+  border-color: @trace_border;
+}
+
+notebook > header tab:checked {
+  background-color: @trace_surface_alt;
+  color: @trace_text;
+  box-shadow: inset 0 -2px @trace_accent;
+}
+
+scrollbar slider {
+  background-color: #39536b;
+  border-radius: 8px;
+}
+
+scrollbar slider:hover {
+  background-color: @trace_accent;
+}
+
+progressbar progress,
+scale highlight {
+  background-color: @trace_accent;
+}
+
+tooltip {
+  background-color: #050a12;
+  color: @trace_text;
+  border: 1px solid @trace_border;
+}
