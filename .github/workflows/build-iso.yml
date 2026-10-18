@@ -101,7 +101,14 @@ jobs:
           # Validate branded launcher/home-screen components from the built squashfs.
           test -x /tmp/traceos-root/usr/local/bin/traceos-launcher
           test -x /tmp/traceos-root/usr/local/bin/traceos-desktop-setup
-          test -s /tmp/traceos-root/usr/share/backgrounds/traceos/traceos-wallpaper.png
+          wallpaper_png=/tmp/traceos-root/usr/share/backgrounds/traceos/traceos-wallpaper.png
+          test -s "$wallpaper_png"
+          test -s /tmp/traceos-root/usr/local/lib/traceos/desktop_wallpaper.py
+          wallpaper_dimensions="$(identify -format '%w %h' "$wallpaper_png")"
+          test "$wallpaper_dimensions" = "1920 1080"
+          wallpaper_sha256="$(sha256sum "$wallpaper_png" | awk '{print $1}')"
+          printf 'TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS=%s\nTRACEOS_PACKAGED_WALLPAPER_SHA256=%s\n' \
+            "$wallpaper_dimensions" "$wallpaper_sha256" | tee -a traceos-iso-layout.txt
           test -s /tmp/traceos-root/etc/xdg/autostart/traceos-launcher.desktop
           grep -Fq 'Exec=/usr/local/bin/traceos-launcher' /tmp/traceos-root/etc/xdg/autostart/traceos-launcher.desktop
           grep -Fq 'Hidden=true' /tmp/traceos-root/etc/xdg/autostart/traceos-control.desktop

@@ -448,6 +448,11 @@ launcher_action_seen() {
         grep -F "nonce=$expected_nonce" >/dev/null
 }
 
+popup_region_diff_passes() {
+    local changed_pixels="$1"
+    [[ "$changed_pixels" =~ ^[0-9]+$ ]] && (( changed_pixels > 20000 ))
+}
+
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
     matching="case_id=${test_case_id} id_prefix=01234567"
@@ -488,6 +493,18 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     printf '%s\n' '[TraceOS] UI_DIAG stage=TRACEOS_LAUNCHER_ACTION_INVOKED nonce=fixture action=control-centre' >>"$action_log"
     launcher_action_seen "$action_log" fixture
     rm -f "$action_log"
+
+    # Regression guard: a visible popup at 24,991 changed pixels was rejected
+    # by the old 25,000 threshold even though the crop showed the menu.
+    popup_region_diff_passes 24991
+    if popup_region_diff_passes 20000; then
+        echo "[TraceOS] Popup fixture accepted the exact threshold boundary." >&2
+        exit 1
+    fi
+    if popup_region_diff_passes not-a-number; then
+        echo "[TraceOS] Popup fixture accepted a non-numeric diff." >&2
+        exit 1
+    fi
 
     # Synthetic generated GRUB configs. These do not require an ISO and must
     # reject unresolved placeholders, a bad failsafe entry, unresolved
@@ -588,6 +605,17 @@ if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-gen
 fi
 assert_generated_grub "$OUT/traceos-generated-grub.cfg"
 
+# Retain the wallpaper asset extracted from this exact ISO by the preceding
+# final-squashfs validation step. This is compared with the guest runtime hash.
+packaged_wallpaper_source="/tmp/traceos-root/usr/share/backgrounds/traceos/traceos-wallpaper.png"
+packaged_wallpaper_png="$OUT/traceos-packaged-wallpaper.png"
+test -s "$packaged_wallpaper_source"
+cp "$packaged_wallpaper_source" "$packaged_wallpaper_png"
+packaged_wallpaper_dimensions="$(identify -format '%w %h' "$packaged_wallpaper_png")"
+test "$packaged_wallpaper_dimensions" = "1920 1080"
+packaged_wallpaper_sha256="$(sha256sum "$packaged_wallpaper_png" | awk '{print $1}')"
+printf 'TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS=%s\nTRACEOS_PACKAGED_WALLPAPER_SHA256=%s\n' \
+    "$packaged_wallpaper_dimensions" "$packaged_wallpaper_sha256" >"$OUT/traceos-wallpaper-manifest.txt"
 
 # First prove the real desktop renders. Keep the same guest alive for one
 # diagnostic interaction so the Dashboard remains the baseline gate.
@@ -618,7 +646,7 @@ launcher_menu_crop="$OUT/.traceos-launcher-menu-region.png"
 convert "$OUT/traceos-dashboard.png" -crop 300x500+0+24 +repage "$launcher_dashboard_crop"
 convert "$launcher_menu_png" -crop 300x500+0+24 +repage "$launcher_menu_crop"
 launcher_menu_diff="$(compare -metric AE "$launcher_dashboard_crop" "$launcher_menu_crop" null: 2>&1 || true)"
-if [[ ! "$launcher_menu_diff" =~ ^[0-9]+$ ]] || (( launcher_menu_diff <= 25000 )); then
+if ! popup_region_diff_passes "$launcher_menu_diff"; then
     echo "[TraceOS] Applications menu was not visibly open in the expected popup region (changed pixels: ${launcher_menu_diff:-unknown})." >&2
     exit 1
 fi
@@ -746,6 +774,41 @@ collector_ready="no"
 if wait_for_serial "QEMU_UI_DIAG_READY" 45; then
     collector_ready="yes"
 fi
+if [[ "$collector_ready" != "yes" ]]; then
+    echo "[TraceOS] QEMU diagnostic collector did not become ready; wallpaper/theme verification cannot be claimed." >&2
+    exit 1
+fi
+
+if ! wait_for_serial "stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS" 45; then
+    echo "[TraceOS] Verified desktop branding result was not observed." >&2
+    tail -n 220 "$serial_log" >&2 || true
+    exit 1
+fi
+branding_summary="$(grep -F 'stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS' "$serial_log" | tail -n 1)"
+if [[ "$branding_summary" != *"xsettings_theme=TraceOS"* || "$branding_summary" != *"png_width=1920"* || "$branding_summary" != *"png_height=1080"* ]]; then
+    echo "[TraceOS] Runtime branding summary lacks the expected GTK theme or packaged PNG dimensions." >&2
+    echo "$branding_summary" >&2
+    exit 1
+fi
+runtime_wallpaper_sha256="$(extract_field "$branding_summary" png_sha256)"
+if [[ ! "$runtime_wallpaper_sha256" =~ ^[0-9a-f]{64}$ || "$runtime_wallpaper_sha256" != "$packaged_wallpaper_sha256" ]]; then
+    echo "[TraceOS] Guest wallpaper checksum does not match the packaged ISO asset." >&2
+    echo "runtime=$runtime_wallpaper_sha256 packaged=$packaged_wallpaper_sha256" >&2
+    exit 1
+fi
+required_targets="$(extract_field "$branding_summary" targets)"
+target_passes="$(grep -Fc 'stage=TRACEOS_DESKTOP_BRANDING_TARGET result=PASS' "$serial_log" || true)"
+if [[ ! "$required_targets" =~ ^[0-9]+$ || ! "$target_passes" =~ ^[0-9]+$ ]] || (( target_passes < required_targets )); then
+    echo "[TraceOS] Runtime wallpaper targets are not all individually verified." >&2
+    echo "$branding_summary" >&2
+    exit 1
+fi
+if grep -Fq 'stage=TRACEOS_GTK_THEME_ERROR' "$serial_log"; then
+    echo "[TraceOS] GTK theme/CSS errors were captured in the guest session." >&2
+    grep -F 'stage=TRACEOS_GTK_THEME_ERROR' "$serial_log" >&2 || true
+    exit 1
+fi
+printf 'TRACEOS_RUNTIME_BRANDING_RESULT=PASS\nTRACEOS_RUNTIME_WALLPAPER_SHA256=%s\n' "$runtime_wallpaper_sha256" >>"$OUT/traceos-wallpaper-manifest.txt"
 
 hmp_new_case="yes"
 if ! hmp_command "$monitor" "sendkey ctrl-shift-n" "$STATE/monitor-new-case-sendkey.log"; then
@@ -1143,6 +1206,25 @@ if ! awk "BEGIN { exit !($desktop_home_spread > 0.02) }"; then
 fi
 echo "[TraceOS] Uncovered TraceOS desktop home screen captured; changed pixels: $desktop_home_diff."
 rm -f "$desktop_home_ppm"
+
+# XFCE Application Finder is a native GTK 3 surface. Capture it independently
+# so Tkinter launcher visuals are not mistaken for proof that GTK CSS loaded.
+native_gtk_ppm="$OUT/traceos-native-gtk.ppm"
+native_gtk_png="$OUT/traceos-native-gtk.png"
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f2" "$STATE/monitor-native-gtk-open.log"
+sleep 2
+capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-screendump.log"
+convert "$native_gtk_ppm" -resize 1280x720 -strip "$native_gtk_png"
+identify "$native_gtk_png"
+test -s "$native_gtk_png"
+native_gtk_diff="$(compare -metric AE "$desktop_home_png" "$native_gtk_png" null: 2>&1 || true)"
+if [[ ! "$native_gtk_diff" =~ ^[0-9]+$ ]] || (( native_gtk_diff <= 1000 )); then
+    echo "[TraceOS] Native GTK Application Finder was not visibly captured." >&2
+    exit 1
+fi
+echo "[TraceOS] Native GTK 3 Application Finder captured; changed pixels: $native_gtk_diff."
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-native-gtk-close.log"
+rm -f "$native_gtk_ppm"
 
 kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true

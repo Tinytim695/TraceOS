@@ -36,7 +36,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
 
     def test_branding_setup_has_traceos_panel_and_desktop_shortcuts(self):
         setup=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
-        for expected in ("traceos-wallpaper.png","preserving user wallpaper","button-title",
+        for expected in ("desktop_wallpaper.py","WARNING: wallpaper branding is incomplete","button-title",
                          "TraceOS","show-home","show-filesystem","TraceOS Launcher.desktop",
                          "TraceOS Control Centre.desktop"):
             self.assertIn(expected,setup)
@@ -106,5 +106,31 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "TRACEOS_LAUNCHER_SESSION_READY",
                          "Applications menu visible in popup region"):
             self.assertIn(expected,qemu)
+
+    def test_wallpaper_helper_and_runtime_gate_are_wired(self):
+        helper=INCLUDES/"usr/local/lib/traceos/desktop_wallpaper.py"
+        self.assertTrue(helper.is_file())
+        wrapper=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
+        self.assertIn("python3 /usr/local/lib/traceos/desktop_wallpaper.py",wrapper)
+        self.assertIn("next login can retry",wrapper)
+        runtime=helper.read_text(encoding="utf-8")
+        for expected in ("xrandr", "TRACEOS_DESKTOP_BRANDING_TARGET",
+                         "TRACEOS_DESKTOP_BRANDING_RESULT", "png_sha256",
+                         "image-style", "xfdesktop", "TRACEOS_DESKTOP_BRANDING_RESULT"):
+            self.assertIn(expected,runtime)
+
+    def test_qemu_retains_packaged_wallpaper_and_native_gtk_evidence(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        for expected in ("traceos-packaged-wallpaper.png","TRACEOS_PACKAGED_WALLPAPER_SHA256",
+                         "stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS",
+                         "TRACEOS_GTK_THEME_ERROR","traceos-native-gtk.png",
+                         "popup_region_diff_passes 24991"):
+            self.assertIn(expected,qemu)
+
+    def test_build_validates_final_squashfs_wallpaper_dimensions_and_hash(self):
+        workflow=(ROOT/".github/workflows/build-iso.yml").read_text(encoding="utf-8")
+        for expected in ("TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS","TRACEOS_PACKAGED_WALLPAPER_SHA256",
+                         "identify -format '%w %h'", "desktop_wallpaper.py"):
+            self.assertIn(expected,workflow)
 
 if __name__=="__main__": unittest.main()
