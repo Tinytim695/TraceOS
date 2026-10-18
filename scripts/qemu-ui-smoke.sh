@@ -1127,7 +1127,11 @@ capture_screendump "$STATE/monitor-dashboard.sock" "$desktop_home_ppm" "$STATE/m
 convert "$desktop_home_ppm" -resize 1280x720 -strip "$desktop_home_png"
 identify "$desktop_home_png"
 test -s "$desktop_home_png"
-desktop_home_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$desktop_home_png" null: 2>&1 || true)"
+# Compare the uncovered desktop with a screenshot known to contain the Control Centre.
+# traceos-dashboard.png is captured immediately after the launcher transition and can
+# still show the desktop while the Control Centre window is behind it, so it is not a
+# trustworthy visible-window baseline for this assertion.
+desktop_home_diff="$(compare -metric AE "$new_case_final_png" "$desktop_home_png" null: 2>&1 || true)"
 desktop_home_spread="$(convert "$desktop_home_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
 if [[ ! "$desktop_home_diff" =~ ^[0-9]+$ ]] || (( desktop_home_diff <= 100000 )); then
     echo "[TraceOS] Minimizing Control Centre did not reveal a distinct desktop home screen." >&2
