@@ -100,7 +100,7 @@ class DesktopWallpaperRuntimeTests(unittest.TestCase):
         runner.delayed_properties = (3, {image(1): "/usr/share/images/desktop-base/desktop-background", style(1): "5"})
         self.assertTrue(self.run_setup(runner))
         self.assertEqual(runner.properties[image(0)], "/usr/share/backgrounds/xfce/xfce-blue.jpg")
-        self.assertEqual(runner.properties[image(1)], WALLPAPER)
+        self.assertEqual(runner.properties[image(1)], str(self.wallpaper))
 
     def test_stock_wallpaper_outside_old_allowlist_migrates_legacy_state(self):
         state = self.home / branding.STATE_RELATIVE
