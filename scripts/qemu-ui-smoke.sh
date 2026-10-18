@@ -415,7 +415,8 @@ capture_page() {
     assert_serial "LIVE_SESSION_USER=traceos" "the graphical session user is traceos"
     assert_serial "LIVE_SESSION_HOME=/home/traceos" "the graphical session home is /home/traceos"
     assert_serial "TRACEOS_XFCE_SESSION_RUNNING" "the TraceOS XFCE session is running"
-    assert_serial "CONTROL_CENTRE_PROCESS_RUNNING" "the Control Centre process is running"
+    # This diagnostic is a boot-time snapshot, before the launcher action. It
+    # cannot reliably prove the Control Centre state after the launcher starts it.
     assert_serial "stage=CONTROL_CENTRE_SESSION_READY" "the Control Centre session readiness marker was observed"
 
     rm -f "$ppm"
@@ -1112,12 +1113,10 @@ echo "[TraceOS] Required QEMU GUI interaction matrices: PASS"
 
 rm -f "$OUT"/*.ppm
 
-kill "$QEMU_PID" 2>/dev/null || true
-wait "$QEMU_PID" 2>/dev/null || true
-unset QEMU_PID
-
 # Capture the desktop underneath the Launcher/Control Centre after all other GUI
-# checks. The same large negative relative delta makes pointer placement repeatable.
+# checks. Keep QEMU alive until this final screenshot has been captured because
+# the capture uses the still-open HMP monitor socket. The same large negative
+# relative delta makes pointer placement repeatable.
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-desktop-home-pointer-reset.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 1100 690" "$STATE/monitor-desktop-home-pointer-park.log"
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f9" "$STATE/monitor-desktop-home-minimize.log"
@@ -1128,7 +1127,11 @@ capture_screendump "$STATE/monitor-dashboard.sock" "$desktop_home_ppm" "$STATE/m
 convert "$desktop_home_ppm" -resize 1280x720 -strip "$desktop_home_png"
 identify "$desktop_home_png"
 test -s "$desktop_home_png"
-desktop_home_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$desktop_home_png" null: 2>&1 || true)"
+# Compare the uncovered desktop with a screenshot known to contain the Control Centre.
+# traceos-dashboard.png is captured immediately after the launcher transition and can
+# still show the desktop while the Control Centre window is behind it, so it is not a
+# trustworthy visible-window baseline for this assertion.
+desktop_home_diff="$(compare -metric AE "$new_case_final_png" "$desktop_home_png" null: 2>&1 || true)"
 desktop_home_spread="$(convert "$desktop_home_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
 if [[ ! "$desktop_home_diff" =~ ^[0-9]+$ ]] || (( desktop_home_diff <= 100000 )); then
     echo "[TraceOS] Minimizing Control Centre did not reveal a distinct desktop home screen." >&2
@@ -1140,6 +1143,10 @@ if ! awk "BEGIN { exit !($desktop_home_spread > 0.02) }"; then
 fi
 echo "[TraceOS] Uncovered TraceOS desktop home screen captured; changed pixels: $desktop_home_diff."
 rm -f "$desktop_home_ppm"
+
+kill "$QEMU_PID" 2>/dev/null || true
+wait "$QEMU_PID" 2>/dev/null || true
+unset QEMU_PID
 
 echo "[TraceOS] QEMU screenshots and diagnostics ready:"
 find "$OUT" -maxdepth 1 -type f \( -name '*.png' -o -name '*.cfg' -o -name '*.log' -o -name '*.txt' \) -print -exec ls -lh {} +
