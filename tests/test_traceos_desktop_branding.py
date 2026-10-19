@@ -137,9 +137,26 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS",
                          "TRACEOS_GTK_THEME_ERROR","traceos-native-gtk.png",
                          "traceos-native-gtk-menu.png","traceos-wallpaper-expected-fit.png",
+                         "wallpaper_mae_normalized","normalized threshold below 0.08",
                          "wallpaper_visual_status","native_gtk_status",
-                         "popup_region_diff_passes 24991"):
+                         "traceos-native-gtk-baseline-center.png",
+                         "mouse_move 0 58","Terminal Emulator",
+                         "native_gtk_diff > 100000","popup_region_diff_passes 24991"):
             self.assertIn(expected,qemu)
+
+    def test_wallpaper_mae_uses_normalized_imagemagick_metric(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('wallpaper_mae_normalized="$(printf',qemu)
+        self.assertIn("sed -n 's/.*(",qemu)
+        self.assertIn("awk \"BEGIN { exit !($wallpaper_mae_normalized < 0.08) }\"",qemu)
+        self.assertNotIn('wallpaper_mae_value < 0.08',qemu)
+
+    def test_native_gtk_capture_compares_central_window_area_not_menu_disappearance(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
+        self.assertIn("native_gtk_diff > 100000",qemu)
+        self.assertIn('"mouse_move 0 58"',qemu)
+        self.assertNotIn('compare -metric AE "$native_menu_png" "$native_gtk_png"',qemu)
 
     def test_build_validates_final_squashfs_wallpaper_dimensions_and_hash(self):
         workflow=(ROOT/".github/workflows/build-iso.yml").read_text(encoding="utf-8")

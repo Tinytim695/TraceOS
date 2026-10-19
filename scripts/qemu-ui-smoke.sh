@@ -1227,10 +1227,14 @@ if (( wallpaper_crop_width > 200 && wallpaper_crop_height > 200 )); then
     convert "$wallpaper_expected_fit" -crop "${wallpaper_crop_width}x${wallpaper_crop_height}+${wallpaper_crop_x}+${wallpaper_crop_y}" \
         +repage "$wallpaper_expected_crop"
     wallpaper_mae="$(compare -metric MAE "$wallpaper_actual_crop" "$wallpaper_expected_crop" null: 2>&1 || true)"
-    wallpaper_mae_value="${wallpaper_mae%% *}"
-    echo "[TraceOS] Rendered wallpaper crop MAE: $wallpaper_mae_value (required below 0.08)."
-    if [[ "$wallpaper_mae_value" =~ ^[0-9]+([.][0-9]+)?$ ]] && \
-        awk "BEGIN { exit !($wallpaper_mae_value < 0.08) }"; then
+    # ImageMagick prints raw MAE followed by a normalized MAE in parentheses,
+    # e.g. "60.5701 (0.000924241)". The normalized value is the one compared
+    # with a 0..1 threshold; comparing the raw first number rejects correct art.
+    wallpaper_mae_raw="${wallpaper_mae%% *}"
+    wallpaper_mae_normalized="$(printf '%s\\n' "$wallpaper_mae" | sed -n 's/.*(\\([0-9][0-9.]*\\)).*/\\1/p')"
+    echo "[TraceOS] Rendered wallpaper crop MAE: raw=${wallpaper_mae_raw:-unknown} normalized=${wallpaper_mae_normalized:-unknown} (normalized threshold below 0.08)."
+    if [[ "$wallpaper_mae_normalized" =~ ^[0-9]+([.][0-9]+)?$ ]] && \
+        awk "BEGIN { exit !($wallpaper_mae_normalized < 0.08) }"; then
         wallpaper_visual_status="yes"
         echo "[TraceOS] Packaged TraceOS wallpaper is visibly rendered in the uncovered desktop."
     else
@@ -1240,13 +1244,17 @@ else
     echo "[TraceOS] FAIL: desktop screenshot is too small for the wallpaper verification crop." >&2
 fi
 
-# Open XFCE's actual Run Program/Application Finder item from the retained
-# Applications menu screenshot. Alt+F2 did not reliably open it in this QEMU
-# session, so use the visible menu action and verify a real dialog appears.
+# Open an actual native GTK 3 application from the menu. Build #512 proved
+# that comparing the menu screenshot to the next frame can pass when the menu
+# merely closes and no application window appears. Compare the central screen
+# region against the uncovered desktop so a top-left menu disappearing cannot
+# satisfy this check.
 native_gtk_ppm="$OUT/traceos-native-gtk.ppm"
 native_gtk_png="$OUT/traceos-native-gtk.png"
 native_menu_ppm="$OUT/traceos-native-gtk-menu.ppm"
 native_menu_png="$OUT/traceos-native-gtk-menu.png"
+native_gtk_baseline_crop="$OUT/.traceos-native-gtk-baseline-center.png"
+native_gtk_candidate_crop="$OUT/.traceos-native-gtk-candidate-center.png"
 native_gtk_status="no"
 
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-native-gtk-pointer-reset.log"
@@ -1260,26 +1268,33 @@ convert "$native_menu_ppm" -strip "$native_menu_png"
 identify "$native_menu_png"
 test -s "$native_menu_png"
 
-# In the inspected 1152x720 QEMU screenshot, "Run Program..." is the second
-# entry in the open TraceOS Applications menu. Move from the button to that row.
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 0 38" "$STATE/monitor-native-gtk-run-program-target.log"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-native-gtk-run-program-down.log"
+# The captured 1280x800 menu puts "Terminal Emulator" at screen y≈68.
+# Pointer reset + (45,10) positions the pointer over the Applications button;
+# the next relative movement of (0,58) targets that visible menu row.
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 0 58" "$STATE/monitor-native-gtk-terminal-target.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-native-gtk-terminal-down.log"
 sleep 0.2
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-native-gtk-run-program-up.log"
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-native-gtk-terminal-up.log"
 sleep 2
 capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-screendump.log"
 convert "$native_gtk_ppm" -strip "$native_gtk_png"
 identify "$native_gtk_png"
 test -s "$native_gtk_png"
-native_gtk_diff="$(compare -metric AE "$native_menu_png" "$native_gtk_png" null: 2>&1 || true)"
-if [[ "$native_gtk_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 20000 )); then
+
+# Both compared crops are 700x520. Resizing the native GTK screenshot with the
+# same fit geometry as the retained desktop screenshot puts the frames in the
+# same 1152x720 coordinate space. The crop omits the top-left menu entirely.
+convert "$desktop_home_png" -crop 700x520+226+80 +repage "$native_gtk_baseline_crop"
+convert "$native_gtk_png" -resize 1280x720 -crop 700x520+226+80 +repage "$native_gtk_candidate_crop"
+native_gtk_diff="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
+if [[ "$native_gtk_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 100000 )); then
     native_gtk_status="yes"
-    echo "[TraceOS] Native GTK 3 Application Finder dialog captured; changed pixels: $native_gtk_diff."
+    echo "[TraceOS] Native GTK 3 Terminal window visible in central screen region; changed pixels: $native_gtk_diff."
 else
-    echo "[TraceOS] FAIL: clicking Run Program from the Applications menu did not reveal the native GTK dialog (changed pixels: ${native_gtk_diff:-unknown})." >&2
+    echo "[TraceOS] FAIL: no native GTK 3 application window was proven in the central screen region (changed pixels: ${native_gtk_diff:-unknown})." >&2
 fi
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-native-gtk-close.log"
-rm -f "$native_gtk_ppm" "$native_menu_ppm"
+rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"
 
 if [[ "$wallpaper_visual_status" != "yes" || "$native_gtk_status" != "yes" ]]; then
     echo "[TraceOS] GUI branding evidence gate failed: wallpaper=$wallpaper_visual_status native_gtk=$native_gtk_status." >&2
