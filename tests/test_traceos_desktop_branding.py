@@ -128,6 +128,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         for expected in ("traceos-packaged-wallpaper.png","TRACEOS_PACKAGED_WALLPAPER_SHA256",
                          "stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS",
                          "TRACEOS_GTK_THEME_ERROR","traceos-native-gtk.png",
+                         "traceos-native-gtk-menu.png","traceos-wallpaper-expected-fit.png",
+                         "wallpaper_visual_status","native_gtk_status",
                          "popup_region_diff_passes 24991"):
             self.assertIn(expected,qemu)
 

@@ -40,6 +40,7 @@ class ActiveMonitor:
 class WallpaperTarget:
     output: str
     last_image: str
+    mode: str = "existing-exact-output-name"
 
     @property
     def image_style(self) -> str:
@@ -92,6 +93,14 @@ def parse_property_dump(dump: str) -> dict[str, str]:
 def discover_wallpaper_targets(
     monitors: Sequence[ActiveMonitor], properties: dict[str, str]
 ) -> tuple[tuple[WallpaperTarget, ...], tuple[str, ...]]:
+    """Resolve targets by the XRandR output name, not a guessed numeric index.
+
+    XFCE's skeleton may contain monitor0 before the live session has created
+    monitorVirtual-1. Treating those as interchangeable can make xfconf-query
+    read back successfully while xfdesktop continues painting the other image.
+    When the named target has not appeared yet, create the exact output-name
+    property for the known workspaces and verify it later by readback.
+    """
     parsed: list[tuple[str, int, str, int]] = []
     for path in properties:
         match = BACKDROP_IMAGE.match(path)
@@ -100,16 +109,22 @@ def discover_wallpaper_targets(
                            int(match.group("workspace"))))
     targets: list[WallpaperTarget] = []
     missing: list[str] = []
+    workspaces = sorted({row[3] for row in parsed if row[1] == 0}) or [0]
     for monitor in monitors:
         named = [row for row in parsed if row[1] == 0 and row[2] == monitor.name]
-        indexed = [row for row in parsed if row[1] == 0 and row[2] == str(monitor.index)]
-        candidates = named or indexed
-        if not candidates:
-            missing.append(monitor.name)
+        if named:
+            targets.extend(
+                WallpaperTarget(monitor.name, row[0], "existing-exact-output-name")
+                for row in sorted(named, key=lambda item: item[3])
+            )
             continue
         targets.extend(
-            WallpaperTarget(monitor.name, row[0])
-            for row in sorted(candidates, key=lambda item: item[3])
+            WallpaperTarget(
+                monitor.name,
+                f"/backdrop/screen0/monitor{monitor.name}/workspace{workspace}/last-image",
+                "created-exact-output-name",
+            )
+            for workspace in workspaces
         )
     return tuple(targets), tuple(missing)
 
@@ -178,6 +193,11 @@ def _encode(value: str | None) -> str:
 def _emit(logger: Logger, result: str, **fields: str | int) -> None:
     suffix = " ".join(f"{key}={_encode(str(value))}" for key, value in fields.items())
     logger(f"[TraceOS] stage=TRACEOS_DESKTOP_BRANDING_RESULT result={result} {suffix}".rstrip())
+
+
+def _emit_discovery(logger: Logger, result: str, **fields: str | int) -> None:
+    suffix = " ".join(f"{key}={_encode(str(value))}" for key, value in fields.items())
+    logger(f"[TraceOS] stage=TRACEOS_DESKTOP_BACKDROP_DISCOVERY result={result} {suffix}".rstrip())
 
 
 def _query(runner: Runner, channel: str, path: str) -> str | None:
@@ -260,6 +280,13 @@ def setup_wallpaper(
             break
         sleeper(poll_seconds)
     else:
+        discovered_backdrops = sorted(path for path in properties if BACKDROP_IMAGE.match(path))
+        _emit_discovery(logger, "FAIL",
+              outputs=",".join(m.name for m in active_outputs) or "none",
+              discovered_backdrops=",".join(discovered_backdrops) or "none",
+              candidate_targets=",".join(t.last_image for t in targets) or "none",
+              target_modes=",".join(t.mode for t in targets) or "none",
+              missing_outputs=",".join(missing) or "none")
         _emit(logger, "FAIL", reason="runtime_targets_not_ready",
               outputs=",".join(m.name for m in active_outputs) or "none",
               missing_outputs=",".join(missing) or "none",
@@ -268,6 +295,13 @@ def setup_wallpaper(
               png_width=width, png_height=height, png_sha256=checksum)
         return False
 
+    discovered_backdrops = sorted(path for path in properties if BACKDROP_IMAGE.match(path))
+    _emit_discovery(logger, "READY",
+          outputs=",".join(m.name for m in active_outputs) or "none",
+          discovered_backdrops=",".join(discovered_backdrops) or "none",
+          candidate_targets=",".join(t.last_image for t in targets) or "none",
+          target_modes=",".join(t.mode for t in targets) or "none",
+          missing_outputs=",".join(missing) or "none")
     state_mode, saved_targets = load_branding_state(state)
     before = {
         target.last_image: (
@@ -334,7 +368,8 @@ def setup_wallpaper(
             logger(
                 "[TraceOS] stage=TRACEOS_DESKTOP_BRANDING_TARGET "
                 f"result={'PASS' if verified else 'FAIL'} output={_encode(target.output)} "
-                f"path={_encode(path)} before_image={_encode(before[path][0])} "
+                f"target_mode={_encode(target.mode)} path={_encode(path)} "
+                f"before_image={_encode(before[path][0])} "
                 f"expected_image={_encode(image)} after_image={_encode(after_image)} "
                 f"before_style={_encode(before[path][1])} expected_style={style} "
                 f"after_style={_encode(after_style)} forced={'yes' if force[path] else 'no'}"
@@ -380,6 +415,8 @@ def setup_wallpaper(
 
     _emit(logger, "PASS", outputs=",".join(m.name for m in active_outputs),
           targets=len(targets), backdrop_targets=",".join(t.last_image for t in targets),
+          target_modes=",".join(t.mode for t in targets),
+          discovered_backdrops=",".join(discovered_backdrops) or "none",
           missing_outputs=",".join(missing) or "none", xsettings_theme=theme,
           png_width=width, png_height=height, png_sha256=checksum,
           marker_version=STATE_VERSION, mode=state_mode)

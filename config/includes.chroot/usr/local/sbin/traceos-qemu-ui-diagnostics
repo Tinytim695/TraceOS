@@ -43,6 +43,7 @@ ALLOWED_STAGES = {
     "IMAGE_CLI_STOPPED",
     "TRACEOS_DESKTOP_BRANDING_RESULT",
     "TRACEOS_DESKTOP_BRANDING_TARGET",
+    "TRACEOS_DESKTOP_BACKDROP_DISCOVERY",
 }
 
 UUID_RE = re.compile(r"\bcase_id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b")
@@ -158,7 +159,7 @@ def main() -> int:
                             continue
                         fields = fields_from(line)
                         stage = fields.get("stage")
-                        if stage in {"TRACEOS_DESKTOP_BRANDING_RESULT", "TRACEOS_DESKTOP_BRANDING_TARGET"}:
+                        if stage in {"TRACEOS_DESKTOP_BRANDING_RESULT", "TRACEOS_DESKTOP_BRANDING_TARGET", "TRACEOS_DESKTOP_BACKDROP_DISCOVERY"}:
                             suffix = line[line.find("stage="):].strip()
                             emit("[TraceOS] QEMU_UI_DIAG " + suffix)
                         elif stage in ALLOWED_STAGES:

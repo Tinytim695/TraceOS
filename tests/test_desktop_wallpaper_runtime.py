@@ -27,6 +27,13 @@ def image(monitor: int, workspace: int = 0) -> str:
 def style(monitor: int, workspace: int = 0) -> str:
     return f"/backdrop/screen0/monitor{monitor}/workspace{workspace}/image-style"
 
+def named_image(monitor_name: str, workspace: int = 0) -> str:
+    return f"/backdrop/screen0/monitor{monitor_name}/workspace{workspace}/last-image"
+
+
+def named_style(monitor_name: str, workspace: int = 0) -> str:
+    return f"/backdrop/screen0/monitor{monitor_name}/workspace{workspace}/image-style"
+
 
 class FakeRunner:
     def __init__(self, monitors=((0, "Virtual-1"),), properties=None):
@@ -97,45 +104,60 @@ class DesktopWallpaperRuntimeTests(unittest.TestCase):
     def test_skeleton_monitor0_does_not_satisfy_connected_monitor1(self):
         runner = FakeRunner(monitors=((1, "HDMI-1"),),
             properties={image(0): "/usr/share/backgrounds/xfce/xfce-blue.jpg", style(0): "5"})
-        runner.delayed_properties = (3, {image(1): "/usr/share/images/desktop-base/desktop-background", style(1): "5"})
         self.assertTrue(self.run_setup(runner))
         self.assertEqual(runner.properties[image(0)], "/usr/share/backgrounds/xfce/xfce-blue.jpg")
-        self.assertEqual(runner.properties[image(1)], str(self.wallpaper))
+        self.assertEqual(runner.properties[named_image("HDMI-1")], str(self.wallpaper))
+        self.assertTrue(any("stage=TRACEOS_DESKTOP_BACKDROP_DISCOVERY result=READY" in line
+                            and "target_modes=created-exact-output-name" in line
+                            for line in self.logs))
+
+    def test_qemu_virtual_output_does_not_fall_back_to_seeded_monitor0(self):
+        stock = "/usr/share/backgrounds/xfce/xfce-blue.jpg"
+        runner = FakeRunner(monitors=((0, "Virtual-1"),),
+            properties={image(0): stock, style(0): "5"})
+        self.assertTrue(self.run_setup(runner))
+        self.assertEqual(runner.properties[image(0)], stock)
+        self.assertEqual(runner.properties[named_image("Virtual-1")], str(self.wallpaper))
+        summary = next(line for line in self.logs if "stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS" in line)
+        self.assertIn("backdrop_targets=/backdrop/screen0/monitorVirtual-1/workspace0/last-image", summary)
 
     def test_stock_wallpaper_outside_old_allowlist_migrates_legacy_state(self):
         state = self.home / branding.STATE_RELATIVE
         state.parent.mkdir(parents=True)
         state.write_text("\n", encoding="utf-8")
-        runner = FakeRunner(properties={image(0): "/usr/share/images/desktop-base/desktop-background"})
+        runner = FakeRunner(properties={named_image("Virtual-1"): "/usr/share/images/desktop-base/desktop-background"})
         self.assertTrue(self.run_setup(runner))
-        self.assertEqual(runner.properties[image(0)], str(self.wallpaper))
-        self.assertEqual(runner.properties[style(0)], "5")
+        self.assertEqual(runner.properties[named_image("Virtual-1")], str(self.wallpaper))
+        self.assertEqual(runner.properties[named_style("Virtual-1")], "5")
         saved = json.loads(state.read_text(encoding="utf-8"))
         self.assertEqual(saved["version"], branding.STATE_VERSION)
 
     def test_missing_style_is_created_and_read_back(self):
-        runner = FakeRunner(properties={image(0): "/usr/share/backgrounds/xfce4/xfce-blue.jpg"})
+        runner = FakeRunner(properties={named_image("Virtual-1"): "/usr/share/backgrounds/xfce4/xfce-blue.jpg"})
         self.assertTrue(self.run_setup(runner))
-        self.assertEqual(runner.properties[style(0)], "5")
+        self.assertEqual(runner.properties[named_style("Virtual-1")], "5")
         self.assertTrue(any("-n" in c and "-t" in c and "int" in c for c in runner.calls))
 
     def test_partial_multi_output_failure_does_not_complete(self):
         runner = FakeRunner(monitors=((0, "Virtual-1"), (1, "HDMI-1")),
-            properties={image(0): "/usr/share/backgrounds/xfce/xfce-blue.jpg", style(0): "5",
-                        image(1): "/usr/share/images/desktop-base/desktop-background", style(1): "5"})
-        runner.fail_set.add((image(1), str(self.wallpaper)))
+            properties={named_image("Virtual-1"): "/usr/share/backgrounds/xfce/xfce-blue.jpg",
+                        named_style("Virtual-1"): "5",
+                        named_image("HDMI-1"): "/usr/share/images/desktop-base/desktop-background",
+                        named_style("HDMI-1"): "5"})
+        runner.fail_set.add((named_image("HDMI-1"), str(self.wallpaper)))
         self.assertFalse(self.run_setup(runner))
         self.assertFalse((self.home / branding.STATE_RELATIVE).exists())
 
     def test_failed_image_readback_does_not_complete(self):
-        runner = FakeRunner(properties={image(0): "/usr/share/backgrounds/xfce/xfce-blue.jpg", style(0): "5"})
-        runner.ignore_set.add((image(0), str(self.wallpaper)))
+        runner = FakeRunner(properties={named_image("Virtual-1"): "/usr/share/backgrounds/xfce/xfce-blue.jpg",
+                                        named_style("Virtual-1"): "5"})
+        runner.ignore_set.add((named_image("Virtual-1"), str(self.wallpaper)))
         self.assertFalse(self.run_setup(runner))
         self.assertFalse((self.home / branding.STATE_RELATIVE).exists())
 
     def test_failed_style_readback_does_not_complete(self):
-        runner = FakeRunner(properties={image(0): "/usr/share/backgrounds/xfce/xfce-blue.jpg"})
-        runner.ignore_set.add((style(0), "5"))
+        runner = FakeRunner(properties={named_image("Virtual-1"): "/usr/share/backgrounds/xfce/xfce-blue.jpg"})
+        runner.ignore_set.add((named_style("Virtual-1"), "5"))
         self.assertFalse(self.run_setup(runner))
         self.assertFalse((self.home / branding.STATE_RELATIVE).exists())
         self.assertIn("reason=wallpaper_or_style_readback_failed", self.logs[-1])
@@ -147,8 +169,9 @@ class DesktopWallpaperRuntimeTests(unittest.TestCase):
         self.assertIn("reason=runtime_targets_not_ready", self.logs[-1])
 
     def test_incomplete_setup_succeeds_on_retry(self):
-        runner = FakeRunner(properties={image(0): "/usr/share/backgrounds/xfce/xfce-blue.jpg", style(0): "5"})
-        runner.fail_set.add((image(0), str(self.wallpaper)))
+        runner = FakeRunner(properties={named_image("Virtual-1"): "/usr/share/backgrounds/xfce/xfce-blue.jpg",
+                                        named_style("Virtual-1"): "5"})
+        runner.fail_set.add((named_image("Virtual-1"), str(self.wallpaper)))
         self.assertFalse(self.run_setup(runner))
         runner.fail_set.clear()
         self.assertTrue(self.run_setup(runner))
@@ -158,36 +181,37 @@ class DesktopWallpaperRuntimeTests(unittest.TestCase):
         state.parent.mkdir(parents=True)
         state.write_text(branding.STATE_VERSION + "\n", encoding="utf-8")
         chosen = "/home/traceos/Pictures/my-wallpaper.jpg"
-        runner = FakeRunner(properties={image(0): chosen, style(0): "1"})
+        runner = FakeRunner(properties={named_image("Virtual-1"): chosen, named_style("Virtual-1"): "1"})
         self.assertTrue(self.run_setup(runner))
-        self.assertEqual(runner.properties[image(0)], chosen)
-        self.assertEqual(runner.properties[style(0)], "1")
+        self.assertEqual(runner.properties[named_image("Virtual-1")], chosen)
+        self.assertEqual(runner.properties[named_style("Virtual-1")], "1")
 
     def test_later_system_wallpaper_choice_is_preserved_with_versioned_state(self):
         state = self.home / branding.STATE_RELATIVE
         state.parent.mkdir(parents=True)
         state.write_text(json.dumps({"version": branding.STATE_VERSION,
-            "targets": {image(0): {"image": WALLPAPER, "style": "5"}}}), encoding="utf-8")
+            "targets": {named_image("Virtual-1"): {"image": WALLPAPER, "style": "5"}}}), encoding="utf-8")
         chosen = "/usr/share/images/desktop-base/desktop-background"
-        runner = FakeRunner(properties={image(0): chosen, style(0): "2"})
+        runner = FakeRunner(properties={named_image("Virtual-1"): chosen, named_style("Virtual-1"): "2"})
         self.assertTrue(self.run_setup(runner))
-        self.assertEqual(runner.properties[image(0)], chosen)
-        self.assertEqual(runner.properties[style(0)], "2")
+        self.assertEqual(runner.properties[named_image("Virtual-1")], chosen)
+        self.assertEqual(runner.properties[named_style("Virtual-1")], "2")
 
     def test_user_style_survives_xfce_reload_override(self):
         state = self.home / branding.STATE_RELATIVE
         state.parent.mkdir(parents=True)
         state.write_text(branding.STATE_VERSION + "\n", encoding="utf-8")
         chosen = "/home/traceos/Pictures/my-wallpaper.jpg"
-        runner = FakeRunner(properties={image(0): chosen, style(0): "1"})
-        runner.after_reload = {style(0): "4"}
+        runner = FakeRunner(properties={named_image("Virtual-1"): chosen, named_style("Virtual-1"): "1"})
+        runner.after_reload = {named_style("Virtual-1"): "4"}
         self.assertTrue(self.run_setup(runner))
-        self.assertEqual(runner.properties[image(0)], chosen)
-        self.assertEqual(runner.properties[style(0)], "1")
+        self.assertEqual(runner.properties[named_image("Virtual-1")], chosen)
+        self.assertEqual(runner.properties[named_style("Virtual-1")], "1")
         self.assertGreaterEqual(runner.reload_calls, 2)
 
     def test_summary_contains_asset_and_theme_evidence(self):
-        runner = FakeRunner(properties={image(0): "/usr/share/backgrounds/xfce/xfce-blue.jpg", style(0): "5"})
+        runner = FakeRunner(properties={named_image("Virtual-1"): "/usr/share/backgrounds/xfce/xfce-blue.jpg",
+                                        named_style("Virtual-1"): "5"})
         self.assertTrue(self.run_setup(runner))
         summary = self.logs[-1]
         self.assertIn("result=PASS", summary)
