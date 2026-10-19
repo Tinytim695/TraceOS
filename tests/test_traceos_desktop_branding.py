@@ -107,6 +107,14 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "Applications menu visible in popup region"):
             self.assertIn(expected,qemu)
 
+    def test_backdrop_discovery_does_not_use_numeric_monitor_fallback(self):
+        helper=(INCLUDES/"usr/local/lib/traceos/desktop_wallpaper.py").read_text(encoding="utf-8")
+        self.assertIn("created-exact-output-name",helper)
+        self.assertIn("stage=TRACEOS_DESKTOP_BACKDROP_DISCOVERY",helper)
+        self.assertNotIn("indexed = [row for row in parsed",helper)
+        diagnostics=(INCLUDES/"usr/local/sbin/traceos-qemu-ui-diagnostics").read_text(encoding="utf-8")
+        self.assertIn("TRACEOS_DESKTOP_BACKDROP_DISCOVERY",diagnostics)
+
     def test_wallpaper_helper_and_runtime_gate_are_wired(self):
         helper=INCLUDES/"usr/local/lib/traceos/desktop_wallpaper.py"
         self.assertTrue(helper.is_file())
