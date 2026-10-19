@@ -140,7 +140,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "wallpaper_mae_normalized","normalized threshold below 0.08",
                          "wallpaper_visual_status","native_gtk_status",
                          "traceos-native-gtk-baseline-center.png",
-                         "mouse_move 0 58","Choose Preferred Application",
+                         "sendkey alt-f2","exo-preferred-applications","Choose Preferred Application",
                          "native_gtk_diff > 40000","popup_region_diff_passes 24991"):
             self.assertIn(expected,qemu)
 
@@ -156,7 +156,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
         self.assertIn("native_gtk_diff > 40000",qemu)
         self.assertIn('"Choose Preferred Application" GTK dialog',qemu)
-        self.assertIn('"mouse_move 0 58"',qemu)
+        self.assertIn('"sendkey alt-f2"',qemu)
         self.assertNotIn('compare -metric AE "$native_menu_png" "$native_gtk_png"',qemu)
 
     def test_native_gtk_visual_gate_distinguishes_observed_no_window_and_real_dialog(self):

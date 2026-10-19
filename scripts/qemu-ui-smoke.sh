@@ -1244,11 +1244,9 @@ else
     echo "[TraceOS] FAIL: desktop screenshot is too small for the wallpaper verification crop." >&2
 fi
 
-# Open an actual native GTK 3 application from the menu. Build #512 proved
-# that comparing the menu screenshot to the next frame can pass when the menu
-# merely closes and no application window appears. Compare the central screen
-# region against the uncovered desktop so a top-left menu disappearing cannot
-# satisfy this check.
+# Launch a known native GTK 3 dialog through XFCE's application finder.
+# Do not depend on menu coordinates: the old click at (0,58) repeatedly
+# dismissed the menu without launching the dialog in current QEMU runs.
 native_gtk_ppm="$OUT/traceos-native-gtk.ppm"
 native_gtk_png="$OUT/traceos-native-gtk.png"
 native_menu_ppm="$OUT/traceos-native-gtk-menu.ppm"
@@ -1258,25 +1256,23 @@ native_gtk_candidate_crop="$OUT/.traceos-native-gtk-candidate-center.png"
 native_gtk_status="no"
 
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-native-gtk-pointer-reset.log"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 45 10" "$STATE/monitor-native-gtk-menu-target.log"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-native-gtk-menu-down.log"
-sleep 0.2
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-native-gtk-menu-up.log"
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f2" "$STATE/monitor-native-gtk-appfinder-open.log"
 sleep 1
-capture_screendump "$STATE/monitor-dashboard.sock" "$native_menu_ppm" "$STATE/monitor-native-gtk-menu-screendump.log"
+capture_screendump "$STATE/monitor-dashboard.sock" "$native_menu_ppm" "$STATE/monitor-native-gtk-appfinder-screendump.log"
 convert "$native_menu_ppm" -strip "$native_menu_png"
 identify "$native_menu_png"
 test -s "$native_menu_png"
 
-# The captured QEMU menu interaction at (0,58) opens XFCE's native
-# "Choose Preferred Application" GTK dialog from the Mail Reader menu item.
-# Keep the tested interaction aligned with the actual captured dialog rather
-# than claiming that a Terminal Emulator window was opened.
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 0 58" "$STATE/monitor-native-gtk-terminal-target.log"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-native-gtk-terminal-down.log"
-sleep 0.2
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-native-gtk-terminal-up.log"
-sleep 2
+# Type the executable into the focused XFCE appfinder entry. Send each key
+# separately so QEMU HMP does not interpret hyphens as key-combination syntax.
+native_gtk_command="exo-preferred-applications"
+for ((native_gtk_key_index=0; native_gtk_key_index<${#native_gtk_command}; native_gtk_key_index++)); do
+    native_gtk_key="${native_gtk_command:native_gtk_key_index:1}"
+    [[ "$native_gtk_key" == "-" ]] && native_gtk_key="minus"
+    hmp_command "$STATE/monitor-dashboard.sock" "sendkey $native_gtk_key" "$STATE/monitor-native-gtk-command-key-$native_gtk_key_index.log"
+done
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey ret" "$STATE/monitor-native-gtk-command-launch.log"
+sleep 3
 capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-screendump.log"
 convert "$native_gtk_ppm" -strip "$native_gtk_png"
 identify "$native_gtk_png"
