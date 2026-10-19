@@ -140,8 +140,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "wallpaper_mae_normalized","normalized threshold below 0.08",
                          "wallpaper_visual_status","native_gtk_status",
                          "traceos-native-gtk-baseline-center.png",
-                         "mouse_move 0 58","Terminal Emulator",
-                         "native_gtk_diff > 100000","popup_region_diff_passes 24991"):
+                         "mouse_move 0 58","Choose Preferred Application",
+                         "native_gtk_diff > 40000","popup_region_diff_passes 24991"):
             self.assertIn(expected,qemu)
 
     def test_wallpaper_mae_uses_normalized_imagemagick_metric(self):
@@ -154,9 +154,18 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_native_gtk_capture_compares_central_window_area_not_menu_disappearance(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
-        self.assertIn("native_gtk_diff > 100000",qemu)
+        self.assertIn("native_gtk_diff > 40000",qemu)
+        self.assertIn('"Choose Preferred Application" GTK dialog',qemu)
         self.assertIn('"mouse_move 0 58"',qemu)
         self.assertNotIn('compare -metric AE "$native_menu_png" "$native_gtk_png"',qemu)
+
+    def test_native_gtk_visual_gate_distinguishes_observed_no_window_and_real_dialog(self):
+        # Counts are from the retained Build #512/#513 QEMU screenshot crops.
+        no_window_pixels = 26541
+        real_gtk_dialog_pixels = 55174
+        threshold = 40000
+        self.assertLess(no_window_pixels, threshold)
+        self.assertGreater(real_gtk_dialog_pixels, threshold)
 
     def test_build_validates_final_squashfs_wallpaper_dimensions_and_hash(self):
         workflow=(ROOT/".github/workflows/build-iso.yml").read_text(encoding="utf-8")

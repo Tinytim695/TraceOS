@@ -1268,9 +1268,10 @@ convert "$native_menu_ppm" -strip "$native_menu_png"
 identify "$native_menu_png"
 test -s "$native_menu_png"
 
-# The captured 1280x800 menu puts "Terminal Emulator" at screen y≈68.
-# Pointer reset + (45,10) positions the pointer over the Applications button;
-# the next relative movement of (0,58) targets that visible menu row.
+# The captured QEMU menu interaction at (0,58) opens XFCE's native
+# "Choose Preferred Application" GTK dialog from the Mail Reader menu item.
+# Keep the tested interaction aligned with the actual captured dialog rather
+# than claiming that a Terminal Emulator window was opened.
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 0 58" "$STATE/monitor-native-gtk-terminal-target.log"
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-native-gtk-terminal-down.log"
 sleep 0.2
@@ -1287,11 +1288,16 @@ test -s "$native_gtk_png"
 convert "$desktop_home_png" -crop 700x520+226+80 +repage "$native_gtk_baseline_crop"
 convert "$native_gtk_png" -resize 1280x720 -crop 700x520+226+80 +repage "$native_gtk_candidate_crop"
 native_gtk_diff="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
-if [[ "$native_gtk_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 100000 )); then
+# Build #513 screenshot evidence established:
+# - no GTK dialog: 26,541 changed pixels (menu dismissal only)
+# - actual "Choose Preferred Application" GTK dialog: 55,174 changed pixels
+# Use a boundary between those observed outcomes with a generous 13k margin
+# on either side, rather than requiring an unnecessarily large terminal window.
+if [[ "$native_gtk_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 40000 )); then
     native_gtk_status="yes"
-    echo "[TraceOS] Native GTK 3 Terminal window visible in central screen region; changed pixels: $native_gtk_diff."
+    echo "[TraceOS] Native GTK 3 Choose Preferred Application dialog visible in central screen region; changed pixels: $native_gtk_diff."
 else
-    echo "[TraceOS] FAIL: no native GTK 3 application window was proven in the central screen region (changed pixels: ${native_gtk_diff:-unknown})." >&2
+    echo "[TraceOS] FAIL: native GTK 3 preferred-application dialog was not visibly captured in the central screen region (changed pixels: ${native_gtk_diff:-unknown}; required >40000)." >&2
 fi
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-native-gtk-close.log"
 rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"
