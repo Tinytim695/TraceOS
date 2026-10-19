@@ -147,7 +147,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_wallpaper_mae_uses_normalized_imagemagick_metric(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         self.assertIn('wallpaper_mae_normalized="$(printf',qemu)
-        self.assertIn("sed -n 's/.*(",qemu)
+        self.assertIn(r"sed -n 's/.*(\\([0-9][0-9.]*\\)).*/\\1/p'",qemu)
         self.assertIn("awk \"BEGIN { exit !($wallpaper_mae_normalized < 0.08) }\"",qemu)
         self.assertNotIn('wallpaper_mae_value < 0.08',qemu)
 

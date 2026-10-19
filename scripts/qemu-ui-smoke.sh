@@ -1231,7 +1231,7 @@ if (( wallpaper_crop_width > 200 && wallpaper_crop_height > 200 )); then
     # e.g. "60.5701 (0.000924241)". The normalized value is the one compared
     # with a 0..1 threshold; comparing the raw first number rejects correct art.
     wallpaper_mae_raw="${wallpaper_mae%% *}"
-    wallpaper_mae_normalized="$(printf '%s\\n' "$wallpaper_mae" | sed -n 's/.*(\\([0-9][0-9.]*\\)).*/\\1/p')"
+    wallpaper_mae_normalized="$(printf '%s\n' "$wallpaper_mae" | sed -n 's/.*(\([0-9][0-9.]*\)).*/\1/p')"
     echo "[TraceOS] Rendered wallpaper crop MAE: raw=${wallpaper_mae_raw:-unknown} normalized=${wallpaper_mae_normalized:-unknown} (normalized threshold below 0.08)."
     if [[ "$wallpaper_mae_normalized" =~ ^[0-9]+([.][0-9]+)?$ ]] && \
         awk "BEGIN { exit !($wallpaper_mae_normalized < 0.08) }"; then
