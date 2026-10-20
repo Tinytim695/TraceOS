@@ -1287,8 +1287,13 @@ echo "[TraceOS] XFCE Application Finder visibly appeared; typing native GTK test
 # a bare wallpaper. This means the finder itself cannot satisfy the dialog
 # assertion. Leave at least 150ms between guest key events so QEMU TCG does
 # not overlap key-down intervals and drop characters.
+# The old preferred-applications helper is not shipped in Debian 13.
+# Collapsed Application Finder still accepts a missing command and Return,
+# but xfce_spawn only sets the entry error icon, so the central window
+# never changes. xfce4-mime-settings is the installed GTK 3 Default
+# Applications dialog.
 convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_baseline_crop"
-native_gtk_command="exo-preferred-applications"
+native_gtk_command="xfce4-mime-settings"
 while IFS= read -r native_gtk_key; do
     [[ "$native_gtk_key" == "-" ]] && native_gtk_key="minus"
     hmp_command "$STATE/monitor-dashboard.sock" "sendkey $native_gtk_key" "$STATE/monitor-native-gtk-command-key-$native_gtk_key.log"
@@ -1312,9 +1317,9 @@ for native_gtk_wait in $(seq 1 20); do
     sleep 1
 done
 if [[ "$native_gtk_status" == "yes" ]]; then
-    echo "[TraceOS] Native GTK 3 Preferred Applications dialog visibly replaced Application Finder; changed pixels: $native_gtk_diff."
+    echo "[TraceOS] Native GTK 3 Default Applications dialog visibly replaced Application Finder; changed pixels: $native_gtk_diff."
 else
-    echo "[TraceOS] FAIL: native GTK 3 Preferred Applications dialog did not visibly replace Application Finder in the central screen region." >&2
+    echo "[TraceOS] FAIL: native GTK 3 Default Applications dialog did not visibly replace Application Finder in the central screen region." >&2
 fi
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-native-gtk-close.log"
 
