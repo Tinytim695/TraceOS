@@ -161,7 +161,9 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
         self.assertIn("native_gtk_diff > 40000",qemu)
-        self.assertIn('"Choose Preferred Application" GTK dialog',qemu)
+        self.assertIn("Preferred Applications dialog",qemu)
+        self.assertIn("Application Finder visibly appeared",qemu)
+        self.assertIn("refusing to type into an unverified focus target",qemu)
         self.assertIn('"sendkey alt-f2"',qemu)
         self.assertNotIn('compare -metric AE "$native_menu_png" "$native_gtk_png"',qemu)
 
