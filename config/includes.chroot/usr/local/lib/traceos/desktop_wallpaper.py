@@ -430,6 +430,18 @@ def setup_wallpaper(
               png_height=height, png_sha256=checksum)
         return False
 
+    # Record the post-write xfconf-query -lv snapshot as the authoritative
+    # runtime state. The initial dump above is useful for diagnosing changes;
+    # this one proves the selected image and image-style after readback.
+    final_dump = _call(runner, ["xfconf-query", "-c", "xfce4-desktop", "-lv"])
+    if final_dump.returncode != 0:
+        _emit(logger, "FAIL", reason="final_xfconf_snapshot_failed",
+              targets=len(targets), xsettings_theme=theme, png_width=width,
+              png_height=height, png_sha256=checksum)
+        return False
+    for path, value in sorted(parse_property_dump(final_dump.stdout).items()):
+        _emit_runtime_property(logger, "xfconf_property_final", path=path, value=value)
+
     _emit(logger, "PASS", outputs=",".join(m.name for m in active_outputs),
           targets=len(targets), backdrop_targets=",".join(t.last_image for t in targets),
           target_modes=",".join(t.mode for t in targets),
