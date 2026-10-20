@@ -1244,9 +1244,10 @@ else
     echo "[TraceOS] FAIL: desktop screenshot is too small for the wallpaper verification crop." >&2
 fi
 
-# Launch a known native GTK 3 dialog through XFCE's application finder.
-# Do not depend on menu coordinates: the old click at (0,58) repeatedly
-# dismissed the menu without launching the dialog in current QEMU runs.
+# Launch a known native GTK 3 dialog through XFCE Application Finder.
+# Wait for the finder to actually appear before typing. Under QEMU TCG,
+# the Alt+F2 shortcut can take several seconds; the old fixed 1s sleep
+# let all keypresses hit the desktop before the finder existed.
 native_gtk_ppm="$OUT/traceos-native-gtk.ppm"
 native_gtk_png="$OUT/traceos-native-gtk.png"
 native_menu_ppm="$OUT/traceos-native-gtk-menu.ppm"
@@ -1254,50 +1255,104 @@ native_menu_png="$OUT/traceos-native-gtk-menu.png"
 native_gtk_baseline_crop="$OUT/.traceos-native-gtk-baseline-center.png"
 native_gtk_candidate_crop="$OUT/.traceos-native-gtk-candidate-center.png"
 native_gtk_status="no"
+native_gtk_appfinder_visible="no"
 
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-native-gtk-pointer-reset.log"
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f2" "$STATE/monitor-native-gtk-appfinder-open.log"
-sleep 1
-capture_screendump "$STATE/monitor-dashboard.sock" "$native_menu_ppm" "$STATE/monitor-native-gtk-appfinder-screendump.log"
-convert "$native_menu_ppm" -strip "$native_menu_png"
-identify "$native_menu_png"
-test -s "$native_menu_png"
 
-# Type the executable into the focused XFCE appfinder entry. Send each key
-# separately so QEMU HMP does not interpret hyphens as key-combination syntax.
-native_gtk_command="exo-preferred-applications"
-for ((native_gtk_key_index=0; native_gtk_key_index<${#native_gtk_command}; native_gtk_key_index++)); do
-    native_gtk_key="${native_gtk_command:native_gtk_key_index:1}"
-    [[ "$native_gtk_key" == "-" ]] && native_gtk_key="minus"
-    hmp_command "$STATE/monitor-dashboard.sock" "sendkey $native_gtk_key" "$STATE/monitor-native-gtk-command-key-$native_gtk_key_index.log"
+# All captures are normalized to the exact desktop-home dimensions before
+# pixel comparison. Build #516 showed that stretching 1280x800 to 1280x720
+# made the wallpaper itself differ and falsely satisfied the GTK assertion.
+convert "$desktop_home_png" -crop "700x520+226+80" +repage "$native_gtk_baseline_crop"
+for native_gtk_wait in $(seq 1 20); do
+    capture_screendump "$STATE/monitor-dashboard.sock" "$native_menu_ppm" "$STATE/monitor-native-gtk-appfinder-wait-$native_gtk_wait.log"
+    convert "$native_menu_ppm" -resize "$desktop_width"x"$desktop_height"! -strip "$native_menu_png"
+    convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_candidate_crop"
+    native_gtk_appfinder_metric="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
+    native_gtk_appfinder_diff="${native_gtk_appfinder_metric%% *}"
+    echo "[TraceOS] Application Finder visibility probe attempt=$native_gtk_wait changed_pixels=${native_gtk_appfinder_diff:-unknown}."
+    if [[ "$native_gtk_appfinder_diff" =~ ^[0-9]+$ ]] && (( native_gtk_appfinder_diff > 40000 )); then
+        native_gtk_appfinder_visible="yes"
+        break
+    fi
+    sleep 1
 done
-hmp_command "$STATE/monitor-dashboard.sock" "sendkey ret" "$STATE/monitor-native-gtk-command-launch.log"
-sleep 3
-capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-screendump.log"
-convert "$native_gtk_ppm" -strip "$native_gtk_png"
-identify "$native_gtk_png"
-test -s "$native_gtk_png"
+if [[ "$native_gtk_appfinder_visible" != "yes" ]]; then
+    echo "[TraceOS] FAIL: XFCE Application Finder did not visibly appear after Alt+F2; refusing to type into an unverified focus target." >&2
+    exit 1
+fi
+echo "[TraceOS] XFCE Application Finder visibly appeared; typing native GTK test command."
 
-# Both compared crops are 700x520. Resizing the native GTK screenshot with the
-# same fit geometry as the retained desktop screenshot puts the frames in the
-# same 1152x720 coordinate space. The crop omits the top-left menu entirely.
-convert "$desktop_home_png" -crop 700x520+226+80 +repage "$native_gtk_baseline_crop"
-convert "$native_gtk_png" -resize 1280x720 -crop 700x520+226+80 +repage "$native_gtk_candidate_crop"
-native_gtk_diff="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
-# Build #513 screenshot evidence established:
-# - no GTK dialog: 26,541 changed pixels (menu dismissal only)
-# - actual "Choose Preferred Application" GTK dialog: 55,174 changed pixels
-# Use a boundary between those observed outcomes with a generous 13k margin
-# on either side, rather than requiring an unnecessarily large terminal window.
-if [[ "$native_gtk_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 40000 )); then
-    native_gtk_status="yes"
-    echo "[TraceOS] Native GTK 3 Choose Preferred Application dialog visible in central screen region; changed pixels: $native_gtk_diff."
+# Compare the final screen to the actual visible Application Finder, not to
+# a bare wallpaper. This means the finder itself cannot satisfy the dialog
+# assertion. Leave at least 150ms between guest key events so QEMU TCG does
+# not overlap key-down intervals and drop characters.
+convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_baseline_crop"
+native_gtk_command="exo-preferred-applications"
+while IFS= read -r native_gtk_key; do
+    [[ "$native_gtk_key" == "-" ]] && native_gtk_key="minus"
+    hmp_command "$STATE/monitor-dashboard.sock" "sendkey $native_gtk_key" "$STATE/monitor-native-gtk-command-key-$native_gtk_key.log"
+    sleep 0.15
+done < <(printf "%s" "$native_gtk_command" | fold -w1)
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey ret" "$STATE/monitor-native-gtk-command-launch.log"
+
+# Poll for the expected dialog rather than taking one arbitrary frame three
+# seconds after Return. A still-visible Application Finder must fail.
+for native_gtk_wait in $(seq 1 20); do
+    capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-verify-$native_gtk_wait.log"
+    convert "$native_gtk_ppm" -resize "$desktop_width"x"$desktop_height"! -strip "$native_gtk_png"
+    convert "$native_gtk_png" -crop "700x520+226+80" +repage "$native_gtk_candidate_crop"
+    native_gtk_metric="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
+    native_gtk_diff="${native_gtk_metric%% *}"
+    echo "[TraceOS] Native GTK replacement probe attempt=$native_gtk_wait changed_pixels=${native_gtk_diff:-unknown} (required >40000 versus Application Finder)."
+    if [[ "$native_gtk_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 40000 )); then
+        native_gtk_status="yes"
+        break
+    fi
+    sleep 1
+done
+if [[ "$native_gtk_status" == "yes" ]]; then
+    echo "[TraceOS] Native GTK 3 Preferred Applications dialog visibly replaced Application Finder; changed pixels: $native_gtk_diff."
 else
-    echo "[TraceOS] FAIL: native GTK 3 preferred-application dialog was not visibly captured in the central screen region (changed pixels: ${native_gtk_diff:-unknown}; required >40000)." >&2
+    echo "[TraceOS] FAIL: native GTK 3 Preferred Applications dialog did not visibly replace Application Finder in the central screen region." >&2
 fi
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-native-gtk-close.log"
-rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"
 
+python3 - "$STATE/serial-dashboard.log" "$OUT/traceos-desktop-setup.log" "$OUT/traceos-xrandr-runtime.txt" "$OUT/traceos-xfconf-desktop-runtime.txt" <<'PY'
+import re
+import sys
+from pathlib import Path
+from urllib.parse import unquote
+
+serial_path, setup_path, xrandr_path, xfconf_path = map(Path, sys.argv[1:])
+setup_lines = []
+xrandr_lines = []
+xfconf_lines = []
+for line in serial_path.read_text(encoding="utf-8", errors="replace").splitlines():
+    marker = "stage=TRACEOS_DESKTOP_SETUP_LOG_LINE text="
+    if marker in line:
+        setup_lines.append(unquote(line.split(marker, 1)[1]))
+    marker = "stage=TRACEOS_DESKTOP_RUNTIME_PROPERTY "
+    if marker not in line:
+        continue
+    record = line.split(marker, 1)[1]
+    fields = dict(re.findall(r"([a-z_]+)=([^ ]+)", record))
+    kind = fields.get("kind", "")
+    if kind in {"xrandr_monitor", "xrandr_query"}:
+        xrandr_lines.append(f"{kind}: {unquote(fields.get('line', ''))}")
+    elif kind == "xfconf_property":
+        path = unquote(fields.get("path", ""))
+        value = unquote(fields.get("value", ""))
+        xfconf_lines.append(f"{path} {value}".rstrip())
+if setup_lines:
+    setup_path.write_text("\\n".join(setup_lines) + "\\n", encoding="utf-8")
+if xrandr_lines:
+    xrandr_path.write_text("\\n".join(xrandr_lines) + "\\n", encoding="utf-8")
+if xfconf_lines:
+    xfconf_path.write_text("\\n".join(xfconf_lines) + "\\n", encoding="utf-8")
+print(f"[TraceOS] Retained runtime diagnostics: desktop_setup_lines={len(setup_lines)} xrandr_lines={len(xrandr_lines)} xfconf_properties={len(xfconf_lines)}")
+PY
+rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"
 if [[ "$wallpaper_visual_status" != "yes" || "$native_gtk_status" != "yes" ]]; then
     echo "[TraceOS] GUI branding evidence gate failed: wallpaper=$wallpaper_visual_status native_gtk=$native_gtk_status." >&2
     exit 1
