@@ -1318,16 +1318,17 @@ else
 fi
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-native-gtk-close.log"
 
-python3 - "$STATE/serial-dashboard.log" "$OUT/traceos-desktop-setup.log" "$OUT/traceos-xrandr-runtime.txt" "$OUT/traceos-xfconf-desktop-runtime.txt" <<'PY'
+python3 - "$STATE/serial-dashboard.log" "$OUT/traceos-desktop-setup.log" "$OUT/traceos-xrandr-runtime.txt" "$OUT/traceos-xfconf-desktop-initial.txt" "$OUT/traceos-xfconf-desktop-runtime.txt" <<'PY'
 import re
 import sys
 from pathlib import Path
 from urllib.parse import unquote
 
-serial_path, setup_path, xrandr_path, xfconf_path = map(Path, sys.argv[1:])
+serial_path, setup_path, xrandr_path, xfconf_initial_path, xfconf_path = map(Path, sys.argv[1:])
 setup_lines = []
 xrandr_lines = []
-xfconf_lines = []
+xfconf_initial_lines = []
+xfconf_final_lines = []
 for line in serial_path.read_text(encoding="utf-8", errors="replace").splitlines():
     marker = "stage=TRACEOS_DESKTOP_SETUP_LOG_LINE text="
     if marker in line:
@@ -1340,17 +1341,19 @@ for line in serial_path.read_text(encoding="utf-8", errors="replace").splitlines
     kind = fields.get("kind", "")
     if kind in {"xrandr_monitor", "xrandr_query"}:
         xrandr_lines.append(f"{kind}: {unquote(fields.get('line', ''))}")
-    elif kind == "xfconf_property":
+    elif kind in {"xfconf_property", "xfconf_property_final"}:
         path = unquote(fields.get("path", ""))
         value = unquote(fields.get("value", ""))
-        xfconf_lines.append(f"{path} {value}".rstrip())
-if setup_lines:
-    setup_path.write_text("\n".join(setup_lines) + "\n", encoding="utf-8")
-if xrandr_lines:
-    xrandr_path.write_text("\n".join(xrandr_lines) + "\n", encoding="utf-8")
-if xfconf_lines:
-    xfconf_path.write_text("\n".join(xfconf_lines) + "\n", encoding="utf-8")
-print(f"[TraceOS] Retained runtime diagnostics: desktop_setup_lines={len(setup_lines)} xrandr_lines={len(xrandr_lines)} xfconf_properties={len(xfconf_lines)}")
+        destination = xfconf_final_lines if kind == "xfconf_property_final" else xfconf_initial_lines
+        destination.append(f"{path} {value}".rstrip())
+if not setup_lines or not xrandr_lines or not xfconf_initial_lines or not xfconf_final_lines:
+    print("[TraceOS] FAIL: required desktop setup, connected-output, or before/after xfconf evidence is missing.", file=sys.stderr)
+    raise SystemExit(1)
+setup_path.write_text("\n".join(setup_lines) + "\n", encoding="utf-8")
+xrandr_path.write_text("\n".join(xrandr_lines) + "\n", encoding="utf-8")
+xfconf_initial_path.write_text("\n".join(xfconf_initial_lines) + "\n", encoding="utf-8")
+xfconf_path.write_text("\n".join(xfconf_final_lines) + "\n", encoding="utf-8")
+print(f"[TraceOS] Retained runtime diagnostics: desktop_setup_lines={len(setup_lines)} xrandr_lines={len(xrandr_lines)} xfconf_initial_properties={len(xfconf_initial_lines)} xfconf_final_properties={len(xfconf_final_lines)}")
 PY
 rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"
 if [[ "$wallpaper_visual_status" != "yes" || "$native_gtk_status" != "yes" ]]; then
