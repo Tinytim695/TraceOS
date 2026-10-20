@@ -152,6 +152,15 @@ def main() -> int:
                             offsets[log_path] = handle.tell()
                             break
                         offsets[log_path] = handle.tell()
+                        if log_path.name == "desktop-setup.log":
+                            # Preserve the complete user-session setup log in the
+                            # QEMU serial artifact. URL encoding keeps each log line
+                            # on one parseable serial record.
+                            encoded_line = quote(line.rstrip("\\r\\n"), safe="/:@._-+,=") or "empty"
+                            emit(
+                                "[TraceOS] QEMU_UI_DIAG "
+                                f"stage=TRACEOS_DESKTOP_SETUP_LOG_LINE text={encoded_line}"
+                            )
                         if log_path.name == ".xsession-errors":
                             if is_gtk_theme_error(line):
                                 message = quote(line.strip(), safe="/:@._-+,=")
@@ -159,7 +168,7 @@ def main() -> int:
                             continue
                         fields = fields_from(line)
                         stage = fields.get("stage")
-                        if stage in {"TRACEOS_DESKTOP_BRANDING_RESULT", "TRACEOS_DESKTOP_BRANDING_TARGET", "TRACEOS_DESKTOP_BACKDROP_DISCOVERY"}:
+                        if stage in {"TRACEOS_DESKTOP_BRANDING_RESULT", "TRACEOS_DESKTOP_BRANDING_TARGET", "TRACEOS_DESKTOP_BACKDROP_DISCOVERY", "TRACEOS_DESKTOP_RUNTIME_PROPERTY"}:
                             suffix = line[line.find("stage="):].strip()
                             emit("[TraceOS] QEMU_UI_DIAG " + suffix)
                         elif stage in ALLOWED_STAGES:
