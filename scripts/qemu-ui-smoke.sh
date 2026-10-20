@@ -1253,6 +1253,7 @@ native_gtk_png="$OUT/traceos-native-gtk.png"
 native_menu_ppm="$OUT/traceos-native-gtk-menu.ppm"
 native_menu_png="$OUT/traceos-native-gtk-menu.png"
 native_gtk_baseline_crop="$OUT/.traceos-native-gtk-baseline-center.png"
+native_gtk_desktop_crop="$OUT/.traceos-native-gtk-desktop-center.png"
 native_gtk_candidate_crop="$OUT/.traceos-native-gtk-candidate-center.png"
 native_gtk_status="no"
 native_gtk_appfinder_visible="no"
@@ -1301,16 +1302,20 @@ while IFS= read -r native_gtk_key; do
 done < <(printf "%s" "$native_gtk_command" | fold -w1)
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey ret" "$STATE/monitor-native-gtk-command-launch.log"
 
-# Poll for the expected dialog rather than taking one arbitrary frame three
-# seconds after Return. A still-visible Application Finder must fail.
+# Poll for a real dialog. A still-visible Application Finder must fail, and so
+# must a finder that merely closes back to the desktop: that dismissal is
+# ~66k central pixels and would otherwise satisfy the finder-only threshold.
+convert "$desktop_home_png" -crop "700x520+226+80" +repage "$native_gtk_desktop_crop"
 for native_gtk_wait in $(seq 1 20); do
     capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-verify-$native_gtk_wait.log"
     convert "$native_gtk_ppm" -resize "$desktop_width"x"$desktop_height"! -strip "$native_gtk_png"
     convert "$native_gtk_png" -crop "700x520+226+80" +repage "$native_gtk_candidate_crop"
     native_gtk_metric="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
     native_gtk_diff="${native_gtk_metric%% *}"
-    echo "[TraceOS] Native GTK replacement probe attempt=$native_gtk_wait changed_pixels=${native_gtk_diff:-unknown} (required >40000 versus Application Finder)."
-    if [[ "$native_gtk_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 40000 )); then
+    native_gtk_desktop_metric="$(compare -metric AE "$native_gtk_desktop_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
+    native_gtk_desktop_diff="${native_gtk_desktop_metric%% *}"
+    echo "[TraceOS] Native GTK replacement probe attempt=$native_gtk_wait finder_changed=${native_gtk_diff:-unknown} desktop_changed=${native_gtk_desktop_diff:-unknown} (both required >40000)."
+    if [[ "$native_gtk_diff" =~ ^[0-9]+$ && "$native_gtk_desktop_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 40000 && native_gtk_desktop_diff > 40000 )); then
         native_gtk_status="yes"
         break
     fi
@@ -1360,7 +1365,7 @@ xfconf_initial_path.write_text("\n".join(xfconf_initial_lines) + "\n", encoding=
 xfconf_path.write_text("\n".join(xfconf_final_lines) + "\n", encoding="utf-8")
 print(f"[TraceOS] Retained runtime diagnostics: desktop_setup_lines={len(setup_lines)} xrandr_lines={len(xrandr_lines)} xfconf_initial_properties={len(xfconf_initial_lines)} xfconf_final_properties={len(xfconf_final_lines)}")
 PY
-rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"
+rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_desktop_crop" "$native_gtk_candidate_crop"
 if [[ "$wallpaper_visual_status" != "yes" || "$native_gtk_status" != "yes" ]]; then
     echo "[TraceOS] GUI branding evidence gate failed: wallpaper=$wallpaper_visual_status native_gtk=$native_gtk_status." >&2
     exit 1

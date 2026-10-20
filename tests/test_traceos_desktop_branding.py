@@ -147,7 +147,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          '-resize "$desktop_width"x"$desktop_height"!',
                          "traceos-native-gtk-baseline-center.png",
                          "sendkey alt-f2","xfce4-mime-settings","Default Applications dialog",
-                         "native_gtk_diff > 40000","popup_region_diff_passes 24991"):
+                         "native_gtk_diff > 40000","native_gtk_desktop_diff > 40000","popup_region_diff_passes 24991"):
             self.assertIn(expected,qemu)
 
     def test_wallpaper_mae_uses_normalized_imagemagick_metric(self):
@@ -160,7 +160,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_native_gtk_capture_compares_central_window_area_not_menu_disappearance(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
-        self.assertIn("native_gtk_diff > 40000",qemu)
+        self.assertIn('compare -metric AE "$native_gtk_desktop_crop" "$native_gtk_candidate_crop"',qemu)
+        self.assertIn("native_gtk_diff > 40000 && native_gtk_desktop_diff > 40000",qemu)
         self.assertIn("Default Applications dialog",qemu)
         self.assertNotIn("exo-preferred-applications",qemu)
         self.assertIn("Application Finder visibly appeared",qemu)
