@@ -200,6 +200,14 @@ def _emit_discovery(logger: Logger, result: str, **fields: str | int) -> None:
     logger(f"[TraceOS] stage=TRACEOS_DESKTOP_BACKDROP_DISCOVERY result={result} {suffix}".rstrip())
 
 
+def _emit_runtime_property(logger: Logger, kind: str, **fields: str | int) -> None:
+    """Retain exact runtime output/property evidence in the setup log and QEMU serial."""
+    suffix = " ".join(f"{key}={_encode(str(value))}" for key, value in fields.items())
+    logger(
+        f"[TraceOS] stage=TRACEOS_DESKTOP_RUNTIME_PROPERTY kind={_encode(kind)} {suffix}".rstrip()
+    )
+
+
 def _query(runner: Runner, channel: str, path: str) -> str | None:
     result = _call(runner, ["xfconf-query", "-c", channel, "-p", path])
     return result.stdout.strip() if result.returncode == 0 else None
@@ -296,6 +304,15 @@ def setup_wallpaper(
         return False
 
     discovered_backdrops = sorted(path for path in properties if BACKDROP_IMAGE.match(path))
+    # Preserve raw runtime evidence, not just the final success marker. The
+    # QEMU diagnostic bridge forwards these records into the retained serial log.
+    for line in listed.stdout.splitlines():
+        _emit_runtime_property(logger, "xrandr_monitor", line=line)
+    for line in queried.stdout.splitlines():
+        _emit_runtime_property(logger, "xrandr_query", line=line)
+    for path, value in sorted(properties.items()):
+        _emit_runtime_property(logger, "xfconf_property", path=path, value=value)
+
     _emit_discovery(logger, "READY",
           outputs=",".join(m.name for m in active_outputs) or "none",
           discovered_backdrops=",".join(discovered_backdrops) or "none",
@@ -412,6 +429,18 @@ def setup_wallpaper(
               targets=len(targets), xsettings_theme=theme, png_width=width,
               png_height=height, png_sha256=checksum)
         return False
+
+    # Record the post-write xfconf-query -lv snapshot as the authoritative
+    # runtime state. The initial dump above is useful for diagnosing changes;
+    # this one proves the selected image and image-style after readback.
+    final_dump = _call(runner, ["xfconf-query", "-c", "xfce4-desktop", "-lv"])
+    if final_dump.returncode != 0:
+        _emit(logger, "FAIL", reason="final_xfconf_snapshot_failed",
+              targets=len(targets), xsettings_theme=theme, png_width=width,
+              png_height=height, png_sha256=checksum)
+        return False
+    for path, value in sorted(parse_property_dump(final_dump.stdout).items()):
+        _emit_runtime_property(logger, "xfconf_property_final", path=path, value=value)
 
     _emit(logger, "PASS", outputs=",".join(m.name for m in active_outputs),
           targets=len(targets), backdrop_targets=",".join(t.last_image for t in targets),
