@@ -142,11 +142,11 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "native_gtk_appfinder_visible","native_gtk_appfinder_diff",
                          "native-gtk-appfinder-wait","native-gtk-verify-",
                          "traceos-desktop-setup.log","traceos-xrandr-runtime.txt",
-                         "traceos-xfconf-desktop-runtime.txt","TRACEOS_DESKTOP_SETUP_LOG_LINE",
+                         "traceos-xfconf-desktop-initial.txt","traceos-xfconf-desktop-runtime.txt","TRACEOS_DESKTOP_SETUP_LOG_LINE",
                          "TRACEOS_DESKTOP_RUNTIME_PROPERTY","sleep 0.15",
                          '-resize "$desktop_width"x"$desktop_height"!',
                          "traceos-native-gtk-baseline-center.png",
-                         "sendkey alt-f2","exo-preferred-applications","Choose Preferred Application",
+                         "sendkey alt-f2","exo-preferred-applications","Preferred Applications dialog",
                          "native_gtk_diff > 40000","popup_region_diff_passes 24991"):
             self.assertIn(expected,qemu)
 
