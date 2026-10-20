@@ -1345,11 +1345,11 @@ for line in serial_path.read_text(encoding="utf-8", errors="replace").splitlines
         value = unquote(fields.get("value", ""))
         xfconf_lines.append(f"{path} {value}".rstrip())
 if setup_lines:
-    setup_path.write_text("\n".join(setup_lines) + "\\n", encoding="utf-8")
+    setup_path.write_text("\n".join(setup_lines) + "\n", encoding="utf-8")
 if xrandr_lines:
-    xrandr_path.write_text("\n".join(xrandr_lines) + "\\n", encoding="utf-8")
+    xrandr_path.write_text("\n".join(xrandr_lines) + "\n", encoding="utf-8")
 if xfconf_lines:
-    xfconf_path.write_text("\n".join(xfconf_lines) + "\\n", encoding="utf-8")
+    xfconf_path.write_text("\n".join(xfconf_lines) + "\n", encoding="utf-8")
 print(f"[TraceOS] Retained runtime diagnostics: desktop_setup_lines={len(setup_lines)} xrandr_lines={len(xrandr_lines)} xfconf_properties={len(xfconf_lines)}")
 PY
 rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"
