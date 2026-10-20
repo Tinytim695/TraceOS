@@ -200,6 +200,14 @@ def _emit_discovery(logger: Logger, result: str, **fields: str | int) -> None:
     logger(f"[TraceOS] stage=TRACEOS_DESKTOP_BACKDROP_DISCOVERY result={result} {suffix}".rstrip())
 
 
+def _emit_runtime_property(logger: Logger, kind: str, **fields: str | int) -> None:
+    """Retain exact runtime output/property evidence in the setup log and QEMU serial."""
+    suffix = " ".join(f"{key}={_encode(str(value))}" for key, value in fields.items())
+    logger(
+        f"[TraceOS] stage=TRACEOS_DESKTOP_RUNTIME_PROPERTY kind={_encode(kind)} {suffix}".rstrip()
+    )
+
+
 def _query(runner: Runner, channel: str, path: str) -> str | None:
     result = _call(runner, ["xfconf-query", "-c", channel, "-p", path])
     return result.stdout.strip() if result.returncode == 0 else None
@@ -296,6 +304,15 @@ def setup_wallpaper(
         return False
 
     discovered_backdrops = sorted(path for path in properties if BACKDROP_IMAGE.match(path))
+    # Preserve raw runtime evidence, not just the final success marker. The
+    # QEMU diagnostic bridge forwards these records into the retained serial log.
+    for line in listed.stdout.splitlines():
+        _emit_runtime_property(logger, "xrandr_monitor", line=line)
+    for line in queried.stdout.splitlines():
+        _emit_runtime_property(logger, "xrandr_query", line=line)
+    for path, value in sorted(properties.items()):
+        _emit_runtime_property(logger, "xfconf_property", path=path, value=value)
+
     _emit_discovery(logger, "READY",
           outputs=",".join(m.name for m in active_outputs) or "none",
           discovered_backdrops=",".join(discovered_backdrops) or "none",
