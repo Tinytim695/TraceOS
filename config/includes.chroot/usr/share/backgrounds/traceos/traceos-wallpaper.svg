@@ -22,9 +22,7 @@
   <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
     <path d="M64 0H0V64" fill="none" stroke="#8bb6d8" stroke-opacity=".07"/>
   </pattern>
-  <filter id="soft">
-    <feGaussianBlur stdDeviation="18"/>
-  </filter>
+  <filter id="soft"><feGaussianBlur stdDeviation="18"/></filter>
 </defs>
 
 <rect width="1920" height="1080" fill="url(#sky)"/>
@@ -33,15 +31,11 @@
 
 <ellipse cx="970" cy="675" rx="580" ry="100" fill="#72f1e8" opacity=".09" filter="url(#soft)"/>
 
-<path d="M0 690 L220 520 L370 625 L575 410 L780 650 L960 470 L1140 635 L1360 390 L1585 620 L1740 485 L1920 650 L1920 1080 L0 1080Z"
-      fill="#040913"/>
-<path d="M0 760 L210 625 L390 700 L590 535 L760 720 L955 575 L1130 700 L1360 530 L1560 715 L1760 585 L1920 700 L1920 1080 L0 1080Z"
-      fill="#07111d" opacity=".92"/>
+<path d="M0 690 L220 520 L370 625 L575 410 L780 650 L960 470 L1140 635 L1360 390 L1585 620 L1740 485 L1920 650 L1920 1080 L0 1080Z" fill="#040913"/>
+<path d="M0 760 L210 625 L390 700 L590 535 L760 720 L955 575 L1130 700 L1360 530 L1560 715 L1760 585 L1920 700 L1920 1080 L0 1080Z" fill="#07111d" opacity=".92"/>
 
-<path d="M0 760 C330 735 510 800 820 772 C1110 746 1340 770 1920 735 L1920 1080 L0 1080Z"
-      fill="url(#water)"/>
-<path d="M0 776 C360 750 575 805 840 781 C1150 752 1380 785 1920 750"
-      fill="none" stroke="#72f1e8" stroke-opacity=".20" stroke-width="2"/>
+<path d="M0 760 C330 735 510 800 820 772 C1110 746 1340 770 1920 735 L1920 1080 L0 1080Z" fill="url(#water)"/>
+<path d="M0 776 C360 750 575 805 840 781 C1150 752 1380 785 1920 750" fill="none" stroke="#72f1e8" stroke-opacity=".20" stroke-width="2"/>
 
 <g opacity=".13">
   <path d="M0 840H1920M0 920H1920M0 1000H1920" stroke="#72f1e8"/>
@@ -53,16 +47,21 @@
   <circle r="190" fill="none" stroke="#72f1e8" stroke-width="4" opacity=".20"/>
   <circle r="136" fill="none" stroke="#50b8ff" stroke-width="3" opacity=".34"/>
   <circle r="95" fill="#050811" fill-opacity=".42" stroke="#9c7bff" stroke-opacity=".22"/>
-  <path d="M-88-70H88v46H31v138h-62V-24h-57z" fill="#72f1e8"/>
-  <path d="M0-260V-188M0 188V260M-260 0H-188M188 0H260"
-        stroke="#72f1e8" stroke-width="6" stroke-linecap="round" opacity=".70"/>
-  <circle cx="0" cy="0" r="15" fill="#eaf6ff"/>
+  <path d="M-112-78H112L124-66V-34L112-22H40V104L28 116H-28L-40 104V-22H-112L-124-34V-66Z" transform="translate(0 8)" fill="#020914" stroke="#183b58" stroke-width="3"/>
+  <path d="M-112-82H112L124-70V-38L112-26H40V100L28 112H-28L-40 100V-26H-112L-124-38V-70Z"
+        fill="#39c7e9" stroke="#c1fff8" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M-112-82H112L124-70V-57H-124V-70Z" fill="#9cfff7" opacity=".72"/>
+  <path d="M-39-24H-27V97L-39 105Z" fill="#adfff8" opacity=".48"/>
+  <path d="M29-24H40V100L28 112V100H29Z" fill="#126b9f" opacity=".90"/>
+
+  <path d="M-111-78H109L117-70" fill="none" stroke="#effffb" stroke-width="3" stroke-linecap="round" opacity=".95"/>
+  <path d="M-32-22V94" fill="none" stroke="#e7fffc" stroke-width="2" opacity=".56"/>
+  <path d="M40-20V99L28 112" fill="none" stroke="#125d94" stroke-width="3" opacity=".62"/>
+  <path d="M-148-94H-132M132-94H148M-148 94H-132M132 94H148" stroke="#9c7bff" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+  <path d="M-154 0H-142M142 0H154M0-154V-142M0 142V154" stroke="#72f1e8" stroke-width="4" stroke-linecap="round" opacity=".78"/>
 </g>
 
-<text x="960" y="700" fill="#eaf6ff" text-anchor="middle"
-      font-family="DejaVu Sans, sans-serif" font-size="56" font-weight="700" letter-spacing="9">TRACEOS</text>
-<text x="960" y="748" fill="#8ca7c2" text-anchor="middle"
-      font-family="DejaVu Sans, sans-serif" font-size="18" letter-spacing="5">DIGITAL INVESTIGATION WORKSTATION</text>
-<text x="960" y="1022" fill="#72f1e8" fill-opacity=".55" text-anchor="middle"
-      font-family="DejaVu Sans, sans-serif" font-size="12" letter-spacing="4">LOCAL-FIRST  •  USER-INVOKED EXTERNAL ACTIONS</text>
+<text x="960" y="700" fill="#eaf6ff" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="56" font-weight="700" letter-spacing="9">TRACEOS</text>
+<text x="960" y="748" fill="#8ca7c2" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="18" letter-spacing="5">DIGITAL INVESTIGATION WORKSTATION</text>
+<text x="960" y="1022" fill="#72f1e8" fill-opacity=".55" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" letter-spacing="4">LOCAL-FIRST  •  USER-INVOKED EXTERNAL ACTIONS</text>
 </svg>
