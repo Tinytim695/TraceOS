@@ -99,7 +99,7 @@ if [[ -n "${TRACEOS_VALIDATE_CMD:-}" ]]; then
   exit 0
 fi
 echo "[TraceOS] OSINT"
-for cmd in sherlock maigret h8mail holehe blackbird phoneinfoga ghunt theHarvester dnsrecon dnstwist subfinder whois dig; do check_cmd "$cmd"; done
+for cmd in sherlock maigret h8mail holehe blackbird phoneinfoga ghunt theHarvester dnsrecon dnstwist subfinder whois dig cloud_enum; do check_cmd "$cmd"; done
 echo "[TraceOS] INFRASTRUCTURE RECON"
 for cmd in dnsx httpx naabu katana urlfinder amass; do check_cmd "$cmd"; done
 echo "[TraceOS] WEB APPLICATION ASSESSMENT"
@@ -110,12 +110,14 @@ echo "[TraceOS] BLOCK 6B AD / AUTHENTICATION ASSESSMENT"
 for cmd in bloodhound-python kerbrute hashcat john; do check_cmd "$cmd"; done
 echo "[TraceOS] BLOCK 6C RED TEAM DEPTH"
 for cmd in adalanche ldeep pretender ligolo-proxy ligolo-agent sliver-client sliver-server azurehound bloodyAD coercer mitm6 pre2k sccmhunter.py lsassy; do check_cmd "$cmd"; done
+echo "[TraceOS] CREDENTIALS / EXPOSED SECRETS"
+for cmd in trufflehog noseyparker pypykatz donpapi; do check_cmd "$cmd"; done
 echo "[TraceOS] BLUE / DFIR"
 for cmd in tcpdump tshark wireshark yara; do check_cmd "$cmd"; done
 for cmd in fls mmls tsk_recover; do check_cmd "$cmd"; done
 for cmd in plaso-log2timeline plaso-psort; do check_cmd "$cmd"; done
 for cmd in suricata suricata-update; do check_cmd "$cmd"; done
-for cmd in vol sigma lynis rkhunter chkrootkit auditctl binwalk foremost steghide; do check_cmd "$cmd"; done
+for cmd in vol sigma lynis rkhunter chkrootkit auditctl binwalk foremost steghide chainsaw capa osqueryi velociraptor exiftool; do check_cmd "$cmd"; done
 echo "[TraceOS] ENTERPRISE / ACTIVE DIRECTORY"
 for cmd in nxc certipy ldapsearch smbclient rpcclient kinit kvno nbtscan onesixtyone ike-scan hydra masscan proxychains4 socat ncat; do check_cmd "$cmd"; done
 for cmd in GetNPUsers.py GetUserSPNs.py GetADUsers.py; do check_cmd "$cmd"; done

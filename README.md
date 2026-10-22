@@ -124,6 +124,14 @@ Block 6C adds the tools working red teams actually reach for after NetExec and B
 
 Every binary is pinned to a release checksum or a Git commit. The build checks the command surface only. It does not coerce authentication, poison name resolution, open a tunnel, or send traffic to a target. The Control Centre opens each tool at its help or version screen inside a terminal, and the existing authorization checkbox still applies.
 
+## Credentials, defence depth and cloud OSINT
+
+These sit in the Control Centre as their own actions, not as a pile of unmarked commands:
+
+- **Credentials** page: TruffleHog 3.99.3 scans a local folder with verification disabled. NoseyParker 0.24.0 scans that folder into `/var/tmp/traceos-noseyparker`, and Report reads the datastore. pypykatz 0.6.13 reads a minidump you select. DonPAPI 2.1.0, pinned to commit `4f01e2b893d3dfbc327b68797943cc2f00c5dd94`, opens a console only. PyPI 2.0.1 is not used because it forces lxml 4.9.3, which does not build on Python 3.13.
+- **Defence** page: Chainsaw 2.17.1 hunts a local log folder with Sigma Windows rules pinned to commit `05d1031f537e830b76da53bae2400c5814c89165`. capa 10.0.0 reports what one binary can do. osquery 5.24.0 runs one process query and does not start `osqueryd`. Velociraptor 0.77.3 runs one local identity query and does not start a server.
+- **Image OSINT** has a Read Metadata button for ExifTool. **Investigation Centre** has Cloud Enum for one public cloud keyword.
+
 ## Security engineering
 
 The ISO build uses Debian security repositories over HTTPS and pins the live-build source to a known upstream revision. Pull requests are handled by a separate read-only security-check workflow instead of executing untrusted PR code in the privileged ISO build. Static checks include ShellCheck, Bandit, Python compilation, and a tracked-secret pattern scan.

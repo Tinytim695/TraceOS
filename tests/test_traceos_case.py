@@ -1341,6 +1341,7 @@ class CaseStoreTests(unittest.TestCase):
             "WEB_ACTIVE_TESTS",
             "REVERSE_IMAGE_SITES",
             "ASSESSMENT_TOOL_SPECS",
+            "CREDENTIAL_TOOL_SPECS",
             "DEFENCE_TOOL_SPECS",
         }
         global_constants = [
@@ -1382,6 +1383,8 @@ class CaseStoreTests(unittest.TestCase):
             ("Subfinder", "example.test", "", ["subfinder", "-d", "example.test", "-silent"]),
             ("dnsrecon", "example.test", "", ["dnsrecon", "-d", "example.test"]),
             ("dnstwist", "example.test", "", ["dnstwist", "example.test"]),
+            ("Cloud Enum", "acme", "", ["cloud_enum", "-k", "acme"]),
+            ("Cloud Enum", "acme.example", "--disable-aws", ["cloud_enum", "-k", "acme.example", "--disable-aws"]),
         )
         for name, target, extra, expected in cases:
             with self.subTest(name=name):
@@ -1393,6 +1396,8 @@ class CaseStoreTests(unittest.TestCase):
             ("Sherlock", "alice", "'unterminated"),
             ("Holehe", "not-an-email", ""),
             ("Subfinder", "-d example.test", ""),
+            ("Cloud Enum", "-k acme", ""),
+            ("Cloud Enum", "acme corp", ""),
             ("Unknown", "target", ""),
         ):
             with self.subTest(name=name, target=target, extra=extra):
@@ -1403,12 +1408,14 @@ class CaseStoreTests(unittest.TestCase):
         normalizer, _ = self._load_control_helper("normalize_web_target")
         domain, _ = self._load_control_helper("_domain_labels")
         regular, _ = self._load_control_helper("_regular_file")
+        directory_fn, _ = self._load_control_helper("_existing_directory")
         catalog_norm, _ = self._load_control_helper(
             "normalize_catalog_target",
             {
                 "normalize_web_target": normalizer,
                 "_domain_labels": domain,
                 "_regular_file": regular,
+                "_existing_directory": directory_fn,
             },
         )
         builder, namespace = self._load_control_helper(
@@ -1417,6 +1424,7 @@ class CaseStoreTests(unittest.TestCase):
         )
         assessment = namespace["ASSESSMENT_TOOL_SPECS"]
         defence = namespace["DEFENCE_TOOL_SPECS"]
+        credentials = namespace["CREDENTIAL_TOOL_SPECS"]
         wordlist = "/tmp/synthetic-wordlist.txt"
         expected = (
             (assessment, "Nuclei Templates", "https://example.test", ["nuclei", "-u", "https://example.test", "-silent", "-rl", "20", "-exclude-tags", "dos,fuzz,intrusive"]),
@@ -1428,6 +1436,9 @@ class CaseStoreTests(unittest.TestCase):
             (defence, "tcpdump Sample", "", ["tcpdump", "-i", "any", "-c", "50", "-n"]),
             (defence, "Wireshark", "", ["wireshark"]),
             (defence, "Suricata Config Test", "", ["suricata", "-T", "-c", "/etc/suricata/suricata.yaml"]),
+            (defence, "osquery Process Sample", "", ["osqueryi", "--json", "SELECT name, pid, path FROM processes LIMIT 40;"]),
+            (defence, "Velociraptor Host Identity", "", ["velociraptor", "--nobanner", "query", "SELECT Hostname, OS, Architecture FROM info()"]),
+            (defence, "Velociraptor Console", "", ["bash", "-lc", "velociraptor version; exec bash"]),
         )
         for specs, name, target, wanted in expected:
             with self.subTest(name=name):
@@ -1437,11 +1448,45 @@ class CaseStoreTests(unittest.TestCase):
             subject = Path(directory) / "sample.txt"
             rules.write_text("rule synthetic { condition: true }\n", encoding="utf-8")
             subject.write_text("synthetic\n", encoding="utf-8")
+            folder = Path(directory)
             quoted = f"{shlex.quote(str(rules))} {shlex.quote(str(subject))}"
             self.assertEqual(
                 builder(defence, "YARA Rules Scan", quoted, wordlist),
                 ["yara", str(rules), str(subject)],
             )
+            self.assertEqual(
+                builder(defence, "Chainsaw Sigma Hunt", str(folder), wordlist),
+                [
+                    "chainsaw", "hunt", str(folder),
+                    "-s", "/opt/traceos-sigma/rules/windows",
+                    "--mapping", "/opt/traceos-chainsaw/mappings/sigma-event-logs-all.yml",
+                    "--skip-errors", "--no-banner",
+                ],
+            )
+            self.assertEqual(
+                builder(defence, "capa Capabilities", str(subject), wordlist),
+                ["capa", str(subject)],
+            )
+            self.assertEqual(
+                builder(credentials, "TruffleHog Folder", str(folder), wordlist),
+                ["trufflehog", "filesystem", str(folder), "--no-update", "--no-verification", "--json"],
+            )
+            self.assertEqual(
+                builder(credentials, "pypykatz Minidump", str(subject), wordlist),
+                ["pypykatz", "lsa", "minidump", str(subject)],
+            )
+            self.assertEqual(
+                builder(credentials, "NoseyParker Report", "", wordlist),
+                ["noseyparker", "report", "--datastore", "/var/tmp/traceos-noseyparker"],
+            )
+            self.assertEqual(
+                builder(credentials, "DonPAPI Console", "ignored", wordlist),
+                ["bash", "-lc", "donpapi -h; exec bash"],
+            )
+            with self.assertRaises(ValueError):
+                builder(credentials, "TruffleHog Folder", str(subject), wordlist)
+            with self.assertRaises(ValueError):
+                builder(defence, "Chainsaw Sigma Hunt", "-rf", wordlist)
         for specs, name, target in (
             (assessment, "Nuclei Templates", "ftp://example.test"),
             (assessment, "dnsx Lookup", "https://example.test"),

@@ -318,6 +318,18 @@ jobs:
           if-no-files-found: warn
 
       - name: Attest ISO provenance
+        id: attest-iso
+        continue-on-error: true
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: live-image-amd64.hybrid.iso
+
+      - name: Wait before retrying provenance attestation
+        if: steps.attest-iso.outcome == 'failure'
+        run: sleep 20
+
+      - name: Retry ISO provenance attestation
+        if: steps.attest-iso.outcome == 'failure'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: live-image-amd64.hybrid.iso

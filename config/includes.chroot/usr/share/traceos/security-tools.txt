@@ -54,3 +54,13 @@ BLUE|chkrootkit|local rootkit scan|local
 BLUE|auditctl|Linux audit status|local
 PURPLE|traceos-purple|exercise/detection ledger|case
 PURPLE|traceos-engage|scoped red, blue and purple playbooks|authorized/local
+RED|trufflehog|local filesystem secret scan, verification disabled|local
+RED|noseyparker|local secret scan into an on-machine datastore|local
+RED|pypykatz|offline minidump credential parsing|local
+RED|donpapi|DPAPI console, collection is operator-run|authorized
+BLUE|chainsaw|Windows event-log hunt with bundled Sigma rules|local
+BLUE|capa|binary capability report|local
+BLUE|osqueryi|local endpoint query, daemon not enabled|local
+BLUE|velociraptor|local VQL query, server not started|local
+OSINT|exiftool|local file metadata|local
+OSINT|cloud_enum|public cloud resource name enumeration|external

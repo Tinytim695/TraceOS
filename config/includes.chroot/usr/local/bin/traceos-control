@@ -152,6 +152,7 @@ OSINT_TOOL_COMMANDS = {
     "dnstwist": "dnstwist",
     "WHOIS": "whois",
     "DNS": "dig",
+    "Cloud Enum": "cloud_enum",
 }
 
 
@@ -199,6 +200,10 @@ def build_osint_command(name: str, target: str, extra: str = "") -> list[str]:
         return ["dnsrecon", "-d", value, *extras]
     if name == "dnstwist":
         return ["dnstwist", value, *extras]
+    if name == "Cloud Enum":
+        if value.startswith("-") or any(ch.isspace() for ch in value):
+            raise ValueError("Enter one company or domain keyword, without leading options.")
+        return ["cloud_enum", "-k", value, *extras]
     return [command, value, *extras]
 
 
@@ -402,6 +407,13 @@ ASSESSMENT_TOOL_SPECS = {
     "AzureHound Console": {"command": "azurehound", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "azurehound --version; exec bash"], "replace": True},
     "lsassy Console": {"command": "lsassy", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "lsassy -h; exec bash"], "replace": True},
 }
+CREDENTIAL_TOOL_SPECS = {
+    "TruffleHog Folder": {"command": "trufflehog", "mode": "directory", "ui": "job", "argv": ["filesystem", "{target}", "--no-update", "--no-verification", "--json"]},
+    "NoseyParker Folder": {"command": "noseyparker", "mode": "directory", "ui": "job", "argv": ["scan", "--datastore", "/var/tmp/traceos-noseyparker", "{target}"]},
+    "NoseyParker Report": {"command": "noseyparker", "mode": "local", "ui": "job", "argv": ["report", "--datastore", "/var/tmp/traceos-noseyparker"]},
+    "pypykatz Minidump": {"command": "pypykatz", "mode": "file", "ui": "job", "argv": ["lsa", "minidump", "{target}"]},
+    "DonPAPI Console": {"command": "donpapi", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "donpapi -h; exec bash"], "replace": True},
+}
 DEFENCE_TOOL_SPECS = {
     "auditd status": {"command": "auditctl", "mode": "local", "ui": "job", "argv": ["-s"]},
     "Lynis Quick Audit": {"command": "lynis", "mode": "local", "ui": "job", "argv": ["audit", "system", "--quick", "--no-colors"]},
@@ -419,6 +431,11 @@ DEFENCE_TOOL_SPECS = {
     "Sleuth Kit mmls": {"command": "mmls", "mode": "file", "ui": "job", "argv": ["{target}"]},
     "Volatility Banner": {"command": "vol", "mode": "file", "ui": "job", "argv": ["-f", "{target}", "banner"]},
     "Sigma Convert": {"command": "sigma", "mode": "file", "ui": "job", "argv": ["convert", "{target}"]},
+    "Chainsaw Sigma Hunt": {"command": "chainsaw", "mode": "directory", "ui": "job", "argv": ["hunt", "{target}", "-s", "/opt/traceos-sigma/rules/windows", "--mapping", "/opt/traceos-chainsaw/mappings/sigma-event-logs-all.yml", "--skip-errors", "--no-banner"]},
+    "capa Capabilities": {"command": "capa", "mode": "file", "ui": "job", "argv": ["{target}"]},
+    "osquery Process Sample": {"command": "osqueryi", "mode": "local", "ui": "job", "argv": ["--json", "SELECT name, pid, path FROM processes LIMIT 40;"]},
+    "Velociraptor Host Identity": {"command": "velociraptor", "mode": "local", "ui": "job", "argv": ["--nobanner", "query", "SELECT Hostname, OS, Architecture FROM info()"]},
+    "Velociraptor Console": {"command": "velociraptor", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "velociraptor version; exec bash"], "replace": True},
 }
 
 
@@ -441,6 +458,13 @@ def _domain_labels(host: str) -> None:
         )
     ):
         raise ValueError("Enter a valid domain.")
+
+
+def _existing_directory(value: str) -> str:
+    path = Path(value).expanduser()
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError("Select an existing directory, not a symbolic link.")
+    return str(path)
 
 
 def _regular_file(value: str) -> str:
@@ -473,6 +497,8 @@ def normalize_catalog_target(mode: str, target: str) -> str:
         return value
     if mode == "file":
         return _regular_file(value)
+    if mode == "directory":
+        return _existing_directory(value)
     if mode == "two-files":
         try:
             parts = shlex.split(value)
@@ -888,6 +914,7 @@ class TraceOSApp:
             ("⌁  Network", self.network),
             ("⌑  Web Testing", self.web_testing),
             ("⌖  Assessment", self.assessment),
+            ("✦  Credentials", self.credentials),
             ("⚔  Engagement", self.engagement),
             ("◎  Investigation Centre", self.osint),
             ("◈  Defence", self.defence),
@@ -1422,6 +1449,7 @@ class TraceOSApp:
             ("→  Network Command Centre", self.network),
             ("→  Web Testing", self.web_testing),
             ("→  Assessment", self.assessment),
+            ("→  Credentials", self.credentials),
             ("→  Engagement", self.engagement),
             ("→  OSINT Centre", self.osint),
             ("→  Defence", self.defence),
@@ -2022,6 +2050,20 @@ class TraceOSApp:
             self._trace_diag("IMAGE_ANALYSIS_START_CLICKED", image_attempt=image_attempt, source_kind="regular-file")
             self.run_job([TRACE, "image", str(path)], "Local image analysis", kind="image", attempt=image_attempt)
 
+        def read_metadata() -> None:
+            selected = source_var.get()
+            if selected == "No image selected":
+                messagebox.showwarning("Image OSINT", "Choose an image first.", parent=self.root)
+                return
+            path = Path(selected).expanduser()
+            if path.is_symlink() or not path.is_file():
+                messagebox.showwarning("Image OSINT", "Select an existing regular image file.", parent=self.root)
+                return
+            if shutil.which("exiftool") is None:
+                messagebox.showerror("Image OSINT", "exiftool is not installed in this TraceOS image.", parent=self.root)
+                return
+            self.run_job(["exiftool", "-json", "-groupNames", str(path)], "ExifTool metadata")
+
         self.action_button(bar, "CHOOSE IMAGE", choose_image).pack(side="left")
         site = ttk.Combobox(
             bar,
@@ -2041,6 +2083,7 @@ class TraceOSApp:
             return "break"
 
         source_entry.bind("<Return>", handle_image_return)
+        self.action_button(bar, "READ METADATA", read_metadata).pack(side="left", padx=7)
         self.action_button(bar, "REVERSE-IMAGE SITE", handoff).pack(side="left", padx=7)
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
         start_button = self.action_button(bar, "START LOCAL ANALYSIS", start_image, primary=True)
@@ -2103,7 +2146,7 @@ class TraceOSApp:
 
         hint = tk.Label(
             self.content,
-            text="Username: Sherlock/Maigret/Blackbird • Email: Holehe/h8mail/Blackbird • Phone: PhoneInfoga • GHunt needs one local login before an email search • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • WHOIS/DNS: domain or IP",
+            text="Username: Sherlock/Maigret/Blackbird • Email: Holehe/h8mail/Blackbird • Phone: PhoneInfoga • GHunt needs one local login before an email search • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • Cloud: Cloud Enum takes one company or domain keyword • WHOIS/DNS: domain or IP",
             bg=BG, fg=MUTED, font=("Sans", 8)
         )
         hint.pack(anchor="w", padx=30, pady=(0, 4))
@@ -2216,12 +2259,51 @@ class TraceOSApp:
         controls.grid_columnconfigure(0, weight=2)
         controls.grid_columnconfigure(1, weight=4)
 
+        def browse_target() -> None:
+            _name, spec = selected_spec()
+            mode = spec["mode"]
+            if mode == "directory":
+                selected = filedialog.askdirectory(
+                    parent=self.root, title="Select local folder", mustexist=True
+                )
+                if not selected:
+                    return
+                chosen = selected
+            elif mode == "file":
+                selected = filedialog.askopenfilename(
+                    parent=self.root, title="Select local file"
+                )
+                if not selected:
+                    return
+                chosen = selected
+            elif mode == "two-files":
+                rules = filedialog.askopenfilename(
+                    parent=self.root, title="Select rules file"
+                )
+                if not rules:
+                    return
+                subject = filedialog.askopenfilename(
+                    parent=self.root, title="Select target file"
+                )
+                if not subject:
+                    return
+                chosen = f"{shlex.quote(rules)} {shlex.quote(subject)}"
+            else:
+                return
+            target.configure(state="normal")
+            target.delete(0, "end")
+            target.insert(0, chosen)
+
+        browse = self.action_button(controls, "BROWSE", browse_target)
+        browse.grid(row=1, column=2, sticky="e", padx=(0, 12), pady=(0, 10))
+
         def selected_spec():
             name = tool.get().removesuffix(" (not installed)")
             return name, specs[name]
 
         def refresh_target(_event=None) -> None:
             _name, spec = selected_spec()
+            target.configure(state="normal")
             target.delete(0, "end")
             if spec["mode"] in {"launch", "local"}:
                 target.configure(state="disabled")
@@ -2232,12 +2314,19 @@ class TraceOSApp:
             elif spec["mode"] == "file":
                 target.configure(state="normal")
                 target_label.configure(text="LOCAL FILE")
+            elif spec["mode"] == "directory":
+                target.configure(state="normal")
+                target_label.configure(text="LOCAL FOLDER")
             elif spec["mode"] == "identity":
                 target.configure(state="normal")
                 target_label.configure(text="IDENTITY")
             else:
                 target.configure(state="normal")
                 target_label.configure(text="AUTHORIZED TARGET")
+            if spec["mode"] in {"file", "directory", "two-files"}:
+                browse.configure(state="normal")
+            else:
+                browse.configure(state="disabled")
 
         tool.bind("<<ComboboxSelected>>", refresh_target)
         refresh_target()
@@ -2495,12 +2584,21 @@ class TraceOSApp:
             "Nuclei, Dalfox, ffuf, NetExec and the Active Directory tools send traffic. Kerbrute, Hashcat and John open a console only. No password list, module, or exploit is selected for you.",
         )
 
+    def credentials(self) -> None:
+        self._tool_catalogue_page(
+            CREDENTIAL_TOOL_SPECS,
+            "CREDENTIALS",
+            "Exposed credentials",
+            "Look for secrets in a folder on this machine, or read a dump you already have. Nothing is sent away to be verified.",
+            "TruffleHog does not call vendor APIs. NoseyParker writes its datastore under /var/tmp on this machine, then Report reads that datastore. pypykatz only reads the minidump you select. DonPAPI opens a console and does not collect anything until you run that yourself.",
+        )
+
     def defence(self) -> None:
         self._tool_catalogue_page(
             DEFENCE_TOOL_SPECS,
             "DEFENCE",
             "Defence",
-            "Local capture, disk, memory and detection tools. Nothing leaves this machine unless the tool itself is a local viewer.",
+            "Local capture, disk, memory and detection tools. Chainsaw hunts a log folder with the Sigma rules stored on this image. osquery and Velociraptor run one local query and do not start a service.",
             "tcpdump and tshark stop after 50 packets. Suricata only tests its configuration. Wireshark opens with no capture started. YARA needs a rules file and a local file.",
         )
 
