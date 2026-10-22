@@ -49,6 +49,8 @@ class CredentialSurfaceTests(unittest.TestCase):
         self.assertNotIn("systemctl start", text)
         self.assertIn("osqueryd.service", text)
         self.assertIn("filedialog.askdirectory", control)
+        self.assertIn("ExifTool version", text)
+        self.assertNotIn("exiftool ExifTool -h", text)
         for pin in PINS:
             with self.subTest(pin=pin[:12]):
                 self.assertIn(pin, text)
