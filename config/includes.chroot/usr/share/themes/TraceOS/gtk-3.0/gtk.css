@@ -170,3 +170,42 @@ tooltip {
   color: @trace_text;
   border: 1px solid @trace_border;
 }
+
+/* XFCE shell surfaces: make the panel belong to TraceOS rather than the stock desktop. */
+#XfcePanelWindow,
+.xfce4-panel {
+  background-color: #080e18;
+  color: #e6edf7;
+  border-color: #20364d;
+}
+
+#XfcePanelWindow button,
+.xfce4-panel button,
+#XfcePanelWindow .tasklist button {
+  background-image: none;
+  background-color: #101b2b;
+  color: #dce8f5;
+  border: 1px solid #20364d;
+  border-radius: 5px;
+  box-shadow: none;
+}
+
+#XfcePanelWindow button:hover,
+.xfce4-panel button:hover,
+#XfcePanelWindow .tasklist button:hover {
+  background-color: #152b40;
+  border-color: #4dd8e8;
+}
+
+#XfcePanelWindow .tasklist button:checked,
+.xfce4-panel .tasklist button:checked {
+  background-color: #123b49;
+  border-color: #4dd8e8;
+  color: #ffffff;
+}
+
+#XfcePanelWindow menu,
+#XfcePanelWindow .menu {
+  background-color: #101b2b;
+  color: #e6edf7;
+}

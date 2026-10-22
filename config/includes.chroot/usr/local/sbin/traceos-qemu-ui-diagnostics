@@ -8,8 +8,14 @@ import re
 import stat
 import time
 from pathlib import Path
+from urllib.parse import quote
 
-LOGS = (Path("/home/traceos/.cache/traceos/control-centre-ui.log"), Path("/home/traceos/.cache/traceos/traceos-launcher.log"))
+LOGS = (
+    Path("/home/traceos/.cache/traceos/control-centre-ui.log"),
+    Path("/home/traceos/.cache/traceos/traceos-launcher.log"),
+    Path("/home/traceos/.cache/traceos/desktop-setup.log"),
+    Path("/home/traceos/.xsession-errors"),
+)
 SERIAL = "/dev/ttyS0"
 EXPECTED_TITLE = "qemucase"
 ALLOWED_STAGES = {
@@ -35,6 +41,9 @@ ALLOWED_STAGES = {
     "IMAGE_CLI_COMPLETED",
     "IMAGE_RESULT_RENDERED",
     "IMAGE_CLI_STOPPED",
+    "TRACEOS_DESKTOP_BRANDING_RESULT",
+    "TRACEOS_DESKTOP_BRANDING_TARGET",
+    "TRACEOS_DESKTOP_BACKDROP_DISCOVERY",
 }
 
 UUID_RE = re.compile(r"\bcase_id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b")
@@ -116,6 +125,13 @@ def probe(case_id: str, nonce: str, pid: str, uid: str, attempt: str) -> None:
     )
 
 
+def is_gtk_theme_error(line: str) -> bool:
+    """Match only GTK/CSS/theme-related warnings or errors, not arbitrary session output."""
+    theme_related = re.search(r"(?:gtk\.css|\btheme\b|\bCSS\b)", line, re.IGNORECASE)
+    failure_related = re.search(r"(?:warning|error|failed|cannot|could not|parse)", line, re.IGNORECASE)
+    return bool(theme_related and failure_related)
+
+
 def fields_from(line: str) -> dict[str, str]:
     return {key: value for key, value in FIELD_RE.findall(line)}
 
@@ -136,12 +152,32 @@ def main() -> int:
                             offsets[log_path] = handle.tell()
                             break
                         offsets[log_path] = handle.tell()
+                        if log_path.name == "desktop-setup.log":
+                            # Preserve the complete user-session setup log in the
+                            # QEMU serial artifact. URL encoding keeps each log line
+                            # on one parseable serial record.
+                            encoded_line = quote(line.rstrip("\r\n"), safe="/:@._-+,=") or "empty"
+                            emit(
+                                "[TraceOS] QEMU_UI_DIAG "
+                                f"stage=TRACEOS_DESKTOP_SETUP_LOG_LINE text={encoded_line}"
+                            )
+                        if log_path.name == ".xsession-errors":
+                            if is_gtk_theme_error(line):
+                                message = quote(line.strip(), safe="/:@._-+,=")
+                                emit(f"[TraceOS] QEMU_UI_DIAG stage=TRACEOS_GTK_THEME_ERROR message={message}")
+                            continue
                         fields = fields_from(line)
                         stage = fields.get("stage")
-                        if stage not in ALLOWED_STAGES:
+                        if stage in {"TRACEOS_DESKTOP_BRANDING_RESULT", "TRACEOS_DESKTOP_BRANDING_TARGET", "TRACEOS_DESKTOP_BACKDROP_DISCOVERY", "TRACEOS_DESKTOP_RUNTIME_PROPERTY"}:
+                            suffix = line[line.find("stage="):].strip()
+                            emit("[TraceOS] QEMU_UI_DIAG " + suffix)
+                        elif stage in ALLOWED_STAGES:
+                            marker = line.find("UI_DIAG")
+                            if marker < 0:
+                                continue
+                            emit(("[TraceOS] QEMU_UI_DIAG " + line[marker:]).rstrip("\n"))
+                        else:
                             continue
-                        safe = ("[TraceOS] QEMU_UI_DIAG " + line[line.find("UI_DIAG"):]).rstrip("\n")
-                        emit(safe)
                         if stage == "NEW_CASE_CREATED":
                             match = UUID_RE.search(line)
                             if match:

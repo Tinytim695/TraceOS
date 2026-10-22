@@ -497,6 +497,18 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     launcher_action_seen "$action_log" fixture
     rm -f "$action_log"
 
+    # Regression guard: a visible popup at 24,991 changed pixels was rejected
+    # by the old 25,000 threshold even though the crop showed the menu.
+    popup_region_diff_passes 24991
+    if popup_region_diff_passes 20000; then
+        echo "[TraceOS] Popup fixture accepted the exact threshold boundary." >&2
+        exit 1
+    fi
+    if popup_region_diff_passes not-a-number; then
+        echo "[TraceOS] Popup fixture accepted a non-numeric diff." >&2
+        exit 1
+    fi
+
     # Synthetic generated GRUB configs. These do not require an ISO and must
     # reject unresolved placeholders, a bad failsafe entry, unresolved
     # kernel/initrd paths, and a default that is not the amnesic menu.
@@ -608,6 +620,17 @@ if ! grep -Eq '(^|[[:space:]])username=traceos([[:space:]]|$)' "$OUT/traceos-gen
 fi
 assert_generated_grub "$OUT/traceos-generated-grub.cfg"
 
+# Retain the wallpaper asset extracted from this exact ISO by the preceding
+# final-squashfs validation step. This is compared with the guest runtime hash.
+packaged_wallpaper_source="/tmp/traceos-root/usr/share/backgrounds/traceos/traceos-wallpaper.png"
+packaged_wallpaper_png="$OUT/traceos-packaged-wallpaper.png"
+test -s "$packaged_wallpaper_source"
+cp "$packaged_wallpaper_source" "$packaged_wallpaper_png"
+packaged_wallpaper_dimensions="$(identify -format '%w %h' "$packaged_wallpaper_png")"
+test "$packaged_wallpaper_dimensions" = "1920 1080"
+packaged_wallpaper_sha256="$(sha256sum "$packaged_wallpaper_png" | awk '{print $1}')"
+printf 'TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS=%s\nTRACEOS_PACKAGED_WALLPAPER_SHA256=%s\n' \
+    "$packaged_wallpaper_dimensions" "$packaged_wallpaper_sha256" >"$OUT/traceos-wallpaper-manifest.txt"
 
 # First prove the real desktop renders. Keep the same guest alive for one
 # diagnostic interaction so the Dashboard remains the baseline gate.
@@ -766,6 +789,41 @@ collector_ready="no"
 if wait_for_serial "QEMU_UI_DIAG_READY" 45; then
     collector_ready="yes"
 fi
+if [[ "$collector_ready" != "yes" ]]; then
+    echo "[TraceOS] QEMU diagnostic collector did not become ready; wallpaper/theme verification cannot be claimed." >&2
+    exit 1
+fi
+
+if ! wait_for_serial "stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS" 45; then
+    echo "[TraceOS] Verified desktop branding result was not observed." >&2
+    tail -n 220 "$serial_log" >&2 || true
+    exit 1
+fi
+branding_summary="$(grep -F 'stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS' "$serial_log" | tail -n 1)"
+if [[ "$branding_summary" != *"xsettings_theme=TraceOS"* || "$branding_summary" != *"png_width=1920"* || "$branding_summary" != *"png_height=1080"* ]]; then
+    echo "[TraceOS] Runtime branding summary lacks the expected GTK theme or packaged PNG dimensions." >&2
+    echo "$branding_summary" >&2
+    exit 1
+fi
+runtime_wallpaper_sha256="$(extract_field "$branding_summary" png_sha256)"
+if [[ ! "$runtime_wallpaper_sha256" =~ ^[0-9a-f]{64}$ || "$runtime_wallpaper_sha256" != "$packaged_wallpaper_sha256" ]]; then
+    echo "[TraceOS] Guest wallpaper checksum does not match the packaged ISO asset." >&2
+    echo "runtime=$runtime_wallpaper_sha256 packaged=$packaged_wallpaper_sha256" >&2
+    exit 1
+fi
+required_targets="$(extract_field "$branding_summary" targets)"
+target_passes="$(grep -Fc 'stage=TRACEOS_DESKTOP_BRANDING_TARGET result=PASS' "$serial_log" || true)"
+if [[ ! "$required_targets" =~ ^[0-9]+$ || ! "$target_passes" =~ ^[0-9]+$ ]] || (( target_passes < required_targets )); then
+    echo "[TraceOS] Runtime wallpaper targets are not all individually verified." >&2
+    echo "$branding_summary" >&2
+    exit 1
+fi
+if grep -Fq 'stage=TRACEOS_GTK_THEME_ERROR' "$serial_log"; then
+    echo "[TraceOS] GTK theme/CSS errors were captured in the guest session." >&2
+    grep -F 'stage=TRACEOS_GTK_THEME_ERROR' "$serial_log" >&2 || true
+    exit 1
+fi
+printf 'TRACEOS_RUNTIME_BRANDING_RESULT=PASS\nTRACEOS_RUNTIME_WALLPAPER_SHA256=%s\n' "$runtime_wallpaper_sha256" >>"$OUT/traceos-wallpaper-manifest.txt"
 
 hmp_new_case="yes"
 if ! hmp_command "$monitor" "sendkey ctrl-shift-n" "$STATE/monitor-new-case-sendkey.log"; then
@@ -1163,6 +1221,170 @@ if ! awk "BEGIN { exit !($desktop_home_spread > 0.02) }"; then
 fi
 echo "[TraceOS] Uncovered TraceOS desktop home screen captured; changed pixels: $desktop_home_diff."
 rm -f "$desktop_home_ppm"
+
+# Verify the pixels actually painted by XFCE, not just the xfconf property
+# value. Exclude the top panel, left-side shortcuts and bottom dock from the crop.
+wallpaper_visual_status="no"
+desktop_width="$(identify -format '%w' "$desktop_home_png")"
+desktop_height="$(identify -format '%h' "$desktop_home_png")"
+wallpaper_crop_x=140
+wallpaper_crop_y=35
+wallpaper_crop_width=$((desktop_width - 280))
+wallpaper_crop_height=$((desktop_height - 100))
+if (( wallpaper_crop_width > 200 && wallpaper_crop_height > 200 )); then
+    wallpaper_expected_fit="$OUT/traceos-wallpaper-expected-fit.png"
+    wallpaper_actual_crop="$OUT/traceos-desktop-wallpaper-region.png"
+    wallpaper_expected_crop="$OUT/traceos-wallpaper-expected-region.png"
+    convert "$packaged_wallpaper_png" -resize "${desktop_width}x${desktop_height}^" \
+        -gravity center -extent "${desktop_width}x${desktop_height}" "$wallpaper_expected_fit"
+    convert "$desktop_home_png" -crop "${wallpaper_crop_width}x${wallpaper_crop_height}+${wallpaper_crop_x}+${wallpaper_crop_y}" \
+        +repage "$wallpaper_actual_crop"
+    convert "$wallpaper_expected_fit" -crop "${wallpaper_crop_width}x${wallpaper_crop_height}+${wallpaper_crop_x}+${wallpaper_crop_y}" \
+        +repage "$wallpaper_expected_crop"
+    wallpaper_mae="$(compare -metric MAE "$wallpaper_actual_crop" "$wallpaper_expected_crop" null: 2>&1 || true)"
+    # ImageMagick prints raw MAE followed by a normalized MAE in parentheses,
+    # e.g. "60.5701 (0.000924241)". The normalized value is the one compared
+    # with a 0..1 threshold; comparing the raw first number rejects correct art.
+    wallpaper_mae_raw="${wallpaper_mae%% *}"
+    wallpaper_mae_normalized="$(printf '%s\n' "$wallpaper_mae" | sed -n 's/.*(\([0-9][0-9.]*\)).*/\1/p')"
+    echo "[TraceOS] Rendered wallpaper crop MAE: raw=${wallpaper_mae_raw:-unknown} normalized=${wallpaper_mae_normalized:-unknown} (normalized threshold below 0.08)."
+    if [[ "$wallpaper_mae_normalized" =~ ^[0-9]+([.][0-9]+)?$ ]] && \
+        awk "BEGIN { exit !($wallpaper_mae_normalized < 0.08) }"; then
+        wallpaper_visual_status="yes"
+        echo "[TraceOS] Packaged TraceOS wallpaper is visibly rendered in the uncovered desktop."
+    else
+        echo "[TraceOS] FAIL: Xfconf readback passed, but the uncovered desktop pixels do not match the packaged TraceOS wallpaper." >&2
+    fi
+else
+    echo "[TraceOS] FAIL: desktop screenshot is too small for the wallpaper verification crop." >&2
+fi
+
+# Launch a known native GTK 3 dialog through XFCE Application Finder.
+# Wait for the finder to actually appear before typing. Under QEMU TCG,
+# the Alt+F2 shortcut can take several seconds; the old fixed 1s sleep
+# let all keypresses hit the desktop before the finder existed.
+native_gtk_ppm="$OUT/traceos-native-gtk.ppm"
+native_gtk_png="$OUT/traceos-native-gtk.png"
+native_menu_ppm="$OUT/traceos-native-gtk-menu.ppm"
+native_menu_png="$OUT/traceos-native-gtk-menu.png"
+native_gtk_baseline_crop="$OUT/.traceos-native-gtk-baseline-center.png"
+native_gtk_desktop_crop="$OUT/.traceos-native-gtk-desktop-center.png"
+native_gtk_candidate_crop="$OUT/.traceos-native-gtk-candidate-center.png"
+native_gtk_status="no"
+native_gtk_appfinder_visible="no"
+
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_move -2048 -1536" "$STATE/monitor-native-gtk-pointer-reset.log"
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey alt-f2" "$STATE/monitor-native-gtk-appfinder-open.log"
+
+# All captures are normalized to the exact desktop-home dimensions before
+# pixel comparison. Build #516 showed that stretching 1280x800 to 1280x720
+# made the wallpaper itself differ and falsely satisfied the GTK assertion.
+convert "$desktop_home_png" -crop "700x520+226+80" +repage "$native_gtk_baseline_crop"
+for native_gtk_wait in $(seq 1 20); do
+    capture_screendump "$STATE/monitor-dashboard.sock" "$native_menu_ppm" "$STATE/monitor-native-gtk-appfinder-wait-$native_gtk_wait.log"
+    convert "$native_menu_ppm" -resize "$desktop_width"x"$desktop_height"! -strip "$native_menu_png"
+    convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_candidate_crop"
+    native_gtk_appfinder_metric="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
+    native_gtk_appfinder_diff="${native_gtk_appfinder_metric%% *}"
+    echo "[TraceOS] Application Finder visibility probe attempt=$native_gtk_wait changed_pixels=${native_gtk_appfinder_diff:-unknown}."
+    if [[ "$native_gtk_appfinder_diff" =~ ^[0-9]+$ ]] && (( native_gtk_appfinder_diff > 40000 )); then
+        native_gtk_appfinder_visible="yes"
+        break
+    fi
+    sleep 1
+done
+if [[ "$native_gtk_appfinder_visible" != "yes" ]]; then
+    echo "[TraceOS] FAIL: XFCE Application Finder did not visibly appear after Alt+F2; refusing to type into an unverified focus target." >&2
+    exit 1
+fi
+echo "[TraceOS] XFCE Application Finder visibly appeared; typing native GTK test command."
+
+# Compare the final screen to the actual visible Application Finder, not to
+# a bare wallpaper. This means the finder itself cannot satisfy the dialog
+# assertion. Leave at least 150ms between guest key events so QEMU TCG does
+# not overlap key-down intervals and drop characters.
+# The old preferred-applications helper is not shipped in Debian 13.
+# Collapsed Application Finder still accepts a missing command and Return,
+# but xfce_spawn only sets the entry error icon, so the central window
+# never changes. xfce4-mime-settings is the installed GTK 3 Default
+# Applications dialog.
+convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_baseline_crop"
+native_gtk_command="xfce4-mime-settings"
+while IFS= read -r native_gtk_key; do
+    [[ "$native_gtk_key" == "-" ]] && native_gtk_key="minus"
+    hmp_command "$STATE/monitor-dashboard.sock" "sendkey $native_gtk_key" "$STATE/monitor-native-gtk-command-key-$native_gtk_key.log"
+    sleep 0.15
+done < <(printf "%s" "$native_gtk_command" | fold -w1)
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey ret" "$STATE/monitor-native-gtk-command-launch.log"
+
+# Poll for a real dialog. A still-visible Application Finder must fail, and so
+# must a finder that merely closes back to the desktop: that dismissal is
+# ~66k central pixels and would otherwise satisfy the finder-only threshold.
+convert "$desktop_home_png" -crop "700x520+226+80" +repage "$native_gtk_desktop_crop"
+for native_gtk_wait in $(seq 1 20); do
+    capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-verify-$native_gtk_wait.log"
+    convert "$native_gtk_ppm" -resize "$desktop_width"x"$desktop_height"! -strip "$native_gtk_png"
+    convert "$native_gtk_png" -crop "700x520+226+80" +repage "$native_gtk_candidate_crop"
+    native_gtk_metric="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
+    native_gtk_diff="${native_gtk_metric%% *}"
+    native_gtk_desktop_metric="$(compare -metric AE "$native_gtk_desktop_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
+    native_gtk_desktop_diff="${native_gtk_desktop_metric%% *}"
+    echo "[TraceOS] Native GTK replacement probe attempt=$native_gtk_wait finder_changed=${native_gtk_diff:-unknown} desktop_changed=${native_gtk_desktop_diff:-unknown} (both required >40000)."
+    if [[ "$native_gtk_diff" =~ ^[0-9]+$ && "$native_gtk_desktop_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 40000 && native_gtk_desktop_diff > 40000 )); then
+        native_gtk_status="yes"
+        break
+    fi
+    sleep 1
+done
+if [[ "$native_gtk_status" == "yes" ]]; then
+    echo "[TraceOS] Native GTK 3 Default Applications dialog visibly replaced Application Finder; changed pixels: $native_gtk_diff."
+else
+    echo "[TraceOS] FAIL: native GTK 3 Default Applications dialog did not visibly replace Application Finder in the central screen region." >&2
+fi
+hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-native-gtk-close.log"
+
+python3 - "$STATE/serial-dashboard.log" "$OUT/traceos-desktop-setup.log" "$OUT/traceos-xrandr-runtime.txt" "$OUT/traceos-xfconf-desktop-initial.txt" "$OUT/traceos-xfconf-desktop-runtime.txt" <<'PY'
+import re
+import sys
+from pathlib import Path
+from urllib.parse import unquote
+
+serial_path, setup_path, xrandr_path, xfconf_initial_path, xfconf_path = map(Path, sys.argv[1:])
+setup_lines = []
+xrandr_lines = []
+xfconf_initial_lines = []
+xfconf_final_lines = []
+for line in serial_path.read_text(encoding="utf-8", errors="replace").splitlines():
+    marker = "stage=TRACEOS_DESKTOP_SETUP_LOG_LINE text="
+    if marker in line:
+        setup_lines.append(unquote(line.split(marker, 1)[1]))
+    marker = "stage=TRACEOS_DESKTOP_RUNTIME_PROPERTY "
+    if marker not in line:
+        continue
+    record = line.split(marker, 1)[1]
+    fields = dict(re.findall(r"([a-z_]+)=([^ ]+)", record))
+    kind = fields.get("kind", "")
+    if kind in {"xrandr_monitor", "xrandr_query"}:
+        xrandr_lines.append(f"{kind}: {unquote(fields.get('line', ''))}")
+    elif kind in {"xfconf_property", "xfconf_property_final"}:
+        path = unquote(fields.get("path", ""))
+        value = unquote(fields.get("value", ""))
+        destination = xfconf_final_lines if kind == "xfconf_property_final" else xfconf_initial_lines
+        destination.append(f"{path} {value}".rstrip())
+if not setup_lines or not xrandr_lines or not xfconf_initial_lines or not xfconf_final_lines:
+    print("[TraceOS] FAIL: required desktop setup, connected-output, or before/after xfconf evidence is missing.", file=sys.stderr)
+    raise SystemExit(1)
+setup_path.write_text("\n".join(setup_lines) + "\n", encoding="utf-8")
+xrandr_path.write_text("\n".join(xrandr_lines) + "\n", encoding="utf-8")
+xfconf_initial_path.write_text("\n".join(xfconf_initial_lines) + "\n", encoding="utf-8")
+xfconf_path.write_text("\n".join(xfconf_final_lines) + "\n", encoding="utf-8")
+print(f"[TraceOS] Retained runtime diagnostics: desktop_setup_lines={len(setup_lines)} xrandr_lines={len(xrandr_lines)} xfconf_initial_properties={len(xfconf_initial_lines)} xfconf_final_properties={len(xfconf_final_lines)}")
+PY
+rm -f "$native_gtk_ppm" "$native_menu_ppm" "$native_gtk_baseline_crop" "$native_gtk_desktop_crop" "$native_gtk_candidate_crop"
+if [[ "$wallpaper_visual_status" != "yes" || "$native_gtk_status" != "yes" ]]; then
+    echo "[TraceOS] GUI branding evidence gate failed: wallpaper=$wallpaper_visual_status native_gtk=$native_gtk_status." >&2
+    exit 1
+fi
 
 kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true

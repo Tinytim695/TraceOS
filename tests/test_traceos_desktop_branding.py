@@ -36,7 +36,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
 
     def test_branding_setup_has_traceos_panel_and_desktop_shortcuts(self):
         setup=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
-        for expected in ("traceos-wallpaper.png","preserving user wallpaper","button-title",
+        for expected in ("desktop_wallpaper.py","WARNING: wallpaper branding is incomplete","button-title",
                          "TraceOS","show-home","show-filesystem","TraceOS Launcher.desktop",
                          "TraceOS Control Centre.desktop"):
             self.assertIn(expected,setup)
@@ -106,5 +106,90 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "TRACEOS_LAUNCHER_SESSION_READY",
                          "Applications menu visible in popup region"):
             self.assertIn(expected,qemu)
+
+    def test_backdrop_discovery_does_not_use_numeric_monitor_fallback(self):
+        helper=(INCLUDES/"usr/local/lib/traceos/desktop_wallpaper.py").read_text(encoding="utf-8")
+        self.assertIn("created-exact-output-name",helper)
+        self.assertIn("stage=TRACEOS_DESKTOP_BACKDROP_DISCOVERY",helper)
+        self.assertNotIn("indexed = [row for row in parsed",helper)
+        diagnostics=(INCLUDES/"usr/local/sbin/traceos-qemu-ui-diagnostics").read_text(encoding="utf-8")
+        self.assertIn("TRACEOS_DESKTOP_BACKDROP_DISCOVERY",diagnostics)
+
+    def test_wallpaper_helper_and_runtime_gate_are_wired(self):
+        helper=INCLUDES/"usr/local/lib/traceos/desktop_wallpaper.py"
+        self.assertTrue(helper.is_file())
+        wrapper=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
+        self.assertIn("python3 /usr/local/lib/traceos/desktop_wallpaper.py",wrapper)
+        self.assertIn("next login can retry",wrapper)
+        runtime=helper.read_text(encoding="utf-8")
+        for expected in ("xrandr", "TRACEOS_DESKTOP_BRANDING_TARGET",
+                         "TRACEOS_DESKTOP_BRANDING_RESULT", "png_sha256",
+                         "image-style", "xfdesktop", "TRACEOS_DESKTOP_RUNTIME_PROPERTY", "TRACEOS_DESKTOP_BRANDING_RESULT"):
+            self.assertIn(expected,runtime)
+
+    def test_diagnostic_filter_uses_real_regex_escapes(self):
+        diagnostics=(INCLUDES/"usr/local/sbin/traceos-qemu-ui-diagnostics").read_text(encoding="utf-8")
+        self.assertIn(r"(?:gtk\.css|\btheme\b|\bCSS\b)", diagnostics)
+
+    def test_qemu_retains_packaged_wallpaper_and_native_gtk_evidence(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        for expected in ("traceos-packaged-wallpaper.png","TRACEOS_PACKAGED_WALLPAPER_SHA256",
+                         "stage=TRACEOS_DESKTOP_BRANDING_RESULT result=PASS",
+                         "TRACEOS_GTK_THEME_ERROR","traceos-native-gtk.png",
+                         "traceos-native-gtk-menu.png","traceos-wallpaper-expected-fit.png",
+                         "wallpaper_mae_normalized","normalized threshold below 0.08",
+                         "wallpaper_visual_status","native_gtk_status",
+                         "native_gtk_appfinder_visible","native_gtk_appfinder_diff",
+                         "native-gtk-appfinder-wait","native-gtk-verify-",
+                         "traceos-desktop-setup.log","traceos-xrandr-runtime.txt",
+                         "traceos-xfconf-desktop-initial.txt","traceos-xfconf-desktop-runtime.txt","TRACEOS_DESKTOP_SETUP_LOG_LINE",
+                         "TRACEOS_DESKTOP_RUNTIME_PROPERTY","sleep 0.15",
+                         '-resize "$desktop_width"x"$desktop_height"!',
+                         "traceos-native-gtk-baseline-center.png",
+                         "sendkey alt-f2","xfce4-mime-settings","Default Applications dialog",
+                         "native_gtk_diff > 40000","native_gtk_desktop_diff > 40000","popup_region_diff_passes 24991"):
+            self.assertIn(expected,qemu)
+
+    def test_wallpaper_mae_uses_normalized_imagemagick_metric(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('wallpaper_mae_normalized="$(printf',qemu)
+        self.assertIn(r"sed -n 's/.*(\([0-9][0-9.]*\)).*/\1/p'",qemu)
+        self.assertIn("awk \"BEGIN { exit !($wallpaper_mae_normalized < 0.08) }\"",qemu)
+        self.assertNotIn('wallpaper_mae_value < 0.08',qemu)
+
+    def test_native_gtk_capture_compares_central_window_area_not_menu_disappearance(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
+        self.assertIn('compare -metric AE "$native_gtk_desktop_crop" "$native_gtk_candidate_crop"',qemu)
+        self.assertIn("native_gtk_diff > 40000 && native_gtk_desktop_diff > 40000",qemu)
+        self.assertIn("Default Applications dialog",qemu)
+        self.assertNotIn("exo-preferred-applications",qemu)
+        self.assertIn("Application Finder visibly appeared",qemu)
+        self.assertIn("refusing to type into an unverified focus target",qemu)
+        self.assertIn('"sendkey alt-f2"',qemu)
+        self.assertNotIn('compare -metric AE "$native_menu_png" "$native_gtk_png"',qemu)
+
+    def test_native_gtk_appfinder_wait_gate_distinguishes_desktop_from_visible_finder(self):
+        # Build #516, after normalizing both screenshots to the same 1152x720
+        # dimensions: bare desktop central crop = 27,312 AE pixels; a visible
+        # Application Finder = 82,575. Waiting for >40,000 prevents typing
+        # before the Finder exists under slow QEMU TCG startup.
+        bare_desktop_pixels = 27312
+        visible_appfinder_pixels = 82575
+        threshold = 40000
+        self.assertLess(bare_desktop_pixels, threshold)
+        self.assertGreater(visible_appfinder_pixels, threshold)
+
+    def test_native_gtk_final_frame_is_compared_against_the_visible_appfinder(self):
+        qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_baseline_crop"', qemu)
+        self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"', qemu)
+        self.assertIn("Native GTK replacement probe", qemu)
+
+    def test_build_validates_final_squashfs_wallpaper_dimensions_and_hash(self):
+        workflow=(ROOT/".github/workflows/build-iso.yml").read_text(encoding="utf-8")
+        for expected in ("TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS","TRACEOS_PACKAGED_WALLPAPER_SHA256",
+                         "identify -format '%w %h'", "desktop_wallpaper.py"):
+            self.assertIn(expected,workflow)
 
 if __name__=="__main__": unittest.main()

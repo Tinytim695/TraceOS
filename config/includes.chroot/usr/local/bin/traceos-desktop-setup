@@ -15,30 +15,12 @@ set_property() {
         xfconf-query -c "$channel" -p "$path" -n -t "$type" -s "$value" || echo "[TraceOS] create failed: $path"
     fi
 }
-dump=""; paths=""; attempt=0
-while [ "$attempt" -lt 15 ]; do
-    dump="$(xfconf-query -c xfce4-desktop -lv 2>/dev/null || true)"
-    paths="$(printf '%s\n' "$dump" | awk '$1 ~ /^\/backdrop\/screen[0-9]+\/monitor[^/]+\/workspace[0-9]+\/last-image$/ {print $1}')"
-    [ -n "$paths" ] && break
-    attempt=$((attempt + 1)); sleep 1
-done
-[ -n "$paths" ] || paths="/backdrop/screen0/monitor0/workspace0/last-image"
-wallpaper="/usr/share/backgrounds/traceos/traceos-wallpaper.png"
-if [ -s "$wallpaper" ]; then
-    for path in $paths; do
-        current="$(xfconf-query -c xfce4-desktop -p "$path" 2>/dev/null || true)"
-        case "$current" in
-            ""|*/backgrounds/xfce/*|*/backgrounds/xfce4/*|*/xfce-blue.jpg|*/xfce4-wallpaper*)
-                set_property xfce4-desktop "$path" string "$wallpaper"
-                style_path="$(printf '%s' "$path" | sed 's#/last-image$#/image-style#')"
-                set_property xfce4-desktop "$style_path" int 5
-                echo "[TraceOS] applied TraceOS wallpaper to $path" ;;
-            "$wallpaper")
-                style_path="$(printf '%s' "$path" | sed 's#/last-image$#/image-style#')"
-                set_property xfce4-desktop "$style_path" int 5 ;;
-            *) echo "[TraceOS] preserving user wallpaper at $path: $current" ;;
-        esac
-    done
+# Wallpaper selection is isolated and retryable. Branding failure must not
+# prevent the panel label, shortcuts, or the desktop session from working.
+if python3 /usr/local/lib/traceos/desktop_wallpaper.py; then
+    echo "[TraceOS] wallpaper branding returned a verified result."
+else
+    echo "[TraceOS] WARNING: wallpaper branding is incomplete; the desktop remains usable and the next login can retry."
 fi
 set_property xfce4-desktop /desktop-icons/file-icons/show-home bool false
 set_property xfce4-desktop /desktop-icons/file-icons/show-filesystem bool false
