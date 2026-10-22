@@ -113,6 +113,9 @@ Block 6B extends the offensive workstation into enterprise identity and authenti
 
 Block 6C adds the tools working red teams actually reach for after NetExec and BloodHound. Several are well known inside that community and rarely packaged in a general enterprise image:
 
+- **Sliver 1.7.8** client and server, the current open-source command-and-control pair. The build runs `version` only. It does not generate an implant or start a listener.
+- **AzureHound 3.1.3**, for Microsoft Entra and Azure collection into BloodHound.
+- **lsassy 3.1.16**, for remote credential-material assessment over an authorized admin channel.
 - **Adalanche r1014**, an Active Directory ACL and attack-path explorer that is not BloodHound.
 - **ldeep 2.0.3**, for LDAP enumeration that the usual collectors skip.
 - **Pretender 1.4.1** and **mitm6 0.3.0**, for name-resolution and IPv6 DNS takeover assessment.

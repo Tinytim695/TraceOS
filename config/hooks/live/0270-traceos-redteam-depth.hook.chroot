@@ -33,7 +33,7 @@ install_verified_file() {
     echo "[TraceOS] Installing pinned binary $dest"
     rm -rf "$tmp"
     mkdir -p "$tmp"
-    curl -fsSL --retry 5 --retry-delay 2 --max-time 300 "$url" -o "$tmp/$filename"
+    curl -fsSL --retry 5 --retry-delay 2 --max-time 900 "$url" -o "$tmp/$filename"
     printf '%s  %s\n' "$digest" "$tmp/$filename" | sha256sum -c -
     install -m 0755 "$tmp/$filename" "/usr/local/bin/$dest"
     rm -rf "$tmp"
@@ -50,9 +50,28 @@ install_verified_tarball() {
     echo "[TraceOS] Installing pinned release $dest"
     rm -rf "$tmp"
     mkdir -p "$tmp/extract"
-    curl -fsSL --retry 5 --retry-delay 2 --max-time 300 "$url" -o "$tmp/$filename"
+    curl -fsSL --retry 5 --retry-delay 2 --max-time 900 "$url" -o "$tmp/$filename"
     printf '%s  %s\n' "$digest" "$tmp/$filename" | sha256sum -c -
     tar --no-same-owner -xzf "$tmp/$filename" -C "$tmp/extract"
+    test -f "$tmp/extract/$inner"
+    install -m 0755 "$tmp/extract/$inner" "/usr/local/bin/$dest"
+    rm -rf "$tmp"
+}
+
+install_verified_zip() {
+    dest="$1"
+    inner="$2"
+    digest="$3"
+    url="$4"
+    filename="$5"
+    tmp="/tmp/traceos-redteam-$dest"
+
+    echo "[TraceOS] Installing pinned release $dest"
+    rm -rf "$tmp"
+    mkdir -p "$tmp/extract"
+    curl -fsSL --retry 5 --retry-delay 2 --max-time 900 "$url" -o "$tmp/$filename"
+    printf '%s  %s\n' "$digest" "$tmp/$filename" | sha256sum -c -
+    unzip -q -o "$tmp/$filename" -d "$tmp/extract"
     test -f "$tmp/extract/$inner"
     install -m 0755 "$tmp/extract/$inner" "/usr/local/bin/$dest"
     rm -rf "$tmp"
@@ -79,10 +98,14 @@ install_verified_file adalanche \
     adalanche-linux-x64-r1014
 require_surface /usr/local/bin/adalanche r1014 version
 
-install_verified_file ldeep \
-    3bfabfc2f152741470397b6ac5069b76eaf5e50763aa8c0e0d5d509cda005c46 \
-    https://github.com/franc-pentest/ldeep/releases/download/2.0.3/ldeep_linux-amd64 \
-    ldeep_linux-amd64
+# The upstream ldeep onefile imports ldap3 before --help and that build
+# does not bundle gssapi, so the release binary cannot start. Install the
+# PyPI release into a pipx environment that can see Debian's python3-gssapi.
+echo "[TraceOS] Installing ldeep 2.0.3 with Debian python3-gssapi"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends python3-gssapi
+pipx install --global --system-site-packages ldeep==2.0.3
 require_surface /usr/local/bin/ldeep 2.0.3 -h
 
 install_verified_tarball pretender pretender \
@@ -103,6 +126,24 @@ install_verified_tarball ligolo-agent agent \
     ligolo-ng_agent_0.9.2_linux_amd64.tar.gz
 require_surface /usr/local/bin/ligolo-agent 0.9.2 --version
 
+install_verified_file sliver-client \
+    a1bfe9ee9807017b83689384d9a169db497643d5b2385d24a942d6d05c5ef701 \
+    https://github.com/BishopFox/sliver/releases/download/v1.7.8/sliver-client_linux-amd64 \
+    sliver-client_linux-amd64
+require_surface /usr/local/bin/sliver-client v1.7.8 version
+
+install_verified_file sliver-server \
+    e70ae77590f5f0a8aafe8e11685f2cd17b11e0e02d37534412b99a411fd6e3e0 \
+    https://github.com/BishopFox/sliver/releases/download/v1.7.8/sliver-server_linux-amd64 \
+    sliver-server_linux-amd64
+require_surface /usr/local/bin/sliver-server v1.7.8 version
+
+install_verified_zip azurehound azurehound \
+    b814116a9850658ef36be54c3f8e2d1560a0560ca377052206defac064e5a68d \
+    https://github.com/SpecterOps/AzureHound/releases/download/v3.1.3/AzureHound_v3.1.3_linux_amd64.zip \
+    AzureHound_v3.1.3_linux_amd64.zip
+require_surface /usr/local/bin/azurehound v3.1.3 --version
+
 install_pipx_release bloodyAD 2.5.5
 require_surface /usr/local/bin/bloodyAD bloodyAD -h
 
@@ -120,11 +161,17 @@ install_pipx_git sccmhunter 274ff48a1b56870d713e5bd029dcf2c1abbb71b8 \
     "git+https://github.com/garrettfoster13/sccmhunter.git@274ff48a1b56870d713e5bd029dcf2c1abbb71b8"
 require_surface /usr/local/bin/sccmhunter.py sccmhunter -h
 
+install_pipx_release lsassy 3.1.16
+require_surface /usr/local/bin/lsassy lsassy -h
+
 cat > /usr/share/traceos/redteam-depth-tools.txt <<'EOF'
 # TraceOS Block 6C: Red team depth
 # project|version|command|purpose|license|mode|provenance
 lkarlslund/Adalanche|r1014|adalanche|Active Directory ACL and attack-path exploration|AGPL-3.0|authorized|GitHub release r1014 linux-x64, sha256 1f2b0765df54362f886d3089e5263994ec5fb6d1bea666c84af4620069bfedb5
-franc-pentest/ldeep|2.0.3|ldeep|LDAP enumeration beyond standard BloodHound collection|MIT|authorized|GitHub release 2.0.3 linux-amd64, sha256 3bfabfc2f152741470397b6ac5069b76eaf5e50763aa8c0e0d5d509cda005c46
+franc-pentest/ldeep|2.0.3|ldeep|LDAP enumeration beyond standard BloodHound collection|MIT|authorized|PyPI ldeep 2.0.3 with Debian python3-gssapi; the upstream onefile fails at import
+BishopFox/sliver|1.7.8|sliver-client,sliver-server|Open-source command-and-control client and server|GPL-3.0|authorized|GitHub release v1.7.8 linux-amd64, client sha256 a1bfe9ee9807017b83689384d9a169db497643d5b2385d24a942d6d05c5ef701, server sha256 e70ae77590f5f0a8aafe8e11685f2cd17b11e0e02d37534412b99a411fd6e3e0
+SpecterOps/AzureHound|3.1.3|azurehound|Microsoft Entra and Azure collection for BloodHound|GPL-3.0|authorized|GitHub release v3.1.3 linux amd64 zip sha256 b814116a9850658ef36be54c3f8e2d1560a0560ca377052206defac064e5a68d
+Hackndo/lsassy|3.1.16|lsassy|Remote credential-material assessment over authorized admin channels|BSD-3-Clause|authorized|PyPI lsassy 3.1.16
 RedTeamPentesting/pretender|1.4.1|pretender|IPv4/IPv6 name-resolution and DHCPv6 DNS takeover assessment|MIT|authorized|GitHub release v1.4.1 linux x86_64, sha256 c6d359a95211f2d5f2e87c4bd17cab183971aa82b889a45d64f46b4bf434916e
 nicocha30/ligolo-ng|0.9.2|ligolo-proxy,ligolo-agent|Operator-controlled tunnel proxy and agent for authorized pivot labs|GPL-3.0|authorized|GitHub release v0.9.2 linux amd64 proxy sha256 6c683c403502d366276595197749e620c975908dae7314c21079ec8ebee4e5d0 and agent sha256 714534917a4a58812669619667cc57dfad03d34d0de5b0d7c468d76819f84111
 CravateRouge/bloodyAD|2.5.5|bloodyAD|Authorized Active Directory object and ACL assessment|MIT|authorized|PyPI bloodyAD 2.5.5

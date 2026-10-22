@@ -11,7 +11,11 @@ VALIDATOR = ROOT / "scripts/validate-toolchain.sh"
 
 PINS = {
     "adalanche": "1f2b0765df54362f886d3089e5263994ec5fb6d1bea666c84af4620069bfedb5",
-    "ldeep": "3bfabfc2f152741470397b6ac5069b76eaf5e50763aa8c0e0d5d509cda005c46",
+    "ldeep": "ldeep==2.0.3",
+    "sliver-client": "a1bfe9ee9807017b83689384d9a169db497643d5b2385d24a942d6d05c5ef701",
+    "sliver-server": "e70ae77590f5f0a8aafe8e11685f2cd17b11e0e02d37534412b99a411fd6e3e0",
+    "azurehound": "b814116a9850658ef36be54c3f8e2d1560a0560ca377052206defac064e5a68d",
+    "lsassy": "3.1.16",
     "pretender": "c6d359a95211f2d5f2e87c4bd17cab183971aa82b889a45d64f46b4bf434916e",
     "ligolo-proxy": "6c683c403502d366276595197749e620c975908dae7314c21079ec8ebee4e5d0",
     "ligolo-agent": "714534917a4a58812669619667cc57dfad03d34d0de5b0d7c468d76819f84111",
@@ -33,6 +37,10 @@ CONSOLES = {
     "mitm6 Console": "mitm6",
     "pre2k Console": "pre2k",
     "SCCMHunter Console": "sccmhunter.py",
+    "Sliver Client Console": "sliver-client",
+    "Sliver Server Console": "sliver-server",
+    "AzureHound Console": "azurehound",
+    "lsassy Console": "lsassy",
 }
 
 
