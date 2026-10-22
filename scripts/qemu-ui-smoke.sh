@@ -448,6 +448,14 @@ launcher_action_seen() {
         grep -F "nonce=$expected_nonce" >/dev/null
 }
 
+# The Applications menu against the Control Centre baseline measures 24,991
+# changed pixels in the 300x500 popup crop. A threshold of 25,000 rejected
+# that open menu. Cursor-only noise in this crop stays far below 20,000.
+popup_region_diff_passes() {
+    local changed_pixels="$1"
+    [[ "$changed_pixels" =~ ^[0-9]+$ ]] && (( changed_pixels > 20000 ))
+}
+
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
     matching="case_id=${test_case_id} id_prefix=01234567"
@@ -570,6 +578,18 @@ EOF
         echo "[TraceOS] Matrix gate accepted missing image result." >&2
         exit 1
     fi
+    # Captured QEMU run 39575885016: the Applications menu was visibly open
+    # and the popup crop differed by exactly 24,991 pixels.
+    popup_region_diff_passes 24991
+    if popup_region_diff_passes 20000; then
+        echo "[TraceOS] Popup fixture accepted the exact threshold boundary." >&2
+        exit 1
+    fi
+    if popup_region_diff_passes not-a-number; then
+        echo "[TraceOS] Popup fixture accepted a non-numeric diff." >&2
+        exit 1
+    fi
+
     echo "[TraceOS] QEMU GUI parser fixtures: PASS"
     exit 0
 fi
@@ -618,7 +638,7 @@ launcher_menu_crop="$OUT/.traceos-launcher-menu-region.png"
 convert "$OUT/traceos-dashboard.png" -crop 300x500+0+24 +repage "$launcher_dashboard_crop"
 convert "$launcher_menu_png" -crop 300x500+0+24 +repage "$launcher_menu_crop"
 launcher_menu_diff="$(compare -metric AE "$launcher_dashboard_crop" "$launcher_menu_crop" null: 2>&1 || true)"
-if [[ ! "$launcher_menu_diff" =~ ^[0-9]+$ ]] || (( launcher_menu_diff <= 25000 )); then
+if ! popup_region_diff_passes "$launcher_menu_diff"; then
     echo "[TraceOS] Applications menu was not visibly open in the expected popup region (changed pixels: ${launcher_menu_diff:-unknown})." >&2
     exit 1
 fi
