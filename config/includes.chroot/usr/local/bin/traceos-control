@@ -31,21 +31,21 @@ from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
 
-BG = "#050811"
-BG2 = "#07101c"
-PANEL = "#091321"
-CARD = "#0d1928"
-CARD2 = "#102238"
-CARD3 = "#142b45"
-TEXT = "#eaf6ff"
-MUTED = "#7895b5"
-ACCENT = "#72f1e8"
-ACCENT2 = "#50b8ff"
-PURPLE = "#9c7bff"
-GOOD = "#72e6a7"
-WARN = "#f0c674"
-DANGER = "#ff7b85"
-BORDER = "#1b3550"
+BG = "#0b1c36"
+BG2 = "#102646"
+PANEL = "#12315c"
+CARD = "#18406e"
+CARD2 = "#1f4e84"
+CARD3 = "#2a62a0"
+TEXT = "#f4fbff"
+MUTED = "#c5dff3"
+ACCENT = "#7af6ff"
+ACCENT2 = "#5eb6ff"
+PURPLE = "#c7b0ff"
+GOOD = "#8dffb8"
+WARN = "#ffe08a"
+DANGER = "#ff9aa3"
+BORDER = "#4c93d4"
 
 
 def capture(args: list[str], timeout: int = 8) -> subprocess.CompletedProcess[str] | None:
@@ -658,6 +658,7 @@ class TraceOSApp:
             "images": self.image_osint,
             "reports": self.reports,
             "timeline": self.timeline,
+            "tools": self.tools_home,
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
@@ -822,7 +823,7 @@ class TraceOSApp:
             pass
         style.configure(
             "Trace.TCombobox",
-            fieldbackground="#08111d",
+            fieldbackground="#0e2a4e",
             background=CARD2,
             foreground=TEXT,
             bordercolor=BORDER,
@@ -831,13 +832,13 @@ class TraceOSApp:
         )
         style.map(
             "Trace.TCombobox",
-            fieldbackground=[("readonly", "#08111d")],
+            fieldbackground=[("readonly", "#0e2a4e")],
             foreground=[("readonly", TEXT)],
         )
         style.configure(
             "Trace.Treeview",
-            background="#08111d",
-            fieldbackground="#08111d",
+            background="#0e2a4e",
+            fieldbackground="#0e2a4e",
             foreground=TEXT,
             rowheight=30,
             borderwidth=0,
@@ -904,39 +905,40 @@ class TraceOSApp:
         self.sidebar.pack_propagate(False)
 
         tk.Label(
-            self.sidebar, text="WORKSPACE", bg=PANEL, fg=MUTED,
+            self.sidebar, text="TRACEOS", bg=PANEL, fg=ACCENT,
             font=("Sans", 8, "bold")
         ).pack(anchor="w", padx=18, pady=(20, 7))
 
         for label, page in [
-            ("◉  Dashboard", self.dashboard),
-            ("▣  Evidence Vault", self.evidence),
-            ("⌁  Network", self.network),
-            ("⌑  Web Testing", self.web_testing),
-            ("⌖  Assessment", self.assessment),
-            ("✦  Credentials", self.credentials),
-            ("⚔  Engagement", self.engagement),
-            ("◎  Investigation Centre", self.osint),
-            ("◈  Defence", self.defence),
-            ("▧  Image OSINT", self.image_osint),
-            ("▤  Reports", self.reports),
-            ("▥  Timeline", self.timeline),
+            ("Overview", self.dashboard),
+            ("Cases", self.evidence),
+            ("Investigation", self.osint),
+            ("Network", self.network),
+            ("Tools", self.tools_home),
+            ("AI Assistant", lambda: self.open_terminal([TRACE, "ai"], "Trace AI")),
+            ("Settings", self.doctor_page),
         ]:
             self.nav_button(label, page)
 
         tk.Label(
-            self.sidebar, text="SYSTEM", bg=PANEL, fg=MUTED,
+            self.sidebar, text="WORKSPACE", bg=PANEL, fg=MUTED,
             font=("Sans", 8, "bold")
-        ).pack(anchor="w", padx=18, pady=(19, 7))
+        ).pack(anchor="w", padx=18, pady=(16, 7))
 
-        for label, action in [
-            ("⌘  Terminal", lambda: self.open_terminal(["bash"], "TraceOS Terminal")),
-            ("▸  Trace Console", lambda: self.open_terminal([TRACE, "status"], "TraceOS Console")),
-            ("★  Trace AI", lambda: self.open_terminal([TRACE, "ai"], "Trace AI")),
-            ("◇  Demo Lab", lambda: self.open_terminal([TRACE, "demo"], "TraceOS Demo Lab")),
-            ("⚙  System Doctor", self.doctor_page),
+        for label, page in [
+            ("Web Testing", self.web_testing),
+            ("Assessment", self.assessment),
+            ("Credentials", self.credentials),
+            ("Engagement", self.engagement),
+            ("Defence", self.defence),
+            ("Image OSINT", self.image_osint),
+            ("Reports", self.reports),
+            ("Timeline", self.timeline),
+            ("Terminal", lambda: self.open_terminal(["bash"], "TraceOS Terminal")),
+            ("Trace Console", lambda: self.open_terminal([TRACE, "status"], "TraceOS Console")),
+            ("Demo Lab", lambda: self.open_terminal([TRACE, "demo"], "TraceOS Demo Lab")),
         ]:
-            self.nav_button(label, action)
+            self.nav_button(label, page)
 
         tk.Label(
             self.sidebar,
@@ -947,16 +949,16 @@ class TraceOSApp:
         self.content = tk.Frame(body, bg=BG)
         self.content.pack(side="left", fill="both", expand=True)
 
-        status = tk.Frame(self.root, bg="#06111d", height=30)
+        status = tk.Frame(self.root, bg="#12386e", height=30)
         status.pack(fill="x", side="bottom")
         status.pack_propagate(False)
         tk.Label(
             status,
             text="TRACEOS 0.1.0   •   LOCAL-FIRST   •   USER-INVOKED EXTERNAL ACTIONS   •   CASE DATA STAYS ON THIS MACHINE",
-            bg="#06111d", fg=MUTED, font=("Sans", 8, "bold")
+            bg="#12386e", fg=MUTED, font=("Sans", 8, "bold")
         ).pack(side="left", padx=18, pady=7)
         tk.Label(
-            status, text="● READY", bg="#06111d", fg=GOOD,
+            status, text="● READY", bg="#12386e", fg=GOOD,
             font=("Sans", 8, "bold")
         ).pack(side="right", padx=18, pady=7)
 
@@ -1359,25 +1361,65 @@ class TraceOSApp:
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
 
+    def _launch_card(self, parent: tk.Widget, row: int, column: int, glyph: str, title: str, blurb: str, command) -> None:
+        tile = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
+        tile.grid(row=row, column=column, sticky="nsew", padx=8, pady=8)
+        tk.Label(tile, text=glyph, bg=CARD, fg=ACCENT, font=("Sans", 22, "bold")).pack(anchor="w", padx=16, pady=(14, 0))
+        button = tk.Button(
+            tile, text=title, command=command, bg=CARD, fg=TEXT,
+            activebackground=CARD2, activeforeground=ACCENT,
+            relief="flat", bd=0, anchor="w", font=("Sans", 13, "bold"),
+            padx=16, pady=2,
+        )
+        button.pack(fill="x")
+        tk.Label(
+            tile, text=blurb, bg=CARD, fg=MUTED, justify="left", anchor="w",
+            font=("Sans", 9), wraplength=240,
+        ).pack(fill="x", padx=16, pady=(0, 14))
+
+    def tools_home(self) -> None:
+        self.heading(
+            "TOOLS",
+            "Security and forensic tools",
+            "Each card opens a real TraceOS workspace. Nothing scans or collects until you confirm it there.",
+        )
+        grid = tk.Frame(self.content, bg=BG)
+        grid.pack(fill="both", expand=True, padx=24, pady=8)
+        for column in range(3):
+            grid.grid_columnconfigure(column, weight=1, uniform="traceos-tools")
+        cards = (
+            ("⌘", "Web Testing", "Authorized web and network checks.", self.web_testing),
+            ("⌖", "Assessment", "Identity, directory and service assessment.", self.assessment),
+            ("✦", "Credentials", "Local secret scan, minidump reading, and a DonPAPI console.", self.credentials),
+            ("◈", "Defence", "Local capture, disk, memory and detection.", self.defence),
+            ("⚔", "Engagement", "Scoped red, blue and purple exercises.", self.engagement),
+            ("▧", "Image OSINT", "Local image analysis and metadata.", self.image_osint),
+            ("▤", "Reports", "Write the case report already stored on this machine.", self.reports),
+            ("▥", "Timeline", "Read the evidence ledger timeline.", self.timeline),
+            ("▸", "Trace Console", "TraceOS status in a terminal.", lambda: self.open_terminal([TRACE, "status"], "TraceOS Console")),
+            ("◇", "Demo Lab", "Create a synthetic case. No real personal data.", lambda: self.open_terminal([TRACE, "demo"], "TraceOS Demo Lab")),
+        )
+        for index, (glyph, title, blurb, command) in enumerate(cards):
+            self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command)
+
     def dashboard(self) -> None:
         top = self.heading(
-            "TraceOS", "Investigation cockpit",
-            "One polished front door for cases, evidence, network testing, OSINT and reporting."
+            "OVERVIEW",
+            "TraceOS Control Centre",
+            "Investigation, analysis, privacy and local tools. External actions start only when you open them.",
         )
         if self.welcome:
-            banner = tk.Frame(top, bg="#0c2232", highlightthickness=1, highlightbackground="#1c6571")
+            banner = tk.Frame(top, bg=CARD2, highlightthickness=1, highlightbackground=ACCENT)
             banner.pack(fill="x", pady=(14, 0))
             tk.Label(
                 banner, text="WELCOME TO TRACEOS",
-                bg="#0c2232", fg=ACCENT, font=("Sans", 9, "bold")
+                bg=CARD2, fg=ACCENT, font=("Sans", 9, "bold")
             ).pack(anchor="w", padx=16, pady=(10, 1))
             tk.Label(
                 banner, text="Start with a new case or open Demo Lab to explore safely.",
-                bg="#0c2232", fg=TEXT, font=("Sans", 10)
+                bg=CARD2, fg=TEXT, font=("Sans", 10)
             ).pack(anchor="w", padx=16, pady=(0, 10))
 
-        row = tk.Frame(self.content, bg=BG)
-        row.pack(fill="x", padx=23, pady=(8, 8))
         try:
             current = CASE_STORE.current()
             entries = CASE_STORE.list_cases()
@@ -1395,74 +1437,37 @@ class TraceOSApp:
             count = 0
             case_error = str(exc)
 
-        values = [
-            ("CURRENT CASE", current_label, ACCENT if not case_error else DANGER),
-            ("CASE WORKSPACES", str(count), ACCENT2),
-            ("NETWORK", network_state(), GOOD),
-            ("SESSION", session_state(), PURPLE),
-        ]
-        for title, value, color in values:
-            tile = tk.Frame(row, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
-            tile.pack(side="left", fill="both", expand=True, padx=5)
-            tk.Label(tile, text=title, bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).pack(anchor="w", padx=14, pady=(12, 3))
-            tk.Label(tile, text=value, bg=CARD, fg=color, font=("Sans", 12, "bold"), wraplength=220).pack(anchor="w", padx=14, pady=(0, 12))
-
-        lower = tk.Frame(self.content, bg=BG)
-        lower.pack(fill="both", expand=True, padx=28, pady=8)
-
-        flow = self.card(lower, expand=True)
-        flow.pack(side="left", fill="both", expand=True, padx=(0, 6), pady=0)
-        flow.pack_propagate(False)
-        launch = self.card(lower, expand=True)
-        launch.pack(side="left", fill="both", expand=True, padx=(6, 0), pady=0)
-        launch.pack_propagate(False)
-
-        tk.Label(flow, text="INVESTIGATION FLOW", bg=CARD, fg=MUTED, font=("Sans", 9, "bold")).pack(anchor="w", padx=18, pady=(17, 9))
+        status = tk.Frame(self.content, bg=BG)
+        status.pack(fill="x", padx=32, pady=(4, 0))
+        summary = f"Current case: {current_label}    •    Workspaces: {count}    •    {network_state()}    •    {session_state()}"
+        tk.Label(status, text=summary, bg=BG, fg=ACCENT if not case_error else DANGER, font=("Sans", 10, "bold")).pack(anchor="w")
         if case_error:
-            tk.Label(
-                flow,
-                text=f"CASE STATE ERROR: {case_error}",
-                bg="#26131a",
-                fg=DANGER,
-                font=("Sans", 8, "bold"),
-                wraplength=480,
-                justify="left",
-            ).pack(fill="x", padx=16, pady=(4, 8))
+            tk.Label(status, text=case_error, bg=BG, fg=DANGER, font=("Sans", 9)).pack(anchor="w")
 
-        steps = [
-            ("01  Start / select case", "Create a case or choose an existing workspace.", self.select_case),
-            ("02  Add evidence", "Vault a copy and record its SHA-256.", self.add_evidence),
-            ("03  Analyse locally", "Inspect files without uploading them.", self.analyse_evidence),
-            ("04  Generate report", "Write a readable Markdown case report.", self.generate_report),
-        ]
-        for title, desc, action in steps:
-            item = tk.Frame(flow, bg=CARD2)
-            item.pack(fill="x", padx=16, pady=4)
-            tk.Button(item, text=title, command=action, bg=CARD2, fg=TEXT, activebackground=CARD3,
-                      activeforeground=ACCENT, relief="flat", bd=0, anchor="w",
-                      font=("Sans", 10, "bold")).pack(fill="x", padx=12, pady=(9, 0))
-            tk.Label(item, text=desc, bg=CARD2, fg=MUTED, font=("Sans", 8)).pack(anchor="w", padx=12, pady=(0, 9))
+        grid = tk.Frame(self.content, bg=BG)
+        grid.pack(fill="x", padx=24, pady=8)
+        for column in range(3):
+            grid.grid_columnconfigure(column, weight=1, uniform="traceos-overview")
+        overview = (
+            ("▣", "Cases", "Manage investigation cases and the evidence vault.", self.evidence),
+            ("◎", "Investigation", "OSINT and analysis tools.", self.osint),
+            ("⌁", "Network", "Network and recon tools.", self.network),
+            ("⌘", "Tools", "Security and forensic tools.", self.tools_home),
+            ("★", "AI Assistant", "Local AI. No external model service.", lambda: self.open_terminal([TRACE, "ai"], "Trace AI")),
+            ("⚙", "Settings", "System doctor and runtime checks.", self.doctor_page),
+        )
+        for index, (glyph, title, blurb, command) in enumerate(overview):
+            self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command)
 
-        tk.Label(launch, text="QUICK LAUNCH", bg=CARD, fg=MUTED, font=("Sans", 9, "bold")).pack(anchor="w", padx=18, pady=(17, 9))
-        for title, action in [
-            ("→  Evidence Vault", self.evidence),
-            ("→  Network Command Centre", self.network),
-            ("→  Web Testing", self.web_testing),
-            ("→  Assessment", self.assessment),
-            ("→  Credentials", self.credentials),
-            ("→  Engagement", self.engagement),
-            ("→  OSINT Centre", self.osint),
-            ("→  Defence", self.defence),
-            ("→  Image OSINT", self.image_osint),
-            ("→  Reports", self.reports),
-            ("→  Timeline", self.timeline),
-            ("→  System Doctor", self.doctor_page),
-        ]:
-            tk.Button(launch, text=title, command=action, bg=CARD2, fg=TEXT,
-                      activebackground=CARD3, activeforeground=ACCENT,
-                      relief="flat", bd=0, anchor="w", font=("Sans", 10)).pack(
-                fill="x", padx=16, pady=4, ipady=6
-            )
+        actions = tk.Frame(self.content, bg=BG)
+        actions.pack(fill="x", padx=32, pady=(4, 16))
+        for label, command in (
+            ("SELECT CASE", self.select_case),
+            ("ADD EVIDENCE", self.add_evidence),
+            ("ANALYSE LOCALLY", self.analyse_evidence),
+            ("GENERATE REPORT", self.generate_report),
+        ):
+            self.action_button(actions, label, command, primary=label == "SELECT CASE").pack(side="left", padx=(0, 8))
 
     def new_case(self) -> None:
         if not self._new_case_attempt_pending:
@@ -1503,7 +1508,7 @@ class TraceOSApp:
         ).pack(anchor="w", padx=14, pady=(10, 4))
         title_entry = tk.Entry(
             form,
-            bg="#08111d",
+            bg="#0e2a4e",
             fg=TEXT,
             insertbackground=ACCENT,
             relief="flat",
@@ -1521,7 +1526,7 @@ class TraceOSApp:
         description = tk.Text(
             form,
             height=6,
-            bg="#08111d",
+            bg="#0e2a4e",
             fg=TEXT,
             insertbackground=ACCENT,
             relief="flat",
@@ -1876,7 +1881,7 @@ class TraceOSApp:
 
         controls = self.card(self.content, padx=28, pady=8)
         tk.Label(controls, text="AUTHORIZED TARGET", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(14, 4))
-        target = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        target = tk.Entry(controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         target.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 14))
         target.focus_set()
         tk.Label(controls, text="SCAN PROFILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=1, sticky="w", padx=8, pady=(14, 4))
@@ -1956,11 +1961,11 @@ class TraceOSApp:
         )
         source_var = tk.StringVar(value="No image selected")
         tk.Label(
-            controls, textvariable=source_var, bg="#08111d", fg=TEXT,
+            controls, textvariable=source_var, bg="#0e2a4e", fg=TEXT,
             anchor="w", justify="left", font=("Monospace", 9)
         ).grid(row=1, column=0, columnspan=3, sticky="ew", padx=15, pady=(0, 8))
         tk.Label(controls, text="FILE PATH / KEYBOARD ACCESS", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=2, column=0, columnspan=3, sticky="w", padx=15, pady=(0, 4))
-        source_entry = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 9))
+        source_entry = tk.Entry(controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 9))
         source_entry.grid(row=3, column=0, columnspan=2, sticky="ew", padx=15, pady=(0, 12))
 
         bar = tk.Frame(self.content, bg=BG)
@@ -2126,10 +2131,10 @@ class TraceOSApp:
         tool.current(0)
         tool.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 12))
         tk.Label(controls, text="TARGET / ARGUMENTS", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
-        target = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        target = tk.Entry(controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 12))
         tk.Label(controls, text="EXTRA OPTIONS", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=2, sticky="w", padx=8, pady=(10, 4))
-        extra = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        extra = tk.Entry(controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         extra.grid(row=1, column=2, sticky="ew", padx=8, pady=(0, 12))
         controls.grid_columnconfigure(0, weight=1)
         controls.grid_columnconfigure(1, weight=3)
@@ -2252,7 +2257,7 @@ class TraceOSApp:
         )
         target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
         target = tk.Entry(
-            controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT,
+            controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT,
             relief="flat", font=("Monospace", 10)
         )
         target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
@@ -2410,7 +2415,7 @@ class TraceOSApp:
         choice.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
         target_label = tk.Label(controls, text="AUTHORIZED TARGET", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
         target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
-        target = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        target = tk.Entry(controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
         service_label = tk.Label(controls, text="SERVICE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
         service_label.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 4))
@@ -2423,11 +2428,11 @@ class TraceOSApp:
         service.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 10))
         users_label = tk.Label(controls, text="USERS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
         users_label.grid(row=2, column=1, sticky="w", padx=8, pady=(0, 4))
-        users = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        users = tk.Entry(controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         users.grid(row=3, column=1, sticky="ew", padx=8, pady=(0, 10))
         passwords_label = tk.Label(controls, text="PASSWORDS FILE", bg=CARD, fg=MUTED, font=("Sans", 8, "bold"))
         passwords_label.grid(row=4, column=0, sticky="w", padx=12, pady=(0, 4))
-        passwords = tk.Entry(controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
+        passwords = tk.Entry(controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Monospace", 10))
         passwords.grid(row=5, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
         controls.grid_columnconfigure(0, weight=2)
         controls.grid_columnconfigure(1, weight=4)
@@ -2674,7 +2679,7 @@ class TraceOSApp:
         )
         target_label.grid(row=0, column=1, sticky="w", padx=8, pady=(10, 4))
         target = tk.Entry(
-            controls, bg="#08111d", fg=TEXT, insertbackground=ACCENT,
+            controls, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT,
             relief="flat", font=("Monospace", 10)
         )
         target.grid(row=1, column=1, sticky="ew", padx=8, pady=(0, 10))
@@ -2859,7 +2864,21 @@ class TraceOSApp:
 
 
 if __name__ == "__main__":
-    start_page = "osint" if "--osint" in sys.argv else "dashboard"
+    start_flags = {
+        "--osint": "osint",
+        "--cases": "evidence",
+        "--network": "network",
+        "--tools": "tools",
+        "--settings": "doctor",
+        "--defence": "defence",
+        "--images": "images",
+        "--assessment": "assessment",
+    }
+    start_page = "dashboard"
+    for flag, page in start_flags.items():
+        if flag in sys.argv:
+            start_page = page
+            break
     root = tk.Tk()
     TraceOSApp(root, welcome="--welcome" in sys.argv, start_page=start_page)
     root.mainloop()

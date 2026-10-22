@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=AI Assistant
+GenericName=Local Trace AI
+Comment=Open the local TraceOS assistant. It does not call an external model service.
+Exec=xfce4-terminal --title=Trace AI --execute /usr/local/bin/traceos ai
+TryExec=xfce4-terminal
+Icon=traceos-ai
+Terminal=false
+Categories=TraceOS;Utility;
+StartupNotify=true
+X-TraceOS-Managed=true

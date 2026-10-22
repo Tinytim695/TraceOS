@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Tools
+GenericName=Security and forensic tools
+Comment=Open the TraceOS tool workspace
+Exec=/usr/local/bin/traceos-control-launch --tools
+TryExec=/usr/local/bin/traceos-control-launch
+Icon=traceos-tools
+Terminal=false
+Categories=TraceOS;Utility;Security;
+StartupNotify=true
+X-TraceOS-Managed=true

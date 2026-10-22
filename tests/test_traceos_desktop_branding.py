@@ -21,7 +21,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         for expected in ("TraceOS Launcher", 'self.root.attributes("-fullscreen", True)',
                          "TRACEOS_LAUNCHER_SESSION_READY",
                          "TRACEOS_LAUNCHER_ACTION_INVOKED","OPEN CONTROL CENTRE",
-                         "#050811","#72f1e8"):
+                         "#050811","#7af6ff"):
             self.assertIn(expected,text)
         entry=INCLUDES/"etc/xdg/autostart/traceos-launcher.desktop"
         self.assertEqual(value(entry,"Exec"),"/usr/local/bin/traceos-launcher")
@@ -37,8 +37,9 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_branding_setup_has_traceos_panel_and_desktop_shortcuts(self):
         setup=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
         for expected in ("desktop_wallpaper.py","WARNING: wallpaper branding is incomplete","button-title",
-                         "TraceOS","show-home","show-filesystem","TraceOS Launcher.desktop",
-                         "TraceOS Control Centre.desktop"):
+                         "TraceOS","show-home","show-filesystem","Case Manager.desktop",
+                         "Investigation.desktop","Tools.desktop","Network.desktop",
+                         "AI Assistant.desktop","show-trash bool true"):
             self.assertIn(expected,setup)
         entry=INCLUDES/"etc/xdg/autostart/traceos-desktop-setup.desktop"
         self.assertEqual(value(entry,"Exec"),"/usr/local/bin/traceos-desktop-setup")
@@ -48,7 +49,12 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
               "traceos-control.desktop":"traceos-control",
               "traceos-osint.desktop":"traceos-osint",
               "traceos-shade.desktop":"traceos-shade",
-              "traceos.desktop":"traceos-console"}
+              "traceos.desktop":"traceos-console",
+              "traceos-case-manager.desktop":"traceos-case",
+              "traceos-investigation.desktop":"traceos-osint",
+              "traceos-tools.desktop":"traceos-tools",
+              "traceos-network.desktop":"traceos-network",
+              "traceos-ai.desktop":"traceos-ai"}
         for filename,icon_name in apps.items():
             entry=INCLUDES/"usr/share/applications"/filename
             text=entry.read_text(encoding="utf-8")
@@ -67,6 +73,59 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         names=[node.attrib.get("name") for node in root.iter("property")]
         for name in ("show-home","show-filesystem","show-trash","show-removable"):
             self.assertIn(name,names)
+        trash=next(node for node in root.iter("property") if node.attrib.get("name")=="show-trash")
+        self.assertEqual(trash.attrib.get("value"),"true")
+
+    def test_wallpaper_art_is_luminous_and_not_a_black_field(self):
+        svg=(INCLUDES/"usr/share/backgrounds/traceos/traceos-wallpaper.svg").read_text(encoding="utf-8")
+        for crushed in ("#03050b","#040913","#050811"):
+            self.assertNotIn(crushed, svg)
+        self.assertIn(">TRACEOS<", svg)
+        self.assertIn("INVESTIGATION WORKSTATION", svg)
+
+        def luminance(color: str) -> float:
+            value=color.lstrip("#")
+            red, green, blue=(int(value[index:index+2], 16)/255 for index in (0, 2, 4))
+            def channel(component: float) -> float:
+                if component <= 0.04045:
+                    return component/12.92
+                return ((component+0.055)/1.055)**2.4
+            return 0.2126*channel(red)+0.7152*channel(green)+0.0722*channel(blue)
+
+        # The old sky stopped at #03050b (luminance about 0.001). The lit horizon
+        # must stay clearly blue so the central T is not sitting in black.
+        self.assertGreater(luminance("#8ad8ff"), 0.45)
+        self.assertIn("#8ad8ff", svg)
+        self.assertIn("#3aa4ff", svg)
+        self.assertLess(luminance("#184888"), luminance("#8ad8ff"))
+
+    def test_desktop_entries_open_real_programs(self):
+        expected={
+            "traceos-case-manager.desktop":"/usr/local/bin/traceos-control-launch --cases",
+            "traceos-investigation.desktop":"/usr/local/bin/traceos-control-launch --osint",
+            "traceos-tools.desktop":"/usr/local/bin/traceos-control-launch --tools",
+            "traceos-network.desktop":"/usr/local/bin/traceos-control-launch --network",
+            "traceos-ai.desktop":"xfce4-terminal --title=Trace AI --execute /usr/local/bin/traceos ai",
+        }
+        control=(INCLUDES/"usr/local/bin/traceos-control").read_text(encoding="utf-8")
+        self.assertIn("def tools_home", control)
+        self.assertIn('"--cases": "evidence"', control)
+        for filename, command in expected.items():
+            text=(INCLUDES/"usr/share/applications"/filename).read_text(encoding="utf-8")
+            self.assertEqual(value(INCLUDES/"usr/share/applications"/filename, "Exec"), command)
+            self.assertIn("Categories=TraceOS;", text)
+
+    def test_theme_keeps_text_and_icon_labels_bright(self):
+        css=(INCLUDES/"usr/share/themes/TraceOS/gtk-3.0/gtk.css").read_text(encoding="utf-8")
+        self.assertIn("@define-color trace_text #f5fbff;", css)
+        self.assertIn("XfdesktopIconView.view", css)
+        self.assertIn("#xfce4-appfinder", css)
+        terminal=(INCLUDES/"etc/skel/.config/xfce4/terminal/terminalrc").read_text(encoding="utf-8")
+        self.assertIn("ColorForeground=#f4fbff", terminal)
+        self.assertIn("ColorBackground=#0c1e36", terminal)
+        browser=(INCLUDES/"usr/share/traceos/browser-home.html").read_text(encoding="utf-8")
+        self.assertIn("TRACEOS", browser)
+        self.assertNotIn("traceos.local", browser)
 
 
     def test_qemu_hmp_error_regex_rejects_real_error_responses(self):

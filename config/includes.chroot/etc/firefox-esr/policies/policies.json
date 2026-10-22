@@ -1,0 +1,23 @@
+{
+  "policies": {
+    "Homepage": {
+      "URL": "file:///usr/share/traceos/browser-home.html",
+      "Locked": false,
+      "StartPage": "homepage"
+    },
+    "OverrideFirstRunPage": "file:///usr/share/traceos/browser-home.html",
+    "OverridePostUpdatePage": "",
+    "NoDefaultBookmarks": true,
+    "DisplayBookmarksToolbar": "never",
+    "Preferences": {
+      "browser.startup.homepage": {
+        "Value": "file:///usr/share/traceos/browser-home.html",
+        "Status": "default"
+      },
+      "ui.systemUsesDarkTheme": {
+        "Value": 1,
+        "Status": "default"
+      }
+    }
+  }
+}

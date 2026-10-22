@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Network
+GenericName=Network and recon tools
+Comment=Open the TraceOS network workspace
+Exec=/usr/local/bin/traceos-control-launch --network
+TryExec=/usr/local/bin/traceos-control-launch
+Icon=traceos-network
+Terminal=false
+Categories=TraceOS;Network;Utility;Security;
+StartupNotify=true
+X-TraceOS-Managed=true

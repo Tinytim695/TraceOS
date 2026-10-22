@@ -1,73 +1,97 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
 <defs>
-  <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#03050b"/>
-    <stop offset=".42" stop-color="#071426"/>
-    <stop offset=".72" stop-color="#0a1027"/>
-    <stop offset="1" stop-color="#160822"/>
+  <!-- The sky and lake stay luminous. Darker shapes are only the ridges, never the whole frame. -->
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#123a8c"/>
+    <stop offset=".34" stop-color="#1d62d6"/>
+    <stop offset=".62" stop-color="#3aa4ff"/>
+    <stop offset="1" stop-color="#8ad8ff"/>
   </linearGradient>
-  <radialGradient id="cyanGlow" cx=".5" cy=".42" r=".55">
-    <stop offset="0" stop-color="#72f1e8" stop-opacity=".22"/>
-    <stop offset=".52" stop-color="#50b8ff" stop-opacity=".08"/>
-    <stop offset="1" stop-color="#50b8ff" stop-opacity="0"/>
+  <radialGradient id="cyanGlow" cx=".5" cy=".36" r=".42">
+    <stop offset="0" stop-color="#f3ffff" stop-opacity=".95"/>
+    <stop offset=".22" stop-color="#7af6ff" stop-opacity=".72"/>
+    <stop offset=".55" stop-color="#2f8dff" stop-opacity=".28"/>
+    <stop offset="1" stop-color="#1a62d0" stop-opacity="0"/>
   </radialGradient>
-  <radialGradient id="purpleGlow" cx=".78" cy=".22" r=".45">
-    <stop offset="0" stop-color="#9c7bff" stop-opacity=".18"/>
-    <stop offset="1" stop-color="#9c7bff" stop-opacity="0"/>
+  <radialGradient id="purpleGlow" cx=".8" cy=".16" r=".42">
+    <stop offset="0" stop-color="#c9a6ff" stop-opacity=".7"/>
+    <stop offset="1" stop-color="#7a4dff" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="vignette" cx=".5" cy=".42" r=".78">
+    <stop offset=".55" stop-color="#021428" stop-opacity="0"/>
+    <stop offset="1" stop-color="#062046" stop-opacity=".42"/>
   </radialGradient>
   <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#08162a"/>
-    <stop offset="1" stop-color="#03050b"/>
+    <stop offset="0" stop-color="#7ad4ff"/>
+    <stop offset=".28" stop-color="#2f8ef0"/>
+    <stop offset="1" stop-color="#124888"/>
   </linearGradient>
-  <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
-    <path d="M64 0H0V64" fill="none" stroke="#8bb6d8" stroke-opacity=".07"/>
-  </pattern>
-  <filter id="soft">
-    <feGaussianBlur stdDeviation="18"/>
-  </filter>
   <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#d9fffb"/>
-    <stop offset=".38" stop-color="#72f1e8"/>
-    <stop offset=".72" stop-color="#3aa7ff"/>
-    <stop offset="1" stop-color="#8d74ff"/>
+    <stop offset="0" stop-color="#ffffff"/>
+    <stop offset=".28" stop-color="#d9fffb"/>
+    <stop offset=".58" stop-color="#5cefff"/>
+    <stop offset=".82" stop-color="#3aa7ff"/>
+    <stop offset="1" stop-color="#b388ff"/>
   </linearGradient>
+  <filter id="soft">
+    <feGaussianBlur stdDeviation="22"/>
+  </filter>
 </defs>
 
 <rect width="1920" height="1080" fill="url(#sky)"/>
-<rect width="1920" height="1080" fill="url(#cyanGlow)"/>
 <rect width="1920" height="1080" fill="url(#purpleGlow)"/>
+<rect width="1920" height="1080" fill="url(#cyanGlow)"/>
 
-<ellipse cx="970" cy="675" rx="580" ry="100" fill="#72f1e8" opacity=".09" filter="url(#soft)"/>
-
-<path d="M0 690 L220 520 L370 625 L575 410 L780 650 L960 470 L1140 635 L1360 390 L1585 620 L1740 485 L1920 650 L1920 1080 L0 1080Z"
-      fill="#040913"/>
-<path d="M0 760 L210 625 L390 700 L590 535 L760 720 L955 575 L1130 700 L1360 530 L1560 715 L1760 585 L1920 700 L1920 1080 L0 1080Z"
-      fill="#07111d" opacity=".92"/>
-
-<path d="M0 760 C330 735 510 800 820 772 C1110 746 1340 770 1920 735 L1920 1080 L0 1080Z"
-      fill="url(#water)"/>
-<path d="M0 776 C360 750 575 805 840 781 C1150 752 1380 785 1920 750"
-      fill="none" stroke="#72f1e8" stroke-opacity=".20" stroke-width="2"/>
-
-<g opacity=".13">
-  <path d="M0 840H1920M0 920H1920M0 1000H1920" stroke="#72f1e8"/>
-  <path d="M160 780V1080M420 780V1080M680 780V1080M940 780V1080M1200 780V1080M1460 780V1080M1720 780V1080" stroke="#50b8ff"/>
+<g fill="#f7fbff">
+  <circle cx="140" cy="90" r="1.6"/>
+  <circle cx="260" cy="150" r="1.2"/>
+  <circle cx="390" cy="70" r="1.4"/>
+  <circle cx="520" cy="180" r="1.1"/>
+  <circle cx="680" cy="96" r="1.5"/>
+  <circle cx="810" cy="48" r="1.2"/>
+  <circle cx="1180" cy="86" r="1.4"/>
+  <circle cx="1340" cy="150" r="1.2"/>
+  <circle cx="1510" cy="64" r="1.6"/>
+  <circle cx="1680" cy="130" r="1.1"/>
+  <circle cx="1810" cy="88" r="1.4"/>
+  <circle cx="980" cy="120" r="1.2"/>
+  <circle cx="430" cy="240" r="1.1"/>
+  <circle cx="1560" cy="220" r="1.2"/>
 </g>
-<rect width="1920" height="1080" fill="url(#grid)" opacity=".45"/>
 
-<g transform="translate(960 418)">
-  <circle r="188" fill="none" stroke="#72f1e8" stroke-width="3" opacity=".22"/>
-  <path d="M-28 -186a188 188 0 0 1 164 92" fill="none" stroke="#9c7bff" stroke-width="4" stroke-linecap="round" opacity=".9"/>
-  <path d="M0 -214v18M0 196v18M-214 0h18M196 0h18" stroke="#72f1e8" stroke-width="4" stroke-linecap="round" opacity=".75"/>
+<path d="M0 560 L160 430 L300 520 L470 360 L640 510 L820 420 L980 500 L1140 380 L1320 520 L1500 340 L1680 500 L1840 410 L1920 500 L1920 760 L0 760Z" fill="#2a6ec4"/>
+<path d="M0 560 L160 430 L300 520 L470 360 L640 510 L820 420 L980 500 L1140 380 L1320 520 L1500 340 L1680 500 L1840 410 L1920 500" fill="none" stroke="#d9f7ff" stroke-width="3" opacity=".85"/>
+<path d="M0 640 L190 530 L340 610 L530 470 L710 620 L900 540 L1080 630 L1260 500 L1450 640 L1630 520 L1800 620 L1920 560 L1920 820 L0 820Z" fill="#184888"/>
+<path d="M0 640 L190 530 L340 610 L530 470 L710 620 L900 540 L1080 630 L1260 500 L1450 640 L1630 520 L1800 620 L1920 560" fill="none" stroke="#9ae8ff" stroke-width="2.5" opacity=".8"/>
+
+<ellipse cx="960" cy="430" rx="280" ry="150" fill="#bfffff" opacity=".55" filter="url(#soft)"/>
+
+<g transform="translate(960 400) scale(1.72)">
+  <circle r="150" fill="none" stroke="#e9ffff" stroke-width="3" opacity=".55"/>
+  <path d="M-22 -148a150 150 0 0 1 132 74" fill="none" stroke="#efe4ff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M0 -172v16M0 156v16M-172 0h16M156 0h16" stroke="#f4ffff" stroke-width="4" stroke-linecap="round"/>
   <path d="M-132 -78H116l20 20v18l-20 20H40v148l-16 18H-24l-16-18V-20H-132l-20-20v-18z" fill="url(#mark)"/>
-  <path d="M-116 -68H104" stroke="#f4fffd" stroke-width="4" stroke-linecap="round" opacity=".8"/>
-  <path d="M-28 -20v122" stroke="#e9fffc" stroke-width="3" stroke-linecap="round" opacity=".4"/>
+  <path d="M-116 -68H104" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M-28 -20v122" stroke="#f3fffe" stroke-width="3" stroke-linecap="round" opacity=".7"/>
 </g>
 
-<text x="960" y="700" fill="#eaf6ff" text-anchor="middle"
-      font-family="DejaVu Sans, sans-serif" font-size="56" font-weight="700" letter-spacing="9">TRACEOS</text>
-<text x="960" y="748" fill="#8ca7c2" text-anchor="middle"
-      font-family="DejaVu Sans, sans-serif" font-size="18" letter-spacing="5">DIGITAL INVESTIGATION WORKSTATION</text>
-<text x="960" y="1022" fill="#72f1e8" fill-opacity=".55" text-anchor="middle"
-      font-family="DejaVu Sans, sans-serif" font-size="12" letter-spacing="4">LOCAL-FIRST  •  USER-INVOKED EXTERNAL ACTIONS</text>
+<path d="M0 760 C280 730 520 800 820 760 C1120 720 1400 790 1920 730 L1920 1080 L0 1080Z" fill="url(#water)"/>
+<ellipse cx="960" cy="790" rx="460" ry="54" fill="#e9ffff" opacity=".42"/>
+<path d="M620 790 C760 770 860 810 960 792 C1060 774 1160 812 1300 790" fill="none" stroke="#f7ffff" stroke-width="4" opacity=".8"/>
+<path d="M700 860 H1220" stroke="#d9f7ff" stroke-width="2" opacity=".45"/>
+<path d="M760 920 H1160" stroke="#b7ecff" stroke-width="2" opacity=".35"/>
+
+<g fill="#12386a">
+  <path d="M1500 760 L1560 700 L1620 760Z"/>
+  <path d="M1568 748 L1610 690 L1652 748Z"/>
+  <ellipse cx="1588" cy="768" rx="120" ry="22"/>
+</g>
+<circle cx="1596" cy="732" r="4" fill="#ff7ad9"/>
+
+<text x="960" y="705" fill="#f7fcff" text-anchor="middle"
+      font-family="DejaVu Sans, sans-serif" font-size="78" font-weight="700">TRACEOS</text>
+<text x="960" y="754" fill="#e7f8ff" text-anchor="middle"
+      font-family="DejaVu Sans, sans-serif" font-size="24">INVESTIGATION WORKSTATION</text>
+
+<rect width="1920" height="1080" fill="url(#vignette)"/>
 </svg>
