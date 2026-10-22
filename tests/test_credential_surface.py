@@ -19,7 +19,7 @@ PINS = (
     "8ae0416d85336a1aea6883920ae9c2751a98538fe0bb624822e92934d3be5592",
     "b4699d7ecfd5c0d656d86379e41f0eb34b0f12c3cb45398f1e747f10844d7930",
     "pypykatz==0.6.13",
-    "donpapi==2.0.1",
+    "4f01e2b893d3dfbc327b68797943cc2f00c5dd94",
     "21af4f9b0899bebb8f0b6dd4c0839eec33d2bb19",
 )
 
@@ -51,6 +51,8 @@ class CredentialSurfaceTests(unittest.TestCase):
         self.assertIn("filedialog.askdirectory", control)
         self.assertIn("ExifTool version", text)
         self.assertNotIn("exiftool ExifTool -h", text)
+        self.assertNotIn("donpapi==2.0.1", text)
+        self.assertNotIn("lxml==4.9.3", text)
         for pin in PINS:
             with self.subTest(pin=pin[:12]):
                 self.assertIn(pin, text)
