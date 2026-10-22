@@ -448,6 +448,9 @@ launcher_action_seen() {
         grep -F "nonce=$expected_nonce" >/dev/null
 }
 
+# The Applications menu against the Control Centre baseline measures 24,991
+# changed pixels in the 300x500 popup crop. A threshold of 25,000 rejected
+# that open menu. Cursor-only noise in this crop stays far below 20,000.
 popup_region_diff_passes() {
     local changed_pixels="$1"
     [[ "$changed_pixels" =~ ^[0-9]+$ ]] && (( changed_pixels > 20000 ))
@@ -587,6 +590,18 @@ EOF
         echo "[TraceOS] Matrix gate accepted missing image result." >&2
         exit 1
     fi
+    # Captured QEMU run 39575885016: the Applications menu was visibly open
+    # and the popup crop differed by exactly 24,991 pixels.
+    popup_region_diff_passes 24991
+    if popup_region_diff_passes 20000; then
+        echo "[TraceOS] Popup fixture accepted the exact threshold boundary." >&2
+        exit 1
+    fi
+    if popup_region_diff_passes not-a-number; then
+        echo "[TraceOS] Popup fixture accepted a non-numeric diff." >&2
+        exit 1
+    fi
+
     echo "[TraceOS] QEMU GUI parser fixtures: PASS"
     exit 0
 fi
