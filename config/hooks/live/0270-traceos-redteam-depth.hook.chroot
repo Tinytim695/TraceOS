@@ -1,0 +1,137 @@
+#!/bin/sh
+set -eu
+
+export PIPX_GLOBAL_HOME="/opt/pipx"
+export PIPX_GLOBAL_BIN_DIR="/usr/local/bin"
+export PIPX_GLOBAL_MAN_DIR="/usr/local/share/man"
+
+mkdir -p "$PIPX_GLOBAL_HOME" "$PIPX_GLOBAL_BIN_DIR" "$PIPX_GLOBAL_MAN_DIR"
+
+require_surface() {
+    binary="$1"
+    needle="$2"
+    shift 2
+    cd /tmp
+    if output="$("$binary" "$@" 2>&1)"; then
+        status=0
+    else
+        status=$?
+    fi
+    printf '%s\n' "$output"
+    test "$status" -eq 0
+    printf '%s\n' "$output" | grep -F "$needle" >/dev/null
+    cd /
+}
+
+install_verified_file() {
+    dest="$1"
+    digest="$2"
+    url="$3"
+    filename="$4"
+    tmp="/tmp/traceos-redteam-$dest"
+
+    echo "[TraceOS] Installing pinned binary $dest"
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+    curl -fsSL --retry 5 --retry-delay 2 --max-time 300 "$url" -o "$tmp/$filename"
+    printf '%s  %s\n' "$digest" "$tmp/$filename" | sha256sum -c -
+    install -m 0755 "$tmp/$filename" "/usr/local/bin/$dest"
+    rm -rf "$tmp"
+}
+
+install_verified_tarball() {
+    dest="$1"
+    inner="$2"
+    digest="$3"
+    url="$4"
+    filename="$5"
+    tmp="/tmp/traceos-redteam-$dest"
+
+    echo "[TraceOS] Installing pinned release $dest"
+    rm -rf "$tmp"
+    mkdir -p "$tmp/extract"
+    curl -fsSL --retry 5 --retry-delay 2 --max-time 300 "$url" -o "$tmp/$filename"
+    printf '%s  %s\n' "$digest" "$tmp/$filename" | sha256sum -c -
+    tar --no-same-owner -xzf "$tmp/$filename" -C "$tmp/extract"
+    test -f "$tmp/extract/$inner"
+    install -m 0755 "$tmp/extract/$inner" "/usr/local/bin/$dest"
+    rm -rf "$tmp"
+}
+
+install_pipx_release() {
+    package="$1"
+    version="$2"
+    echo "[TraceOS] Installing $package==$version"
+    pipx install --global "$package==$version"
+}
+
+install_pipx_git() {
+    label="$1"
+    commit="$2"
+    url="$3"
+    echo "[TraceOS] Installing $label @ $commit"
+    pipx install --global "$url"
+}
+
+install_verified_file adalanche \
+    1f2b0765df54362f886d3089e5263994ec5fb6d1bea666c84af4620069bfedb5 \
+    https://github.com/lkarlslund/Adalanche/releases/download/r1014/adalanche-linux-x64-r1014 \
+    adalanche-linux-x64-r1014
+require_surface /usr/local/bin/adalanche r1014 version
+
+install_verified_file ldeep \
+    3bfabfc2f152741470397b6ac5069b76eaf5e50763aa8c0e0d5d509cda005c46 \
+    https://github.com/franc-pentest/ldeep/releases/download/2.0.3/ldeep_linux-amd64 \
+    ldeep_linux-amd64
+require_surface /usr/local/bin/ldeep 2.0.3 -h
+
+install_verified_tarball pretender pretender \
+    c6d359a95211f2d5f2e87c4bd17cab183971aa82b889a45d64f46b4bf434916e \
+    https://github.com/RedTeamPentesting/pretender/releases/download/v1.4.1/pretender_Linux_x86_64.tar.gz \
+    pretender_Linux_x86_64.tar.gz
+require_surface /usr/local/bin/pretender "v1.4.1" -h
+
+install_verified_tarball ligolo-proxy proxy \
+    6c683c403502d366276595197749e620c975908dae7314c21079ec8ebee4e5d0 \
+    https://github.com/nicocha30/ligolo-ng/releases/download/v0.9.2/ligolo-ng_proxy_0.9.2_linux_amd64.tar.gz \
+    ligolo-ng_proxy_0.9.2_linux_amd64.tar.gz
+require_surface /usr/local/bin/ligolo-proxy 0.9.2 --version
+
+install_verified_tarball ligolo-agent agent \
+    714534917a4a58812669619667cc57dfad03d34d0de5b0d7c468d76819f84111 \
+    https://github.com/nicocha30/ligolo-ng/releases/download/v0.9.2/ligolo-ng_agent_0.9.2_linux_amd64.tar.gz \
+    ligolo-ng_agent_0.9.2_linux_amd64.tar.gz
+require_surface /usr/local/bin/ligolo-agent 0.9.2 --version
+
+install_pipx_release bloodyAD 2.5.5
+require_surface /usr/local/bin/bloodyAD bloodyAD -h
+
+install_pipx_release coercer 2.4.3
+require_surface /usr/local/bin/coercer coercer -h
+
+install_pipx_release mitm6 0.3.0
+require_surface /usr/local/bin/mitm6 mitm6 -h
+
+install_pipx_git pre2k 7b9b86fdbc9c13a1ab962e1e5ab5633b778e81cf \
+    "git+https://github.com/garrettfoster13/pre2k.git@7b9b86fdbc9c13a1ab962e1e5ab5633b778e81cf"
+require_surface /usr/local/bin/pre2k pre2k --help
+
+install_pipx_git sccmhunter 274ff48a1b56870d713e5bd029dcf2c1abbb71b8 \
+    "git+https://github.com/garrettfoster13/sccmhunter.git@274ff48a1b56870d713e5bd029dcf2c1abbb71b8"
+require_surface /usr/local/bin/sccmhunter.py sccmhunter -h
+
+cat > /usr/share/traceos/redteam-depth-tools.txt <<'EOF'
+# TraceOS Block 6C: Red team depth
+# project|version|command|purpose|license|mode|provenance
+lkarlslund/Adalanche|r1014|adalanche|Active Directory ACL and attack-path exploration|AGPL-3.0|authorized|GitHub release r1014 linux-x64, sha256 1f2b0765df54362f886d3089e5263994ec5fb6d1bea666c84af4620069bfedb5
+franc-pentest/ldeep|2.0.3|ldeep|LDAP enumeration beyond standard BloodHound collection|MIT|authorized|GitHub release 2.0.3 linux-amd64, sha256 3bfabfc2f152741470397b6ac5069b76eaf5e50763aa8c0e0d5d509cda005c46
+RedTeamPentesting/pretender|1.4.1|pretender|IPv4/IPv6 name-resolution and DHCPv6 DNS takeover assessment|MIT|authorized|GitHub release v1.4.1 linux x86_64, sha256 c6d359a95211f2d5f2e87c4bd17cab183971aa82b889a45d64f46b4bf434916e
+nicocha30/ligolo-ng|0.9.2|ligolo-proxy,ligolo-agent|Operator-controlled tunnel proxy and agent for authorized pivot labs|GPL-3.0|authorized|GitHub release v0.9.2 linux amd64 proxy sha256 6c683c403502d366276595197749e620c975908dae7314c21079ec8ebee4e5d0 and agent sha256 714534917a4a58812669619667cc57dfad03d34d0de5b0d7c468d76819f84111
+CravateRouge/bloodyAD|2.5.5|bloodyAD|Authorized Active Directory object and ACL assessment|MIT|authorized|PyPI bloodyAD 2.5.5
+p0dalirius/Coercer|2.4.3|coercer|Windows authentication-coercion method assessment|GPL-2.0|authorized|PyPI coercer 2.4.3
+dirkjanm/mitm6|0.3.0|mitm6|IPv6 DNS takeover assessment|GPL-2.0|authorized|PyPI mitm6 0.3.0
+garrettfoster13/pre2k|3.0|pre2k|Pre-Windows 2000 computer-account assessment|MIT|authorized|Git commit 7b9b86fdbc9c13a1ab962e1e5ab5633b778e81cf
+garrettfoster13/sccmhunter|2.0.0|sccmhunter.py|SCCM hierarchy identification and assessment|GPL-3.0|authorized|Git commit 274ff48a1b56870d713e5bd029dcf2c1abbb71b8
+EOF
+
+echo "[TraceOS] Block 6C red team depth installation complete."

@@ -109,6 +109,17 @@ Block 6B extends the offensive workstation into enterprise identity and authenti
 - The tools are operator-invoked and intended for explicitly authorized assessments; TraceOS does not automate uncontrolled credential spraying or destructive actions during ISO construction.
 - The full BloodHound CE server/frontend remains a separate evaluation item because its current upstream release is not shipped as a simple standalone Linux asset. BloodHound.py is the portable collector component bundled in this block.
 
+## Block 6C: Red team depth
+
+Block 6C adds the tools working red teams actually reach for after NetExec and BloodHound. Several are well known inside that community and rarely packaged in a general enterprise image:
+
+- **Adalanche r1014**, an Active Directory ACL and attack-path explorer that is not BloodHound.
+- **ldeep 2.0.3**, for LDAP enumeration that the usual collectors skip.
+- **Pretender 1.4.1** and **mitm6 0.3.0**, for name-resolution and IPv6 DNS takeover assessment.
+- **Ligolo-ng 0.9.2** proxy and agent, for an operator-started tunnel. The image does not launch either one during the build.
+- **bloodyAD 2.5.5**, **Coercer 2.4.3**, **pre2k 3.0**, and **SCCMHunter 2.0.0**, for AD object assessment, authentication coercion, legacy computer accounts, and SCCM hierarchy identification.
+
+Every binary is pinned to a release checksum or a Git commit. The build checks the command surface only. It does not coerce authentication, poison name resolution, open a tunnel, or send traffic to a target. The Control Centre opens each tool at its help or version screen inside a terminal, and the existing authorization checkbox still applies.
 
 ## Security engineering
 

@@ -108,6 +108,8 @@ echo "[TraceOS] BLOCK 6A OFFENSIVE OPERATIONS"
 for cmd in msfconsole msfvenom msfdb enum4linux-ng; do check_cmd "$cmd"; done
 echo "[TraceOS] BLOCK 6B AD / AUTHENTICATION ASSESSMENT"
 for cmd in bloodhound-python kerbrute hashcat john; do check_cmd "$cmd"; done
+echo "[TraceOS] BLOCK 6C RED TEAM DEPTH"
+for cmd in adalanche ldeep pretender ligolo-proxy ligolo-agent bloodyAD coercer mitm6 pre2k sccmhunter.py; do check_cmd "$cmd"; done
 echo "[TraceOS] BLUE / DFIR"
 for cmd in tcpdump tshark wireshark yara; do check_cmd "$cmd"; done
 for cmd in fls mmls tsk_recover; do check_cmd "$cmd"; done

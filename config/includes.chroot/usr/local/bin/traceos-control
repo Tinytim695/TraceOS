@@ -387,6 +387,16 @@ ASSESSMENT_TOOL_SPECS = {
     "Kerbrute Console": {"command": "kerbrute", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "kerbrute; exec bash"], "replace": True},
     "Hashcat Console": {"command": "hashcat", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "hashcat --help; exec bash"], "replace": True},
     "John Console": {"command": "john", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "john; exec bash"], "replace": True},
+    "Adalanche Console": {"command": "adalanche", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "adalanche version; exec bash"], "replace": True},
+    "ldeep Console": {"command": "ldeep", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "ldeep -h; exec bash"], "replace": True},
+    "Pretender Console": {"command": "pretender", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "pretender -h; exec bash"], "replace": True},
+    "Ligolo Proxy Console": {"command": "ligolo-proxy", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "ligolo-proxy --version; exec bash"], "replace": True},
+    "Ligolo Agent Console": {"command": "ligolo-agent", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "ligolo-agent --version; exec bash"], "replace": True},
+    "bloodyAD Console": {"command": "bloodyAD", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "bloodyAD -h; exec bash"], "replace": True},
+    "Coercer Console": {"command": "coercer", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "coercer -h; exec bash"], "replace": True},
+    "mitm6 Console": {"command": "mitm6", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "mitm6 -h; exec bash"], "replace": True},
+    "pre2k Console": {"command": "pre2k", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "pre2k --help; exec bash"], "replace": True},
+    "SCCMHunter Console": {"command": "sccmhunter.py", "mode": "launch", "ui": "terminal", "argv": ["bash", "-lc", "sccmhunter.py -h; exec bash"], "replace": True},
 }
 DEFENCE_TOOL_SPECS = {
     "auditd status": {"command": "auditctl", "mode": "local", "ui": "job", "argv": ["-s"]},
