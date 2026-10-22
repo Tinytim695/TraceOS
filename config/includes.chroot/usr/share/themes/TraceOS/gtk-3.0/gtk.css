@@ -1,12 +1,12 @@
-/* TraceOS GTK 3 visual foundation. Keep controls legible; use cyan as an accent, not a floodlight. */
-@define-color trace_bg #080e18;
-@define-color trace_surface #101b2b;
-@define-color trace_surface_alt #15253a;
-@define-color trace_border #2b4057;
-@define-color trace_text #e6edf7;
-@define-color trace_muted #9aacc2;
-@define-color trace_accent #4dd8e8;
-@define-color trace_accent_hover #7be7f0;
+/* TraceOS GTK 3 visual foundation. Navy surfaces, bright text, cyan accents. */
+@define-color trace_bg #0c1b33;
+@define-color trace_surface #143056;
+@define-color trace_surface_alt #1c4678;
+@define-color trace_border #5aa0dc;
+@define-color trace_text #f5fbff;
+@define-color trace_muted #c5dff3;
+@define-color trace_accent #5eecff;
+@define-color trace_accent_hover #b8fbff;
 
 * {
   -gtk-secondary-caret-color: @trace_accent;
@@ -54,7 +54,7 @@ splitbutton > button {
 button:hover,
 menubutton > button:hover,
 splitbutton > button:hover {
-  background-color: #1c344a;
+  background-color: #24588a;
   border-color: @trace_accent;
 }
 
@@ -62,14 +62,14 @@ button:active,
 button:checked,
 togglebutton:checked {
   background-image: none;
-  background-color: #123b49;
+  background-color: #1a6ea0;
   border-color: @trace_accent;
-  color: #f3fdff;
+  color: #ffffff;
 }
 
 button:disabled {
-  color: alpha(@trace_muted, 0.55);
-  background-color: #0b111b;
+  color: alpha(@trace_muted, 0.7);
+  background-color: #0d2240;
 }
 
 entry,
@@ -78,7 +78,7 @@ spinbutton,
 combobox > box,
 searchbar,
 .inline-toolbar {
-  background-color: #070c14;
+  background-color: #102846;
   color: @trace_text;
   border-color: @trace_border;
   caret-color: @trace_accent;
@@ -95,7 +95,7 @@ selection,
 .view:selected,
 treeview.view:selected,
 row:selected {
-  background-color: #16485a;
+  background-color: #1d74b4;
   color: #ffffff;
 }
 
@@ -109,7 +109,7 @@ row {
 
 .view:hover,
 row:hover {
-  background-color: #122338;
+  background-color: #1a4e86;
 }
 
 label,
@@ -166,26 +166,27 @@ scale highlight {
 }
 
 tooltip {
-  background-color: #050a12;
+  background-color: #12386e;
   color: @trace_text;
   border: 1px solid @trace_border;
 }
 
-/* XFCE shell surfaces: make the panel belong to TraceOS rather than the stock desktop. */
+/* XFCE shell surfaces: readable panel, menus and desktop icon labels. */
 #XfcePanelWindow,
 .xfce4-panel {
-  background-color: #080e18;
-  color: #e6edf7;
-  border-color: #20364d;
+  background-color: #102848;
+  color: #f5fbff;
+  border-color: #5aa0dc;
+  font-weight: bold;
 }
 
 #XfcePanelWindow button,
 .xfce4-panel button,
 #XfcePanelWindow .tasklist button {
   background-image: none;
-  background-color: #101b2b;
-  color: #dce8f5;
-  border: 1px solid #20364d;
+  background-color: #18406e;
+  color: #f5fbff;
+  border: 1px solid #5aa0dc;
   border-radius: 5px;
   box-shadow: none;
 }
@@ -193,19 +194,37 @@ tooltip {
 #XfcePanelWindow button:hover,
 .xfce4-panel button:hover,
 #XfcePanelWindow .tasklist button:hover {
-  background-color: #152b40;
-  border-color: #4dd8e8;
+  background-color: #24588a;
+  border-color: #5eecff;
 }
 
 #XfcePanelWindow .tasklist button:checked,
 .xfce4-panel .tasklist button:checked {
-  background-color: #123b49;
-  border-color: #4dd8e8;
+  background-color: #1a6ea0;
+  border-color: #5eecff;
   color: #ffffff;
 }
 
 #XfcePanelWindow menu,
-#XfcePanelWindow .menu {
-  background-color: #101b2b;
-  color: #e6edf7;
+#XfcePanelWindow .menu,
+.xfce4-panel menu {
+  background-color: #143056;
+  color: #f5fbff;
+}
+
+#XfdesktopIconView,
+XfdesktopIconView.view {
+  color: #f7fbff;
+  text-shadow: 0 1px 2px #062046, 0 0 4px #062046;
+}
+
+.thunar toolbar,
+.thunar .sidebar,
+.thunar paned,
+filechooser,
+filechooser .sidebar,
+#xfce4-appfinder,
+#XfceAppfinderWindow {
+  background-color: @trace_surface;
+  color: @trace_text;
 }

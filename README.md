@@ -19,6 +19,10 @@ TraceOS is a Debian-based Linux desktop project focused on digital investigation
 
 The first milestone establishes a bootable Debian 13 "trixie" XFCE desktop image with a TraceOS launcher, core system utilities, OSINT, web-testing and image-analysis workflows, and GitHub Actions validation for the installed tools.
 
+## Desktop
+
+The wallpaper is a bright blue landscape with a large central T. It is the background only. Control Centre, the file manager, the terminal, Application Finder and Firefox each open as their own window. The desktop icons launch those programs: Cases, Investigation, Tools, Network and the local AI assistant. Trash stays visible. The old near-black wallpaper is not used.
+
 ## Build locally
 
 On a Debian-based build host:

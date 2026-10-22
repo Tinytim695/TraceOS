@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Case Manager
+GenericName=Investigation cases
+Comment=Open TraceOS cases and the evidence vault
+Exec=/usr/local/bin/traceos-control-launch --cases
+TryExec=/usr/local/bin/traceos-control-launch
+Icon=traceos-case
+Terminal=false
+Categories=TraceOS;Utility;Security;
+StartupNotify=true
+X-TraceOS-Managed=true

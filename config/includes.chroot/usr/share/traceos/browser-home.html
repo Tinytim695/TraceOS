@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TraceOS</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      background: #0c1e3d;
+      color: #f4fbff;
+      font-family: "DejaVu Sans", sans-serif;
+    }
+    header {
+      padding: 48px 8vw 24px;
+      background: linear-gradient(180deg, #1d62d6 0%, #0c1e3d 100%);
+    }
+    h1 { margin: 0; font-size: 42px; letter-spacing: 2px; }
+    p { color: #c5dff3; max-width: 640px; }
+    nav a {
+      color: #062046;
+      background: #7af6ff;
+      text-decoration: none;
+      font-weight: 700;
+      margin-right: 10px;
+      padding: 8px 12px;
+      display: inline-block;
+    }
+    main { padding: 8px 8vw 48px; }
+    section { margin-top: 28px; }
+    code { color: #7af6ff; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TRACEOS</h1>
+    <p>Investigation workstation. This page is stored on the image. It does not upload a search or open a case.</p>
+    <nav>
+      <a href="#home">Home</a>
+      <a href="#tools">Tools</a>
+      <a href="#documentation">Documentation</a>
+      <a href="#about">About</a>
+    </nav>
+  </header>
+  <main>
+    <section id="home">
+      <h2>Home</h2>
+      <p>Use the desktop icons or the TraceOS menu to open Control Centre, the file manager and the terminal. Each one is a separate window.</p>
+    </section>
+    <section id="tools">
+      <h2>Tools</h2>
+      <p>Packaged commands include <code>traceos</code>, <code>nmap</code>, <code>exiftool</code> and the Control Centre. Open Tools from the desktop to reach them. Nothing runs from this page.</p>
+    </section>
+    <section id="documentation">
+      <h2>Documentation</h2>
+      <p>Local manuals are under <a href="file:///usr/share/doc/">/usr/share/doc</a>. TraceOS notes ship in the image README.</p>
+    </section>
+    <section id="about">
+      <h2>About</h2>
+      <p>TraceOS 0.1.0. Local-first. External actions start only when you launch them.</p>
+    </section>
+  </main>
+</body>
+</html>

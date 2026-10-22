@@ -11,9 +11,9 @@
       <stop offset="1" stop-color="#72f1e8" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="108" fill="#050811"/>
-  <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="#17314c" stroke-width="8"/>
-  <circle cx="256" cy="256" r="176" fill="none" stroke="#143047" stroke-width="10"/>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="#12386e"/>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="#8fd8ff" stroke-width="8"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#8fd8ff" stroke-width="10"/>
   <path d="M256 80a176 176 0 0 1 152 88" fill="none" stroke="#9c7bff" stroke-width="4" stroke-linecap="round"/>
   <path d="M256 62v22M256 428v22M62 256h22M428 256h22" stroke="#72f1e8" stroke-width="4" stroke-linecap="round"/>
   <path d="M132 168h232l18 18v16l-18 18H292v132l-14 16h-44l-14-16V220H132l-18-18v-16z" fill="url(#trace)"/>
