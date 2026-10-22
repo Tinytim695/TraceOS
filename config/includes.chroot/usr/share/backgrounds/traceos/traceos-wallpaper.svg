@@ -25,6 +25,12 @@
   <filter id="soft">
     <feGaussianBlur stdDeviation="18"/>
   </filter>
+  <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#d9fffb"/>
+    <stop offset=".38" stop-color="#72f1e8"/>
+    <stop offset=".72" stop-color="#3aa7ff"/>
+    <stop offset="1" stop-color="#8d74ff"/>
+  </linearGradient>
 </defs>
 
 <rect width="1920" height="1080" fill="url(#sky)"/>
@@ -49,14 +55,13 @@
 </g>
 <rect width="1920" height="1080" fill="url(#grid)" opacity=".45"/>
 
-<g transform="translate(960 430)">
-  <circle r="190" fill="none" stroke="#72f1e8" stroke-width="4" opacity=".20"/>
-  <circle r="136" fill="none" stroke="#50b8ff" stroke-width="3" opacity=".34"/>
-  <circle r="95" fill="#050811" fill-opacity=".42" stroke="#9c7bff" stroke-opacity=".22"/>
-  <path d="M-88-70H88v46H31v138h-62V-24h-57z" fill="#72f1e8"/>
-  <path d="M0-260V-188M0 188V260M-260 0H-188M188 0H260"
-        stroke="#72f1e8" stroke-width="6" stroke-linecap="round" opacity=".70"/>
-  <circle cx="0" cy="0" r="15" fill="#eaf6ff"/>
+<g transform="translate(960 418)">
+  <circle r="188" fill="none" stroke="#72f1e8" stroke-width="3" opacity=".22"/>
+  <path d="M-28 -186a188 188 0 0 1 164 92" fill="none" stroke="#9c7bff" stroke-width="4" stroke-linecap="round" opacity=".9"/>
+  <path d="M0 -214v18M0 196v18M-214 0h18M196 0h18" stroke="#72f1e8" stroke-width="4" stroke-linecap="round" opacity=".75"/>
+  <path d="M-132 -78H116l20 20v18l-20 20H40v148l-16 18H-24l-16-18V-20H-132l-20-20v-18z" fill="url(#mark)"/>
+  <path d="M-116 -68H104" stroke="#f4fffd" stroke-width="4" stroke-linecap="round" opacity=".8"/>
+  <path d="M-28 -20v122" stroke="#e9fffc" stroke-width="3" stroke-linecap="round" opacity=".4"/>
 </g>
 
 <text x="960" y="700" fill="#eaf6ff" text-anchor="middle"
