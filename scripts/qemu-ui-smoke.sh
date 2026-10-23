@@ -631,6 +631,12 @@ test "$packaged_wallpaper_dimensions" = "1920 1080"
 packaged_wallpaper_sha256="$(sha256sum "$packaged_wallpaper_png" | awk '{print $1}')"
 printf 'TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS=%s\nTRACEOS_PACKAGED_WALLPAPER_SHA256=%s\n' \
     "$packaged_wallpaper_dimensions" "$packaged_wallpaper_sha256" >"$OUT/traceos-wallpaper-manifest.txt"
+packaged_wallpaper_mean="$(convert "$packaged_wallpaper_png" -format '%[fx:mean]' info:)"
+if ! awk "BEGIN { exit !($packaged_wallpaper_mean > 0.25) }"; then
+    echo "[TraceOS] Packaged wallpaper is too dark (mean=$packaged_wallpaper_mean)." >&2
+    exit 1
+fi
+echo "[TraceOS] Packaged wallpaper mean luminance: $packaged_wallpaper_mean"
 
 # First prove the real desktop renders. Keep the same guest alive for one
 # diagnostic interaction so the Dashboard remains the baseline gate.
@@ -1247,9 +1253,11 @@ if (( wallpaper_crop_width > 200 && wallpaper_crop_height > 200 )); then
     # with a 0..1 threshold; comparing the raw first number rejects correct art.
     wallpaper_mae_raw="${wallpaper_mae%% *}"
     wallpaper_mae_normalized="$(printf '%s\n' "$wallpaper_mae" | sed -n 's/.*(\([0-9][0-9.]*\)).*/\1/p')"
-    echo "[TraceOS] Rendered wallpaper crop MAE: raw=${wallpaper_mae_raw:-unknown} normalized=${wallpaper_mae_normalized:-unknown} (normalized threshold below 0.08)."
+    actual_wallpaper_mean="$(convert "$wallpaper_actual_crop" -format '%[fx:mean]' info:)"
+    echo "[TraceOS] Rendered wallpaper crop MAE: raw=${wallpaper_mae_raw:-unknown} normalized=${wallpaper_mae_normalized:-unknown} desktop_mean=${actual_wallpaper_mean:-unknown} (normalized threshold below 0.08, mean above 0.20)."
     if [[ "$wallpaper_mae_normalized" =~ ^[0-9]+([.][0-9]+)?$ ]] && \
-        awk "BEGIN { exit !($wallpaper_mae_normalized < 0.08) }"; then
+        awk "BEGIN { exit !($wallpaper_mae_normalized < 0.08) }" && \
+        awk "BEGIN { exit !($actual_wallpaper_mean > 0.20) }"; then
         wallpaper_visual_status="yes"
         echo "[TraceOS] Packaged TraceOS wallpaper is visibly rendered in the uncovered desktop."
     else

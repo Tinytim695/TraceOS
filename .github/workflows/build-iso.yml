@@ -106,6 +106,12 @@ jobs:
           test -s /tmp/traceos-root/usr/local/lib/traceos/desktop_wallpaper.py
           wallpaper_dimensions="$(identify -format '%w %h' "$wallpaper_png")"
           test "$wallpaper_dimensions" = "1920 1080"
+          wallpaper_mean="$(convert "$wallpaper_png" -format '%[fx:mean]' info:)"
+          if ! awk -v mean="$wallpaper_mean" 'BEGIN { exit !(mean+0 > 0.25) }'; then
+            echo "[TraceOS] Packaged wallpaper is too dark (mean=$wallpaper_mean)." >&2
+            exit 1
+          fi
+          echo "[TraceOS] Packaged wallpaper mean luminance: $wallpaper_mean"
           wallpaper_sha256="$(sha256sum "$wallpaper_png" | awk '{print $1}')"
           printf 'TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS=%s\nTRACEOS_PACKAGED_WALLPAPER_SHA256=%s\n' \
             "$wallpaper_dimensions" "$wallpaper_sha256" | tee -a traceos-iso-layout.txt
