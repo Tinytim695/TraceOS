@@ -79,6 +79,7 @@ rsync
 plymouth
 plymouth-themes
 fonts-dejavu
+librsvg2-bin
 librsvg2-common
 
 # Firmware

@@ -98,6 +98,14 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn("#8ad8ff", svg)
         self.assertIn("#3aa4ff", svg)
         self.assertLess(luminance("#184888"), luminance("#8ad8ff"))
+        hook=(ROOT/"config/hooks/live/0350-render-traceos-wallpaper.hook.chroot").read_text(encoding="utf-8")
+        self.assertIn("rsvg-convert --width=1920 --height=1080", hook)
+        self.assertIn("mean+0 > 0.25", hook)
+        self.assertNotIn("convert \"$src\" -background none", hook)
+        experience=(ROOT/"config/hooks/live/0300-traceos-experience.hook.chroot").read_text(encoding="utf-8")
+        self.assertNotIn("traceos-wallpaper.svg", experience)
+        packages=(ROOT/"config/package-lists/traceos.list.chroot").read_text(encoding="utf-8")
+        self.assertIn("librsvg2-bin", packages)
 
     def test_desktop_entries_open_real_programs(self):
         expected={
@@ -197,6 +205,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "TRACEOS_GTK_THEME_ERROR","traceos-native-gtk.png",
                          "traceos-native-gtk-menu.png","traceos-wallpaper-expected-fit.png",
                          "wallpaper_mae_normalized","normalized threshold below 0.08",
+                         "actual_wallpaper_mean > 0.20",
+                         "Packaged wallpaper is too dark",
                          "wallpaper_visual_status","native_gtk_status",
                          "native_gtk_appfinder_visible","native_gtk_appfinder_diff",
                          "native-gtk-appfinder-wait","native-gtk-verify-",
@@ -248,7 +258,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_build_validates_final_squashfs_wallpaper_dimensions_and_hash(self):
         workflow=(ROOT/".github/workflows/build-iso.yml").read_text(encoding="utf-8")
         for expected in ("TRACEOS_PACKAGED_WALLPAPER_DIMENSIONS","TRACEOS_PACKAGED_WALLPAPER_SHA256",
-                         "identify -format '%w %h'", "desktop_wallpaper.py"):
+                         "identify -format '%w %h'", "desktop_wallpaper.py",
+                         "Packaged wallpaper is too dark"):
             self.assertIn(expected,workflow)
 
 if __name__=="__main__": unittest.main()

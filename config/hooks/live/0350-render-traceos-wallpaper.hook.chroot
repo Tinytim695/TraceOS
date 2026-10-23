@@ -5,9 +5,25 @@ src=/usr/share/backgrounds/traceos/traceos-wallpaper.svg
 dst=/usr/share/backgrounds/traceos/traceos-wallpaper.png
 
 test -s "$src"
-convert "$src" -background none -resize 1920x1080 "$dst"
+# ImageMagick's own SVG renderer paints this file black. The Gaussian glow
+# becomes an empty transparent PNG, and XFCE then shows a black desktop.
+# librsvg keeps the luminous landscape. Do not fall back to convert.
+if ! command -v rsvg-convert >/dev/null 2>&1; then
+  echo "[TraceOS] rsvg-convert is required to render the wallpaper." >&2
+  exit 1
+fi
+rsvg-convert --width=1920 --height=1080 --output "$dst" "$src"
 chmod 0644 "$dst"
 test -s "$dst"
+wallpaper_dimensions="$(identify -format '%w %h' "$dst")"
+test "$wallpaper_dimensions" = "1920 1080"
+# Mean is 0..1. The landscape measures about 0.40. The broken render measured 0.
+wallpaper_mean="$(convert "$dst" -format '%[fx:mean]' info:)"
+if ! awk -v mean="$wallpaper_mean" 'BEGIN { exit !(mean+0 > 0.25) }'; then
+  echo "[TraceOS] Wallpaper render is too dark (mean=$wallpaper_mean)." >&2
+  exit 1
+fi
+echo "[TraceOS] Wallpaper rendered at ${wallpaper_dimensions}, mean luminance ${wallpaper_mean}."
 chmod 0755 /usr/local/bin/traceos-launcher /usr/local/bin/traceos-desktop-setup
 test -x /usr/local/bin/traceos-launcher
 test -x /usr/local/bin/traceos-desktop-setup
