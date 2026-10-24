@@ -27,6 +27,7 @@ set_property xfce4-desktop /desktop-icons/file-icons/show-filesystem bool false
 set_property xfce4-desktop /desktop-icons/file-icons/show-trash bool true
 set_property xfce4-desktop /desktop-icons/file-icons/show-removable bool false
 set_property xfce4-desktop /desktop-icons/icon-size int 48
+set_property xfwm4 /general/workspace_count int 4
 panel_dump="$(xfconf-query -c xfce4-panel -lv 2>/dev/null || true)"
 menu_plugins="$(printf '%s\n' "$panel_dump" | awk '$1 ~ /^\/plugins\/plugin-[0-9]+$/ && $2 == "applicationsmenu" {print $1}')"
 if [ -n "$menu_plugins" ]; then

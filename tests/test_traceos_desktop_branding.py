@@ -8,7 +8,78 @@ import unittest
 ROOT=Path(__file__).resolve().parents[1]
 INCLUDES=ROOT/"config/includes.chroot"
 
-def value(path: Path,key: str) -> str:
+def png_rgb_rows(path: Path):
+    """Decode a non-interlaced 8-bit RGB or RGBA PNG without Pillow."""
+    import struct
+    import zlib
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise AssertionError(f"{path} is not a PNG")
+    pos = 8
+    width = height = color = 0
+    idat = bytearray()
+    while pos + 8 <= len(data):
+        length = struct.unpack(">I", data[pos:pos + 4])[0]
+        kind = data[pos + 4:pos + 8]
+        chunk = data[pos + 8:pos + 8 + length]
+        if kind == b"IHDR":
+            width, height, bit, color = struct.unpack(">IIBB", chunk[:10])
+            if bit != 8 or color not in (2, 6):
+                raise AssertionError(f"unsupported PNG {width}x{height} bit={bit} color={color}")
+        elif kind == b"IDAT":
+            idat.extend(chunk)
+        elif kind == b"IEND":
+            break
+        pos += 12 + length
+    raw = zlib.decompress(bytes(idat))
+    channels = 3 if color == 2 else 4
+    stride = width * channels
+    rows = []
+    previous = bytearray(stride)
+    index = 0
+    for _y in range(height):
+        filter_type = raw[index]
+        index += 1
+        row = bytearray(raw[index:index + stride])
+        index += stride
+        for x in range(stride):
+            left = row[x - channels] if x >= channels else 0
+            up = previous[x]
+            up_left = previous[x - channels] if x >= channels else 0
+            if filter_type == 0:
+                value = row[x]
+            elif filter_type == 1:
+                value = row[x] + left
+            elif filter_type == 2:
+                value = row[x] + up
+            elif filter_type == 3:
+                value = row[x] + ((left + up) // 2)
+            elif filter_type == 4:
+                estimate = left + up - up_left
+                nearest = left if abs(estimate - left) <= abs(estimate - up) and abs(estimate - left) <= abs(estimate - up_left) else up if abs(estimate - up) <= abs(estimate - up_left) else up_left
+                value = row[x] + nearest
+            else:
+                raise AssertionError(f"unsupported PNG filter {filter_type}")
+            row[x] = value & 255
+        previous = row
+        rows.append(row)
+    return width, height, channels, rows
+
+def png_mean_luminance(path: Path, box=None) -> float:
+    width, height, channels, rows = png_rgb_rows(path)
+    x0, y0, x1, y1 = box if box else (0, 0, width, height)
+    total = 0.0
+    count = 0
+    for y in range(y0, y1):
+        row = rows[y]
+        for x in range(x0, x1):
+            offset = x * channels
+            red, green, blue = row[offset], row[offset + 1], row[offset + 2]
+            total += 0.2126 * red + 0.7152 * green + 0.0722 * blue
+            count += 1
+    return total / count / 255
+
+def value(path: Path, key: str) -> str:
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith(key+"="): return line.split("=",1)[1]
     return ""
@@ -77,35 +148,68 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertEqual(trash.attrib.get("value"),"true")
 
     def test_wallpaper_art_is_luminous_and_not_a_black_field(self):
-        svg=(INCLUDES/"usr/share/backgrounds/traceos/traceos-wallpaper.svg").read_text(encoding="utf-8")
-        for crushed in ("#03050b","#040913","#050811"):
-            self.assertNotIn(crushed, svg)
-        self.assertIn(">TRACEOS<", svg)
-        self.assertIn("INVESTIGATION WORKSTATION", svg)
-
-        def luminance(color: str) -> float:
-            value=color.lstrip("#")
-            red, green, blue=(int(value[index:index+2], 16)/255 for index in (0, 2, 4))
-            def channel(component: float) -> float:
-                if component <= 0.04045:
-                    return component/12.92
-                return ((component+0.055)/1.055)**2.4
-            return 0.2126*channel(red)+0.7152*channel(green)+0.0722*channel(blue)
-
-        # The old sky stopped at #03050b (luminance about 0.001). The lit horizon
-        # must stay clearly blue so the central T is not sitting in black.
-        self.assertGreater(luminance("#8ad8ff"), 0.45)
-        self.assertIn("#8ad8ff", svg)
-        self.assertIn("#3aa4ff", svg)
-        self.assertLess(luminance("#184888"), luminance("#8ad8ff"))
+        png=INCLUDES/"usr/share/backgrounds/traceos/traceos-wallpaper.png"
+        self.assertTrue(png.is_file())
+        width, height, _channels, _rows = png_rgb_rows(png)
+        self.assertEqual((width, height), (1920, 1080))
+        # The night landscape is dark at the edges. A blank ImageMagick render is 0.
+        self.assertGreater(png_mean_luminance(png), 0.10)
+        self.assertGreater(png_mean_luminance(png, (640, 300, 1280, 780)), 0.18)
+        logo=(INCLUDES/"usr/share/traceos/traceos-logo.svg").read_text(encoding="utf-8")
+        self.assertIn('width="32" height="206"', logo)
+        self.assertIn('stroke-width="7"', logo)
+        self.assertNotIn("feGaussianBlur", logo)
         hook=(ROOT/"config/hooks/live/0350-render-traceos-wallpaper.hook.chroot").read_text(encoding="utf-8")
         self.assertIn("rsvg-convert --width=1920 --height=1080", hook)
-        self.assertIn("mean+0 > 0.25", hook)
+        self.assertIn("Keeping the packaged cinematic wallpaper.", hook)
+        self.assertIn("mean+0 > 0.10", hook)
+        self.assertIn("mean+0 > 0.18", hook)
         self.assertNotIn("convert \"$src\" -background none", hook)
         experience=(ROOT/"config/hooks/live/0300-traceos-experience.hook.chroot").read_text(encoding="utf-8")
         self.assertNotIn("traceos-wallpaper.svg", experience)
         packages=(ROOT/"config/package-lists/traceos.list.chroot").read_text(encoding="utf-8")
         self.assertIn("librsvg2-bin", packages)
+
+    def test_new_case_button_is_not_clipped_by_the_header(self):
+        control=(INCLUDES/"usr/local/bin/traceos-control").read_text(encoding="utf-8")
+        self.assertIn('actions.pack(side="right"', control)
+        self.assertIn('self.small_button(actions, "NEW CASE"', control)
+        self.assertNotIn("header.pack_propagate(False)", control)
+        self.assertNotIn('height=82', control)
+
+    def test_panel_keeps_the_top_menu_and_adds_a_bottom_dock(self):
+        panel=ET.parse(INCLUDES/"etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml")
+        values=[node.attrib.get("value","") for node in panel.getroot().iter("property")]
+        for expected in ("applicationsmenu","tasklist","launcher","pager","systray","clock","actions",
+                         "p=6;x=0;y=0","p=10;x=0;y=0","TraceOS"):
+            self.assertIn(expected, values)
+        launcher_dir=INCLUDES/"etc/skel/.config/xfce4/panel/launcher-5"
+        for name, command in {
+            "traceos-control.desktop":"/usr/local/bin/traceos-control-launch",
+            "xfce4-terminal.desktop":"xfce4-terminal",
+            "thunar.desktop":"thunar",
+            "firefox-esr.desktop":"firefox-esr",
+        }.items():
+            self.assertEqual(value(launcher_dir/name, "Exec"), command)
+        setup=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
+        self.assertIn("workspace_count", setup)
+
+    def test_launcher_search_uses_installed_desktop_files(self):
+        launcher=(INCLUDES/"usr/local/bin/traceos-launcher").read_text(encoding="utf-8")
+        self.assertIn("def installed_applications", launcher)
+        self.assertIn("NoDisplay=", launcher)
+        self.assertIn("def launch_selected_app", launcher)
+        self.assertNotIn("nonexistent", launcher)
+
+    def test_menu_categories_and_greeter_use_the_traceos_theme(self):
+        hook=(ROOT/"config/hooks/live/0350-render-traceos-wallpaper.hook.chroot").read_text(encoding="utf-8")
+        self.assertIn("<Name>Investigation</Name>", hook)
+        self.assertIn("<Name>Forensics</Name>", hook)
+        self.assertIn("investigation.directory", hook)
+        greeter=(INCLUDES/"etc/lightdm/lightdm-gtk-greeter.conf").read_text(encoding="utf-8")
+        self.assertIn("theme-name=TraceOS", greeter)
+        self.assertIn("background=/usr/share/backgrounds/traceos/traceos-wallpaper.png", greeter)
+        self.assertIn("autologin-user=traceos", (INCLUDES/"etc/lightdm/lightdm.conf.d/50-traceos.conf").read_text(encoding="utf-8"))
 
     def test_desktop_entries_open_real_programs(self):
         expected={
@@ -130,7 +234,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn("#xfce4-appfinder", css)
         terminal=(INCLUDES/"etc/skel/.config/xfce4/terminal/terminalrc").read_text(encoding="utf-8")
         self.assertIn("ColorForeground=#f4fbff", terminal)
-        self.assertIn("ColorBackground=#0c1e36", terminal)
+        self.assertIn("ColorBackground=#07111c", terminal)
         browser=(INCLUDES/"usr/share/traceos/browser-home.html").read_text(encoding="utf-8")
         self.assertIn("TRACEOS", browser)
         self.assertNotIn("traceos.local", browser)
@@ -205,7 +309,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "TRACEOS_GTK_THEME_ERROR","traceos-native-gtk.png",
                          "traceos-native-gtk-menu.png","traceos-wallpaper-expected-fit.png",
                          "wallpaper_mae_normalized","normalized threshold below 0.08",
-                         "actual_wallpaper_mean > 0.20",
+                         "actual_wallpaper_mean > 0.10",
+                         "packaged_wallpaper_center > 0.18",
                          "Packaged wallpaper is too dark",
                          "wallpaper_visual_status","native_gtk_status",
                          "native_gtk_appfinder_visible","native_gtk_appfinder_diff",

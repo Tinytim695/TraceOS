@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Control Centre
+Exec=/usr/local/bin/traceos-control-launch
+TryExec=/usr/local/bin/traceos-control-launch
+Icon=traceos-control
+Terminal=false
+StartupNotify=true

@@ -1,12 +1,12 @@
-/* TraceOS GTK 3 visual foundation. Navy surfaces, bright text, cyan accents. */
-@define-color trace_bg #0c1b33;
-@define-color trace_surface #143056;
-@define-color trace_surface_alt #1c4678;
-@define-color trace_border #5aa0dc;
+/* TraceOS GTK 3 visual foundation. Midnight surfaces, bright text, cyan accents. */
+@define-color trace_bg #07111c;
+@define-color trace_surface #0e1a2c;
+@define-color trace_surface_alt #15283d;
+@define-color trace_border #1e4d66;
 @define-color trace_text #f5fbff;
-@define-color trace_muted #c5dff3;
-@define-color trace_accent #5eecff;
-@define-color trace_accent_hover #b8fbff;
+@define-color trace_muted #b7c9da;
+@define-color trace_accent #7af6ff;
+@define-color trace_accent_hover #d9fbff;
 
 * {
   -gtk-secondary-caret-color: @trace_accent;
@@ -54,7 +54,7 @@ splitbutton > button {
 button:hover,
 menubutton > button:hover,
 splitbutton > button:hover {
-  background-color: #24588a;
+  background-color: #1a314c;
   border-color: @trace_accent;
 }
 
@@ -62,14 +62,14 @@ button:active,
 button:checked,
 togglebutton:checked {
   background-image: none;
-  background-color: #1a6ea0;
+  background-color: #12384a;
   border-color: @trace_accent;
   color: #ffffff;
 }
 
 button:disabled {
   color: alpha(@trace_muted, 0.7);
-  background-color: #0d2240;
+  background-color: #0a1624;
 }
 
 entry,
@@ -166,7 +166,7 @@ scale highlight {
 }
 
 tooltip {
-  background-color: #12386e;
+  background-color: #101e32;
   color: @trace_text;
   border: 1px solid @trace_border;
 }
@@ -174,9 +174,9 @@ tooltip {
 /* XFCE shell surfaces: readable panel, menus and desktop icon labels. */
 #XfcePanelWindow,
 .xfce4-panel {
-  background-color: #102848;
+  background-color: #07111c;
   color: #f5fbff;
-  border-color: #5aa0dc;
+  border-color: #1e4d66;
   font-weight: bold;
 }
 
@@ -184,9 +184,9 @@ tooltip {
 .xfce4-panel button,
 #XfcePanelWindow .tasklist button {
   background-image: none;
-  background-color: #18406e;
+  background-color: #122033;
   color: #f5fbff;
-  border: 1px solid #5aa0dc;
+  border: 1px solid #1e4d66;
   border-radius: 5px;
   box-shadow: none;
 }
@@ -194,21 +194,21 @@ tooltip {
 #XfcePanelWindow button:hover,
 .xfce4-panel button:hover,
 #XfcePanelWindow .tasklist button:hover {
-  background-color: #24588a;
-  border-color: #5eecff;
+  background-color: #1a314c;
+  border-color: #7af6ff;
 }
 
 #XfcePanelWindow .tasklist button:checked,
 .xfce4-panel .tasklist button:checked {
-  background-color: #1a6ea0;
-  border-color: #5eecff;
+  background-color: #12384a;
+  border-color: #7af6ff;
   color: #ffffff;
 }
 
 #XfcePanelWindow menu,
 #XfcePanelWindow .menu,
 .xfce4-panel menu {
-  background-color: #143056;
+  background-color: #0e1a2c;
   color: #f5fbff;
 }
 

@@ -4,26 +4,36 @@ set -eu
 src=/usr/share/backgrounds/traceos/traceos-wallpaper.svg
 dst=/usr/share/backgrounds/traceos/traceos-wallpaper.png
 
-test -s "$src"
-# ImageMagick's own SVG renderer paints this file black. The Gaussian glow
-# becomes an empty transparent PNG, and XFCE then shows a black desktop.
-# librsvg keeps the luminous landscape. Do not fall back to convert.
-if ! command -v rsvg-convert >/dev/null 2>&1; then
-  echo "[TraceOS] rsvg-convert is required to render the wallpaper." >&2
-  exit 1
+# The cinematic wallpaper is a packaged PNG. ImageMagick's SVG renderer paints
+# glow filters black, so this file is not produced with convert. librsvg is only
+# the fallback when the PNG is missing.
+if [ -s "$dst" ]; then
+  echo "[TraceOS] Keeping the packaged cinematic wallpaper."
+else
+  test -s "$src"
+  if ! command -v rsvg-convert >/dev/null 2>&1; then
+    echo "[TraceOS] rsvg-convert is required to render the wallpaper." >&2
+    exit 1
+  fi
+  rsvg-convert --width=1920 --height=1080 --output "$dst" "$src"
 fi
-rsvg-convert --width=1920 --height=1080 --output "$dst" "$src"
 chmod 0644 "$dst"
 test -s "$dst"
 wallpaper_dimensions="$(identify -format '%w %h' "$dst")"
 test "$wallpaper_dimensions" = "1920 1080"
-# Mean is 0..1. The landscape measures about 0.40. The broken render measured 0.
+# Whole-frame mean is 0..1. This night landscape is about 0.13 because the
+# pines and sky are dark. A blank render is 0. The centre crop holds the T.
 wallpaper_mean="$(convert "$dst" -format '%[fx:mean]' info:)"
-if ! awk -v mean="$wallpaper_mean" 'BEGIN { exit !(mean+0 > 0.25) }'; then
+center_mean="$(convert "$dst" -gravity center -crop 640x480+0+0 +repage -format '%[fx:mean]' info:)"
+if ! awk -v mean="$wallpaper_mean" 'BEGIN { exit !(mean+0 > 0.10) }'; then
   echo "[TraceOS] Wallpaper render is too dark (mean=$wallpaper_mean)." >&2
   exit 1
 fi
-echo "[TraceOS] Wallpaper rendered at ${wallpaper_dimensions}, mean luminance ${wallpaper_mean}."
+if ! awk -v mean="$center_mean" 'BEGIN { exit !(mean+0 > 0.18) }'; then
+  echo "[TraceOS] Wallpaper centre is too dark (mean=$center_mean)." >&2
+  exit 1
+fi
+echo "[TraceOS] Wallpaper kept at ${wallpaper_dimensions}, mean ${wallpaper_mean}, centre ${center_mean}."
 chmod 0755 /usr/local/bin/traceos-launcher /usr/local/bin/traceos-desktop-setup
 test -x /usr/local/bin/traceos-launcher
 test -x /usr/local/bin/traceos-desktop-setup
@@ -56,25 +66,48 @@ if marker not in text and "<Name>TraceOS</Name>" not in text:
                 depth += 1
     if layout_end is None:
         raise SystemExit("[TraceOS] Could not locate the root XFCE menu layout.")
-    text = text[:layout_end] + "\n    <Menuname>TraceOS</Menuname>" + text[layout_end:]
+    names = ("TraceOS", "Investigation", "Forensics")
+    missing = [name for name in names if f"<Menuname>{name}</Menuname>" not in text]
+    if missing:
+        insert = "".join(f"\n    <Menuname>{name}</Menuname>" for name in missing)
+        text = text[:layout_end] + insert + text[layout_end:]
     root_close = text.rfind("</Menu>")
     if root_close < 0:
         raise SystemExit("[TraceOS] Could not locate root XFCE menu closing tag.")
-    block = (
-        "\n  <!-- TRACEOS-CUSTOM-MENU-BEGIN -->\n"
-        "  <Menu>\n"
-        "    <Name>TraceOS</Name>\n"
-        "    <Directory>traceos.directory</Directory>\n"
-        "    <Include><Category>TraceOS</Category></Include>\n"
-        "  </Menu>\n"
-        "  <!-- TRACEOS-CUSTOM-MENU-END -->\n"
-    )
-    text = text[:root_close] + block + text[root_close:]
+    blocks = []
+    if "<Name>TraceOS</Name>" not in text:
+        blocks.append(
+            "  <Menu>\n"
+            "    <Name>TraceOS</Name>\n"
+            "    <Directory>traceos.directory</Directory>\n"
+            "    <Include><Category>TraceOS</Category></Include>\n"
+            "  </Menu>\n"
+        )
+    if "<Name>Investigation</Name>" not in text:
+        blocks.append(
+            "  <Menu>\n"
+            "    <Name>Investigation</Name>\n"
+            "    <Directory>investigation.directory</Directory>\n"
+            "    <Include><Category>Investigation</Category></Include>\n"
+            "  </Menu>\n"
+        )
+    if "<Name>Forensics</Name>" not in text:
+        blocks.append(
+            "  <Menu>\n"
+            "    <Name>Forensics</Name>\n"
+            "    <Directory>forensics.directory</Directory>\n"
+            "    <Include><Category>Forensics</Category></Include>\n"
+            "  </Menu>\n"
+        )
+    if blocks:
+        block = "\n  <!-- TRACEOS-CUSTOM-MENU-BEGIN -->\n" + "".join(blocks) + "  <!-- TRACEOS-CUSTOM-MENU-END -->\n"
+        text = text[:root_close] + block + text[root_close:]
 ET.fromstring(text)
-if "<Menuname>TraceOS</Menuname>" not in text or "<Category>TraceOS</Category>" not in text:
-    raise SystemExit("[TraceOS] XFCE menu is missing the TraceOS category.")
+for name in ("TraceOS", "Investigation", "Forensics"):
+    if f"<Menuname>{name}</Menuname>" not in text or f"<Name>{name}</Name>" not in text:
+        raise SystemExit(f"[TraceOS] XFCE menu is missing the {name} category.")
 menu_file.write_text(text, encoding="utf-8")
-print("[TraceOS] Added and validated TraceOS category in XFCE menu.")
+print("[TraceOS] Added and validated TraceOS, Investigation and Forensics menu categories.")
 PY
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || true

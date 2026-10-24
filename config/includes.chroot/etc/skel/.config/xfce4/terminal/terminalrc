@@ -1,6 +1,6 @@
 [Configuration]
 ColorForeground=#f4fbff
-ColorBackground=#0c1e36
+ColorBackground=#07111c
 ColorCursor=#7af6ff
 ColorPalette=#0c1e36;#ff8d96;#8dffb8;#ffe08a;#5eb6ff;#c7b0ff;#7af6ff;#f4fbff;#24548a;#ff8d96;#8dffb8;#ffe08a;#5eb6ff;#c7b0ff;#7af6ff;#ffffff
 FontName=Monospace 11

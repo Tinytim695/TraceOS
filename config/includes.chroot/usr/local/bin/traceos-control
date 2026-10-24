@@ -31,21 +31,21 @@ from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
 
-BG = "#0b1c36"
-BG2 = "#102646"
-PANEL = "#12315c"
-CARD = "#18406e"
-CARD2 = "#1f4e84"
-CARD3 = "#2a62a0"
+BG = "#07111c"
+BG2 = "#0c1828"
+PANEL = "#0e1a2c"
+CARD = "#122033"
+CARD2 = "#18283f"
+CARD3 = "#20344e"
 TEXT = "#f4fbff"
-MUTED = "#c5dff3"
+MUTED = "#b7c9da"
 ACCENT = "#7af6ff"
 ACCENT2 = "#5eb6ff"
-PURPLE = "#c7b0ff"
+PURPLE = "#b9a6ff"
 GOOD = "#8dffb8"
 WARN = "#ffe08a"
 DANGER = "#ff9aa3"
-BORDER = "#4c93d4"
+BORDER = "#1e4d66"
 
 
 def capture(args: list[str], timeout: int = 8) -> subprocess.CompletedProcess[str] | None:
@@ -859,9 +859,18 @@ class TraceOSApp:
         )
 
     def build_shell(self) -> None:
-        header = tk.Frame(self.root, bg=PANEL, height=82)
+        header = tk.Frame(self.root, bg=PANEL)
         header.pack(fill="x", side="top")
-        header.pack_propagate(False)
+
+        actions = tk.Frame(header, bg=PANEL)
+        actions.pack(side="right", padx=(8, 12), pady=14)
+        # Pack the actions first and at their natural width. The case label used
+        # to sit in the same row and shrink the last button, clipping NEW CASE
+        # to "New Cas" on a 1152-wide session.
+        self.small_button(actions, "NEW CASE", self.new_case, side="left", primary=True)
+        self.small_button(actions, "SELECT CASE", self.select_case, side="left")
+        self.small_button(actions, "REFRESH CASE", self.refresh_case_context, side="left")
+        self.small_button(actions, "QUICK SHADE", self.quick_shade, side="left")
 
         logo_path = Path("/usr/share/traceos/traceos-logo.png")
         if logo_path.exists():
@@ -886,15 +895,10 @@ class TraceOSApp:
         ).pack(anchor="w")
 
         self.header_case = tk.Label(
-            header, text="LOCAL-FIRST  •  NO BUILT-IN TELEMETRY",
-            bg=PANEL, fg=GOOD, font=("Sans", 8, "bold")
+            brand, text="LOCAL-FIRST  •  NO BUILT-IN TELEMETRY",
+            bg=PANEL, fg=GOOD, font=("Sans", 8, "bold"), anchor="w"
         )
-        self.header_case.pack(side="left", padx=28)
-
-        self.small_button(header, "QUICK SHADE", self.quick_shade, side="right")
-        self.small_button(header, "REFRESH CASE", self.refresh_case_context, side="right")
-        self.small_button(header, "SELECT CASE", self.select_case, side="right")
-        self.small_button(header, "NEW CASE", self.new_case, side="right", primary=True)
+        self.header_case.pack(anchor="w", pady=(4, 0))
         self.refresh_case_header()
 
         body = tk.Frame(self.root, bg=BG)
@@ -949,16 +953,16 @@ class TraceOSApp:
         self.content = tk.Frame(body, bg=BG)
         self.content.pack(side="left", fill="both", expand=True)
 
-        status = tk.Frame(self.root, bg="#12386e", height=30)
+        status = tk.Frame(self.root, bg=PANEL, height=30)
         status.pack(fill="x", side="bottom")
         status.pack_propagate(False)
         tk.Label(
             status,
             text="TRACEOS 0.1.0   •   LOCAL-FIRST   •   USER-INVOKED EXTERNAL ACTIONS   •   CASE DATA STAYS ON THIS MACHINE",
-            bg="#12386e", fg=MUTED, font=("Sans", 8, "bold")
+            bg=PANEL, fg=MUTED, font=("Sans", 8, "bold")
         ).pack(side="left", padx=18, pady=7)
         tk.Label(
-            status, text="● READY", bg="#12386e", fg=GOOD,
+            status, text="● READY", bg=PANEL, fg=GOOD,
             font=("Sans", 8, "bold")
         ).pack(side="right", padx=18, pady=7)
 
@@ -970,7 +974,7 @@ class TraceOSApp:
             activebackground=ACCENT2 if not primary else ACCENT,
             activeforeground="#041016", relief="flat", bd=0,
             font=("Sans", 9, "bold"), padx=13, pady=7
-        ).pack(side=side, padx=7, pady=17)
+        ).pack(side=side, padx=6, pady=0)
 
     def nav_button(self, text: str, command) -> None:
         tk.Button(
@@ -1361,10 +1365,11 @@ class TraceOSApp:
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
 
-    def _launch_card(self, parent: tk.Widget, row: int, column: int, glyph: str, title: str, blurb: str, command) -> None:
+    def _launch_card(self, parent: tk.Widget, row: int, column: int, glyph: str, title: str, blurb: str, command, accent: str = ACCENT) -> None:
         tile = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
         tile.grid(row=row, column=column, sticky="nsew", padx=8, pady=8)
-        tk.Label(tile, text=glyph, bg=CARD, fg=ACCENT, font=("Sans", 22, "bold")).pack(anchor="w", padx=16, pady=(14, 0))
+        chip = tk.Label(tile, text=glyph, bg=accent, fg="#07111c", font=("Sans", 16, "bold"), padx=12, pady=6)
+        chip.pack(anchor="w", padx=16, pady=(14, 0))
         button = tk.Button(
             tile, text=title, command=command, bg=CARD, fg=TEXT,
             activebackground=CARD2, activeforeground=ACCENT,
@@ -1449,15 +1454,15 @@ class TraceOSApp:
         for column in range(3):
             grid.grid_columnconfigure(column, weight=1, uniform="traceos-overview")
         overview = (
-            ("▣", "Cases", "Manage investigation cases and the evidence vault.", self.evidence),
-            ("◎", "Investigation", "OSINT and analysis tools.", self.osint),
-            ("⌁", "Network", "Network and recon tools.", self.network),
-            ("⌘", "Tools", "Security and forensic tools.", self.tools_home),
-            ("★", "AI Assistant", "Local AI. No external model service.", lambda: self.open_terminal([TRACE, "ai"], "Trace AI")),
-            ("⚙", "Settings", "System doctor and runtime checks.", self.doctor_page),
+            ("▣", "Cases", "Manage investigation cases and the evidence vault.", self.evidence, "#3d8bfd"),
+            ("◎", "Investigation", "OSINT and analysis tools.", self.osint, "#2fce6a"),
+            ("⌁", "Network", "Network and recon tools.", self.network, "#7a5cff"),
+            ("⌘", "Tools", "Security and forensic tools.", self.tools_home, "#3d8bfd"),
+            ("★", "AI Assistant", "Local AI. No external model service.", lambda: self.open_terminal([TRACE, "ai"], "Trace AI"), "#b06bff"),
+            ("⚙", "Settings", "System doctor and runtime checks.", self.doctor_page, "#f0a04b"),
         )
-        for index, (glyph, title, blurb, command) in enumerate(overview):
-            self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command)
+        for index, (glyph, title, blurb, command, accent) in enumerate(overview):
+            self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command, accent)
 
         actions = tk.Frame(self.content, bg=BG)
         actions.pack(fill="x", padx=32, pady=(4, 16))

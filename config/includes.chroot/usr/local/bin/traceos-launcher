@@ -3,6 +3,7 @@
 from __future__ import annotations
 import datetime as dt
 import os
+import shlex
 import shutil
 import subprocess
 import tkinter as tk
@@ -10,9 +11,9 @@ import uuid
 from pathlib import Path
 from tkinter import messagebox
 
-BG="#0c1e3d"; INK="#050811"; PANEL="#14325c"; CARD="#18406e"; CARD_HOVER="#24548a"
-TEXT="#f4fbff"; MUTED="#c5dff3"; ACCENT="#7af6ff"; BLUE="#5eb6ff"
-PURPLE="#c7b0ff"; GOOD="#8dffb8"; BORDER="#4c93d4"
+BG="#07111c"; INK="#050811"; PANEL="#0e1a2c"; CARD="#122033"; CARD_HOVER="#1a314c"
+TEXT="#f4fbff"; MUTED="#b7c9da"; ACCENT="#7af6ff"; BLUE="#5eb6ff"
+PURPLE="#b9a6ff"; GOOD="#8dffb8"; BORDER="#1e4d66"
 
 def run_text(argv: list[str], fallback: str) -> str:
     try:
@@ -69,6 +70,100 @@ class TraceOSLauncher:
         self.root.bind("<Return>",self.keyboard_control_centre)
         self.root.bind("<space>",self.keyboard_control_centre)
         self.root.after(450,self.ready_marker)
+
+    def installed_applications(self) -> list[tuple[str, list[str]]]:
+        found=[]
+        seen=set()
+        roots=[Path("/usr/share/applications"), Path.home()/".local/share/applications"]
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for path in sorted(root.glob("*.desktop")):
+                parsed=self.parse_desktop_entry(path)
+                if parsed is None or parsed[0] in seen:
+                    continue
+                seen.add(parsed[0])
+                found.append(parsed)
+        return found
+
+    def parse_desktop_entry(self, path: Path) -> tuple[str, list[str]] | None:
+        name=None
+        exec_line=None
+        try_exec=None
+        hidden=False
+        terminal=False
+        try:
+            lines=path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        for line in lines:
+            if line.startswith("[") and line.strip() != "[Desktop Entry]":
+                break
+            if line.startswith("Name=") and name is None:
+                name=line.split("=",1)[1].strip()
+            elif line.startswith("Exec=") and exec_line is None:
+                exec_line=line.split("=",1)[1].strip()
+            elif line.startswith("TryExec="):
+                try_exec=line.split("=",1)[1].strip()
+            elif line.startswith("NoDisplay=") and line.split("=",1)[1].strip().lower()=="true":
+                hidden=True
+            elif line.startswith("Hidden=") and line.split("=",1)[1].strip().lower()=="true":
+                hidden=True
+            elif line.startswith("Terminal=") and line.split("=",1)[1].strip().lower()=="true":
+                terminal=True
+        if hidden or not name or not exec_line:
+            return None
+        if try_exec and not Path(try_exec).is_file() and shutil.which(try_exec) is None:
+            return None
+        argv=[]
+        try:
+            tokens=shlex.split(exec_line)
+        except ValueError:
+            return None
+        for token in tokens:
+            if token == "%%":
+                argv.append("%")
+            elif token.startswith("%"):
+                continue
+            else:
+                argv.append(token)
+        if not argv:
+            return None
+        if terminal:
+            argv=["xfce4-terminal","--execute",*argv]
+        return name, argv
+
+    def refresh_app_search(self) -> None:
+        if not hasattr(self, "results"):
+            return
+        query=self.search_var.get().strip().lower()
+        self.results.delete(0, "end")
+        self._app_matches=[]
+        if not query:
+            return
+        for name, argv in self.installed_applications():
+            if query in name.lower():
+                self._app_matches.append((name, argv))
+                self.results.insert("end", name)
+        if self._app_matches:
+            self.results.selection_set(0)
+
+    def focus_app_results(self, _event: tk.Event) -> str:
+        if self.results.size() > 0:
+            self.results.focus_set()
+            self.results.selection_set(0)
+        return "break"
+
+    def launch_selected_app(self, _event: tk.Event) -> str:
+        selection=self.results.curselection()
+        if not selection:
+            return "break"
+        index=int(selection[0])
+        if index >= len(self._app_matches):
+            return "break"
+        name, argv=self._app_matches[index]
+        self.launch(f"app:{name}", argv)
+        return "break"
 
     def diagnostic(self,stage: str,**fields: object) -> None:
         values=[f"stage={stage}",f"nonce={self.nonce}",f"pid={os.getpid()}",
@@ -144,9 +239,9 @@ class TraceOSLauncher:
 
     def logo(self,parent: tk.Widget) -> tk.Canvas:
         canvas=tk.Canvas(parent,width=60,height=60,bg=BG,highlightthickness=0,bd=0)
-        canvas.create_rectangle(2,2,58,58,fill=PANEL,outline=ACCENT,width=2)
-        canvas.create_oval(11,11,49,49,outline=BLUE,width=2)
-        canvas.create_text(30,30,text="T",fill=ACCENT,font=("DejaVu Sans",29,"bold"))
+        canvas.create_oval(6,6,54,54,outline=ACCENT,width=2)
+        canvas.create_rectangle(16,20,44,25,fill=ACCENT,outline=ACCENT)
+        canvas.create_rectangle(27,20,33,44,fill=ACCENT,outline=ACCENT)
         return canvas
 
     def tile(self,parent: tk.Widget,row: int,column: int,number: str,title: str,
@@ -201,8 +296,26 @@ class TraceOSLauncher:
         hero.pack(fill="x",pady=(0,8))
         tk.Label(hero,text="Your investigation workspace.",bg=BG,fg=TEXT,
                  font=("DejaVu Sans",24,"bold")).pack(anchor="w")
-        tk.Label(hero,text="Choose a workspace below. External actions only happen when you launch them.",
+        tk.Label(hero,text="Choose a workspace below, or search the applications installed on this machine.",
                  bg=BG,fg=MUTED,font=("DejaVu Sans",10)).pack(anchor="w",pady=(4,0))
+        search_row=tk.Frame(outer,bg=BG)
+        search_row.pack(fill="x", pady=(8,4))
+        tk.Label(search_row,text="SEARCH",bg=BG,fg=MUTED,font=("DejaVu Sans",8,"bold")).pack(side="left")
+        self.search_var=tk.StringVar()
+        self.search_entry=tk.Entry(search_row,textvariable=self.search_var,bg=CARD,fg=TEXT,
+                                   insertbackground=ACCENT,relief="flat",font=("DejaVu Sans",11),
+                                   highlightthickness=1,highlightbackground=BORDER)
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=(10,0), ipady=5)
+        self.results=tk.Listbox(outer,height=3,bg=CARD,fg=TEXT,selectbackground=PANEL,
+                                selectforeground=ACCENT,activestyle="none",relief="flat",
+                                font=("DejaVu Sans",10),highlightthickness=1,
+                                highlightbackground=BORDER)
+        self.results.pack(fill="x", pady=(0,8))
+        self._app_matches=[]
+        self.search_var.trace_add("write", lambda *_names: self.refresh_app_search())
+        self.search_entry.bind("<Down>", self.focus_app_results)
+        self.results.bind("<Return>", self.launch_selected_app)
+        self.results.bind("<Double-Button-1>", self.launch_selected_app)
         grid=tk.Frame(outer,bg=BG)
         grid.pack(fill="both",expand=True)
         for column in range(3): grid.grid_columnconfigure(column,weight=1,uniform="traceos-launcher-column")

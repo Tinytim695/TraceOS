@@ -7,6 +7,6 @@ Exec=/usr/local/bin/traceos-control-launch --osint
 TryExec=/usr/local/bin/traceos-control-launch
 Icon=traceos-osint
 Terminal=false
-Categories=TraceOS;Utility;Security;
+Categories=TraceOS;Investigation;
 StartupNotify=true
 X-TraceOS-Managed=true

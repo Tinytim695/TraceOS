@@ -1,22 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="trace" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#d9fffb"/>
-      <stop offset=".38" stop-color="#72f1e8"/>
-      <stop offset=".72" stop-color="#3aa7ff"/>
-      <stop offset="1" stop-color="#8d74ff"/>
-    </linearGradient>
-    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f4fffd"/>
-      <stop offset="1" stop-color="#72f1e8" stop-opacity="0"/>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4fffe"/>
+      <stop offset=".45" stop-color="#7af6ff"/>
+      <stop offset="1" stop-color="#3aa7ff"/>
     </linearGradient>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="108" fill="#050811"/>
-  <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="#17314c" stroke-width="8"/>
-  <circle cx="256" cy="256" r="176" fill="none" stroke="#143047" stroke-width="10"/>
-  <path d="M256 80a176 176 0 0 1 152 88" fill="none" stroke="#9c7bff" stroke-width="4" stroke-linecap="round"/>
-  <path d="M256 62v22M256 428v22M62 256h22M428 256h22" stroke="#72f1e8" stroke-width="4" stroke-linecap="round"/>
-  <path d="M132 168h232l18 18v16l-18 18H292v132l-14 16h-44l-14-16V220H132l-18-18v-16z" fill="url(#trace)"/>
-  <path d="M146 176h220" stroke="url(#edge)" stroke-width="4" stroke-linecap="round"/>
-  <path d="M228 220v108" stroke="#e9fffc" stroke-width="3" stroke-linecap="round" opacity=".45"/>
+  <!-- Master TraceOS mark. Thin ring, narrow stem, even crossbar. No blur filter. -->
+  <circle cx="256" cy="256" r="188" fill="none" stroke="#7af6ff" stroke-width="5" opacity=".35"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#d9fbff" stroke-width="7"/>
+  <rect x="158" y="156" width="196" height="28" rx="3" fill="url(#mark)"/>
+  <rect x="240" y="156" width="32" height="206" rx="3" fill="url(#mark)"/>
 </svg>
