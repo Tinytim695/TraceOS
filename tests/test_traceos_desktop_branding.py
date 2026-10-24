@@ -107,6 +107,47 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         packages=(ROOT/"config/package-lists/traceos.list.chroot").read_text(encoding="utf-8")
         self.assertIn("librsvg2-bin", packages)
 
+    def test_new_case_button_is_not_clipped_by_the_header(self):
+        control=(INCLUDES/"usr/local/bin/traceos-control").read_text(encoding="utf-8")
+        self.assertIn('actions.pack(side="right"', control)
+        self.assertIn('self.small_button(actions, "NEW CASE"', control)
+        self.assertNotIn("header.pack_propagate(False)", control)
+        self.assertNotIn('height=82', control)
+
+    def test_panel_keeps_the_top_menu_and_adds_a_bottom_dock(self):
+        panel=ET.parse(INCLUDES/"etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml")
+        values=[node.attrib.get("value","") for node in panel.getroot().iter("property")]
+        for expected in ("applicationsmenu","tasklist","launcher","pager","systray","clock","actions",
+                         "p=6;x=0;y=0","p=10;x=0;y=0","TraceOS"):
+            self.assertIn(expected, values)
+        launcher_dir=INCLUDES/"etc/skel/.config/xfce4/panel/launcher-5"
+        for name, command in {
+            "traceos-control.desktop":"/usr/local/bin/traceos-control-launch",
+            "xfce4-terminal.desktop":"xfce4-terminal",
+            "thunar.desktop":"thunar",
+            "firefox-esr.desktop":"firefox-esr",
+        }.items():
+            self.assertEqual(value(launcher_dir/name, "Exec"), command)
+        setup=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
+        self.assertIn("workspace_count", setup)
+
+    def test_launcher_search_uses_installed_desktop_files(self):
+        launcher=(INCLUDES/"usr/local/bin/traceos-launcher").read_text(encoding="utf-8")
+        self.assertIn("def installed_applications", launcher)
+        self.assertIn("NoDisplay=", launcher)
+        self.assertIn("def launch_selected_app", launcher)
+        self.assertNotIn("nonexistent", launcher)
+
+    def test_menu_categories_and_greeter_use_the_traceos_theme(self):
+        hook=(ROOT/"config/hooks/live/0350-render-traceos-wallpaper.hook.chroot").read_text(encoding="utf-8")
+        self.assertIn("<Name>Investigation</Name>", hook)
+        self.assertIn("<Name>Forensics</Name>", hook)
+        self.assertIn("investigation.directory", hook)
+        greeter=(INCLUDES/"etc/lightdm/lightdm-gtk-greeter.conf").read_text(encoding="utf-8")
+        self.assertIn("theme-name=TraceOS", greeter)
+        self.assertIn("background=/usr/share/backgrounds/traceos/traceos-wallpaper.png", greeter)
+        self.assertIn("autologin-user=traceos", (INCLUDES/"etc/lightdm/lightdm.conf.d/50-traceos.conf").read_text(encoding="utf-8"))
+
     def test_desktop_entries_open_real_programs(self):
         expected={
             "traceos-case-manager.desktop":"/usr/local/bin/traceos-control-launch --cases",

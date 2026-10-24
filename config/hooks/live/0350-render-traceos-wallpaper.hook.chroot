@@ -66,25 +66,48 @@ if marker not in text and "<Name>TraceOS</Name>" not in text:
                 depth += 1
     if layout_end is None:
         raise SystemExit("[TraceOS] Could not locate the root XFCE menu layout.")
-    text = text[:layout_end] + "\n    <Menuname>TraceOS</Menuname>" + text[layout_end:]
+    names = ("TraceOS", "Investigation", "Forensics")
+    missing = [name for name in names if f"<Menuname>{name}</Menuname>" not in text]
+    if missing:
+        insert = "".join(f"\n    <Menuname>{name}</Menuname>" for name in missing)
+        text = text[:layout_end] + insert + text[layout_end:]
     root_close = text.rfind("</Menu>")
     if root_close < 0:
         raise SystemExit("[TraceOS] Could not locate root XFCE menu closing tag.")
-    block = (
-        "\n  <!-- TRACEOS-CUSTOM-MENU-BEGIN -->\n"
-        "  <Menu>\n"
-        "    <Name>TraceOS</Name>\n"
-        "    <Directory>traceos.directory</Directory>\n"
-        "    <Include><Category>TraceOS</Category></Include>\n"
-        "  </Menu>\n"
-        "  <!-- TRACEOS-CUSTOM-MENU-END -->\n"
-    )
-    text = text[:root_close] + block + text[root_close:]
+    blocks = []
+    if "<Name>TraceOS</Name>" not in text:
+        blocks.append(
+            "  <Menu>\n"
+            "    <Name>TraceOS</Name>\n"
+            "    <Directory>traceos.directory</Directory>\n"
+            "    <Include><Category>TraceOS</Category></Include>\n"
+            "  </Menu>\n"
+        )
+    if "<Name>Investigation</Name>" not in text:
+        blocks.append(
+            "  <Menu>\n"
+            "    <Name>Investigation</Name>\n"
+            "    <Directory>investigation.directory</Directory>\n"
+            "    <Include><Category>Investigation</Category></Include>\n"
+            "  </Menu>\n"
+        )
+    if "<Name>Forensics</Name>" not in text:
+        blocks.append(
+            "  <Menu>\n"
+            "    <Name>Forensics</Name>\n"
+            "    <Directory>forensics.directory</Directory>\n"
+            "    <Include><Category>Forensics</Category></Include>\n"
+            "  </Menu>\n"
+        )
+    if blocks:
+        block = "\n  <!-- TRACEOS-CUSTOM-MENU-BEGIN -->\n" + "".join(blocks) + "  <!-- TRACEOS-CUSTOM-MENU-END -->\n"
+        text = text[:root_close] + block + text[root_close:]
 ET.fromstring(text)
-if "<Menuname>TraceOS</Menuname>" not in text or "<Category>TraceOS</Category>" not in text:
-    raise SystemExit("[TraceOS] XFCE menu is missing the TraceOS category.")
+for name in ("TraceOS", "Investigation", "Forensics"):
+    if f"<Menuname>{name}</Menuname>" not in text or f"<Name>{name}</Name>" not in text:
+        raise SystemExit(f"[TraceOS] XFCE menu is missing the {name} category.")
 menu_file.write_text(text, encoding="utf-8")
-print("[TraceOS] Added and validated TraceOS category in XFCE menu.")
+print("[TraceOS] Added and validated TraceOS, Investigation and Forensics menu categories.")
 PY
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || true

@@ -859,9 +859,18 @@ class TraceOSApp:
         )
 
     def build_shell(self) -> None:
-        header = tk.Frame(self.root, bg=PANEL, height=82)
+        header = tk.Frame(self.root, bg=PANEL)
         header.pack(fill="x", side="top")
-        header.pack_propagate(False)
+
+        actions = tk.Frame(header, bg=PANEL)
+        actions.pack(side="right", padx=(8, 12), pady=14)
+        # Pack the actions first and at their natural width. The case label used
+        # to sit in the same row and shrink the last button, clipping NEW CASE
+        # to "New Cas" on a 1152-wide session.
+        self.small_button(actions, "NEW CASE", self.new_case, side="left", primary=True)
+        self.small_button(actions, "SELECT CASE", self.select_case, side="left")
+        self.small_button(actions, "REFRESH CASE", self.refresh_case_context, side="left")
+        self.small_button(actions, "QUICK SHADE", self.quick_shade, side="left")
 
         logo_path = Path("/usr/share/traceos/traceos-logo.png")
         if logo_path.exists():
@@ -886,15 +895,10 @@ class TraceOSApp:
         ).pack(anchor="w")
 
         self.header_case = tk.Label(
-            header, text="LOCAL-FIRST  •  NO BUILT-IN TELEMETRY",
-            bg=PANEL, fg=GOOD, font=("Sans", 8, "bold")
+            brand, text="LOCAL-FIRST  •  NO BUILT-IN TELEMETRY",
+            bg=PANEL, fg=GOOD, font=("Sans", 8, "bold"), anchor="w"
         )
-        self.header_case.pack(side="left", padx=28)
-
-        self.small_button(header, "QUICK SHADE", self.quick_shade, side="right")
-        self.small_button(header, "REFRESH CASE", self.refresh_case_context, side="right")
-        self.small_button(header, "SELECT CASE", self.select_case, side="right")
-        self.small_button(header, "NEW CASE", self.new_case, side="right", primary=True)
+        self.header_case.pack(anchor="w", pady=(4, 0))
         self.refresh_case_header()
 
         body = tk.Frame(self.root, bg=BG)
@@ -949,16 +953,16 @@ class TraceOSApp:
         self.content = tk.Frame(body, bg=BG)
         self.content.pack(side="left", fill="both", expand=True)
 
-        status = tk.Frame(self.root, bg="#12386e", height=30)
+        status = tk.Frame(self.root, bg=PANEL, height=30)
         status.pack(fill="x", side="bottom")
         status.pack_propagate(False)
         tk.Label(
             status,
             text="TRACEOS 0.1.0   •   LOCAL-FIRST   •   USER-INVOKED EXTERNAL ACTIONS   •   CASE DATA STAYS ON THIS MACHINE",
-            bg="#12386e", fg=MUTED, font=("Sans", 8, "bold")
+            bg=PANEL, fg=MUTED, font=("Sans", 8, "bold")
         ).pack(side="left", padx=18, pady=7)
         tk.Label(
-            status, text="● READY", bg="#12386e", fg=GOOD,
+            status, text="● READY", bg=PANEL, fg=GOOD,
             font=("Sans", 8, "bold")
         ).pack(side="right", padx=18, pady=7)
 
@@ -970,7 +974,7 @@ class TraceOSApp:
             activebackground=ACCENT2 if not primary else ACCENT,
             activeforeground="#041016", relief="flat", bd=0,
             font=("Sans", 9, "bold"), padx=13, pady=7
-        ).pack(side=side, padx=7, pady=17)
+        ).pack(side=side, padx=6, pady=0)
 
     def nav_button(self, text: str, command) -> None:
         tk.Button(

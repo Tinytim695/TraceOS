@@ -7,6 +7,6 @@ Exec=xfce4-terminal --title=Trace AI --execute /usr/local/bin/traceos ai
 TryExec=xfce4-terminal
 Icon=traceos-ai
 Terminal=false
-Categories=TraceOS;Utility;
+Categories=TraceOS;Investigation;
 StartupNotify=true
 X-TraceOS-Managed=true
