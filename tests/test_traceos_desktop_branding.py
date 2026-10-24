@@ -77,30 +77,30 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertEqual(trash.attrib.get("value"),"true")
 
     def test_wallpaper_art_is_luminous_and_not_a_black_field(self):
-        svg=(INCLUDES/"usr/share/backgrounds/traceos/traceos-wallpaper.svg").read_text(encoding="utf-8")
-        for crushed in ("#03050b","#040913","#050811"):
-            self.assertNotIn(crushed, svg)
-        self.assertIn(">TRACEOS<", svg)
-        self.assertIn("INVESTIGATION WORKSTATION", svg)
-
-        def luminance(color: str) -> float:
-            value=color.lstrip("#")
-            red, green, blue=(int(value[index:index+2], 16)/255 for index in (0, 2, 4))
-            def channel(component: float) -> float:
-                if component <= 0.04045:
-                    return component/12.92
-                return ((component+0.055)/1.055)**2.4
-            return 0.2126*channel(red)+0.7152*channel(green)+0.0722*channel(blue)
-
-        # The old sky stopped at #03050b (luminance about 0.001). The lit horizon
-        # must stay clearly blue so the central T is not sitting in black.
-        self.assertGreater(luminance("#8ad8ff"), 0.45)
-        self.assertIn("#8ad8ff", svg)
-        self.assertIn("#3aa4ff", svg)
-        self.assertLess(luminance("#184888"), luminance("#8ad8ff"))
+        png=INCLUDES/"usr/share/backgrounds/traceos/traceos-wallpaper.png"
+        self.assertTrue(png.is_file())
+        image=__import__("PIL.Image", fromlist=["Image"]).open(png).convert("RGB")
+        self.assertEqual(image.size, (1920, 1080))
+        pixels=list(image.getdata())
+        def lum(pixel):
+            red, green, blue=pixel
+            return 0.2126*red + 0.7152*green + 0.0722*blue
+        values=[lum(pixel) for pixel in pixels]
+        mean=sum(values)/len(values)/255
+        # The night landscape is dark at the edges. A blank ImageMagick render is 0.
+        self.assertGreater(mean, 0.10)
+        center=image.crop((640, 300, 1280, 780))
+        center_values=[lum(pixel) for pixel in center.getdata()]
+        self.assertGreater(sum(center_values)/len(center_values)/255, 0.18)
+        logo=(INCLUDES/"usr/share/traceos/traceos-logo.svg").read_text(encoding="utf-8")
+        self.assertIn('width="32" height="206"', logo)
+        self.assertIn('stroke-width="7"', logo)
+        self.assertNotIn("feGaussianBlur", logo)
         hook=(ROOT/"config/hooks/live/0350-render-traceos-wallpaper.hook.chroot").read_text(encoding="utf-8")
         self.assertIn("rsvg-convert --width=1920 --height=1080", hook)
-        self.assertIn("mean+0 > 0.25", hook)
+        self.assertIn("Keeping the packaged cinematic wallpaper.", hook)
+        self.assertIn("mean+0 > 0.10", hook)
+        self.assertIn("mean+0 > 0.18", hook)
         self.assertNotIn("convert \"$src\" -background none", hook)
         experience=(ROOT/"config/hooks/live/0300-traceos-experience.hook.chroot").read_text(encoding="utf-8")
         self.assertNotIn("traceos-wallpaper.svg", experience)
@@ -130,7 +130,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn("#xfce4-appfinder", css)
         terminal=(INCLUDES/"etc/skel/.config/xfce4/terminal/terminalrc").read_text(encoding="utf-8")
         self.assertIn("ColorForeground=#f4fbff", terminal)
-        self.assertIn("ColorBackground=#0c1e36", terminal)
+        self.assertIn("ColorBackground=#07111c", terminal)
         browser=(INCLUDES/"usr/share/traceos/browser-home.html").read_text(encoding="utf-8")
         self.assertIn("TRACEOS", browser)
         self.assertNotIn("traceos.local", browser)
@@ -205,7 +205,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "TRACEOS_GTK_THEME_ERROR","traceos-native-gtk.png",
                          "traceos-native-gtk-menu.png","traceos-wallpaper-expected-fit.png",
                          "wallpaper_mae_normalized","normalized threshold below 0.08",
-                         "actual_wallpaper_mean > 0.20",
+                         "actual_wallpaper_mean > 0.10",
+                         "packaged_wallpaper_center > 0.18",
                          "Packaged wallpaper is too dark",
                          "wallpaper_visual_status","native_gtk_status",
                          "native_gtk_appfinder_visible","native_gtk_appfinder_diff",

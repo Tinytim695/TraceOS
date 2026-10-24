@@ -21,7 +21,7 @@ The first milestone establishes a bootable Debian 13 "trixie" XFCE desktop image
 
 ## Desktop
 
-The wallpaper is a bright blue landscape with a large central T. It is the background only. Control Centre, the file manager, the terminal, Application Finder and Firefox each open as their own window. The desktop icons launch those programs: Cases, Investigation, Tools, Network and the local AI assistant. Trash stays visible. The old near-black wallpaper is not used.
+The wallpaper is a night mountain-and-lake scene with a slim circular T, the TRACEOS wordmark and the investigation subtitle. It is the background only. Control Centre, the file manager, the terminal, Application Finder and Firefox each open as their own window. The desktop icons launch those programs: Cases, Investigation, Tools, Network and the local AI assistant. Trash stays visible.
 
 ## Build locally
 

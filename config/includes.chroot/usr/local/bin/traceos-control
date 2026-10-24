@@ -31,21 +31,21 @@ from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
 
-BG = "#0b1c36"
-BG2 = "#102646"
-PANEL = "#12315c"
-CARD = "#18406e"
-CARD2 = "#1f4e84"
-CARD3 = "#2a62a0"
+BG = "#07111c"
+BG2 = "#0c1828"
+PANEL = "#0e1a2c"
+CARD = "#122033"
+CARD2 = "#18283f"
+CARD3 = "#20344e"
 TEXT = "#f4fbff"
-MUTED = "#c5dff3"
+MUTED = "#b7c9da"
 ACCENT = "#7af6ff"
 ACCENT2 = "#5eb6ff"
-PURPLE = "#c7b0ff"
+PURPLE = "#b9a6ff"
 GOOD = "#8dffb8"
 WARN = "#ffe08a"
 DANGER = "#ff9aa3"
-BORDER = "#4c93d4"
+BORDER = "#1e4d66"
 
 
 def capture(args: list[str], timeout: int = 8) -> subprocess.CompletedProcess[str] | None:
@@ -1361,10 +1361,11 @@ class TraceOSApp:
             if self.output_widget:
                 self.set_text(self.output_widget, self.job_output)
 
-    def _launch_card(self, parent: tk.Widget, row: int, column: int, glyph: str, title: str, blurb: str, command) -> None:
+    def _launch_card(self, parent: tk.Widget, row: int, column: int, glyph: str, title: str, blurb: str, command, accent: str = ACCENT) -> None:
         tile = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
         tile.grid(row=row, column=column, sticky="nsew", padx=8, pady=8)
-        tk.Label(tile, text=glyph, bg=CARD, fg=ACCENT, font=("Sans", 22, "bold")).pack(anchor="w", padx=16, pady=(14, 0))
+        chip = tk.Label(tile, text=glyph, bg=accent, fg="#07111c", font=("Sans", 16, "bold"), padx=12, pady=6)
+        chip.pack(anchor="w", padx=16, pady=(14, 0))
         button = tk.Button(
             tile, text=title, command=command, bg=CARD, fg=TEXT,
             activebackground=CARD2, activeforeground=ACCENT,
@@ -1449,15 +1450,15 @@ class TraceOSApp:
         for column in range(3):
             grid.grid_columnconfigure(column, weight=1, uniform="traceos-overview")
         overview = (
-            ("▣", "Cases", "Manage investigation cases and the evidence vault.", self.evidence),
-            ("◎", "Investigation", "OSINT and analysis tools.", self.osint),
-            ("⌁", "Network", "Network and recon tools.", self.network),
-            ("⌘", "Tools", "Security and forensic tools.", self.tools_home),
-            ("★", "AI Assistant", "Local AI. No external model service.", lambda: self.open_terminal([TRACE, "ai"], "Trace AI")),
-            ("⚙", "Settings", "System doctor and runtime checks.", self.doctor_page),
+            ("▣", "Cases", "Manage investigation cases and the evidence vault.", self.evidence, "#3d8bfd"),
+            ("◎", "Investigation", "OSINT and analysis tools.", self.osint, "#2fce6a"),
+            ("⌁", "Network", "Network and recon tools.", self.network, "#7a5cff"),
+            ("⌘", "Tools", "Security and forensic tools.", self.tools_home, "#3d8bfd"),
+            ("★", "AI Assistant", "Local AI. No external model service.", lambda: self.open_terminal([TRACE, "ai"], "Trace AI"), "#b06bff"),
+            ("⚙", "Settings", "System doctor and runtime checks.", self.doctor_page, "#f0a04b"),
         )
-        for index, (glyph, title, blurb, command) in enumerate(overview):
-            self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command)
+        for index, (glyph, title, blurb, command, accent) in enumerate(overview):
+            self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command, accent)
 
         actions = tk.Frame(self.content, bg=BG)
         actions.pack(fill="x", padx=32, pady=(4, 16))

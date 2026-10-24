@@ -10,9 +10,9 @@ import uuid
 from pathlib import Path
 from tkinter import messagebox
 
-BG="#0c1e3d"; INK="#050811"; PANEL="#14325c"; CARD="#18406e"; CARD_HOVER="#24548a"
-TEXT="#f4fbff"; MUTED="#c5dff3"; ACCENT="#7af6ff"; BLUE="#5eb6ff"
-PURPLE="#c7b0ff"; GOOD="#8dffb8"; BORDER="#4c93d4"
+BG="#07111c"; INK="#050811"; PANEL="#0e1a2c"; CARD="#122033"; CARD_HOVER="#1a314c"
+TEXT="#f4fbff"; MUTED="#b7c9da"; ACCENT="#7af6ff"; BLUE="#5eb6ff"
+PURPLE="#b9a6ff"; GOOD="#8dffb8"; BORDER="#1e4d66"
 
 def run_text(argv: list[str], fallback: str) -> str:
     try:
@@ -144,9 +144,9 @@ class TraceOSLauncher:
 
     def logo(self,parent: tk.Widget) -> tk.Canvas:
         canvas=tk.Canvas(parent,width=60,height=60,bg=BG,highlightthickness=0,bd=0)
-        canvas.create_rectangle(2,2,58,58,fill=PANEL,outline=ACCENT,width=2)
-        canvas.create_oval(11,11,49,49,outline=BLUE,width=2)
-        canvas.create_text(30,30,text="T",fill=ACCENT,font=("DejaVu Sans",29,"bold"))
+        canvas.create_oval(6,6,54,54,outline=ACCENT,width=2)
+        canvas.create_rectangle(16,20,44,25,fill=ACCENT,outline=ACCENT)
+        canvas.create_rectangle(27,20,33,44,fill=ACCENT,outline=ACCENT)
         return canvas
 
     def tile(self,parent: tk.Widget,row: int,column: int,number: str,title: str,
