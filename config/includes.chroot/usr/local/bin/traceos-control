@@ -907,6 +907,7 @@ class TraceOSApp:
         self.sidebar = tk.Frame(body, bg=PANEL, width=220)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
+        self._nav_buttons = {}
 
         tk.Label(
             self.sidebar, text="TRACEOS", bg=PANEL, fg=ACCENT,
@@ -915,12 +916,12 @@ class TraceOSApp:
 
         for label, page in [
             ("Overview", self.dashboard),
-            ("Cases", self.evidence),
+            ("Cases", self.cases_page),
             ("Investigation", self.osint),
             ("Network", self.network),
             ("Tools", self.tools_home),
-            ("AI Assistant", lambda: self.open_terminal([TRACE, "ai"], "Trace AI")),
-            ("Settings", self.doctor_page),
+            ("AI Assistant", self.ai_page),
+            ("Settings", self.settings_page),
         ]:
             self.nav_button(label, page)
 
@@ -977,12 +978,25 @@ class TraceOSApp:
         ).pack(side=side, padx=6, pady=0)
 
     def nav_button(self, text: str, command) -> None:
-        tk.Button(
-            self.sidebar, text=text, command=command, anchor="w",
-            bg=PANEL, fg=TEXT, activebackground=CARD2,
+        button = tk.Button(
+            self.sidebar, text=text, command=lambda: self._invoke_nav(text, command),
+            anchor="w", bg=PANEL, fg=TEXT, activebackground=CARD2,
             activeforeground=ACCENT, relief="flat", bd=0,
             font=("Sans", 10), padx=18, pady=10
-        ).pack(fill="x")
+        )
+        button.pack(fill="x")
+        self._nav_buttons[text] = button
+
+    def _invoke_nav(self, text: str, command) -> None:
+        self.activate_nav(text)
+        command()
+
+    def activate_nav(self, text: str) -> None:
+        if not hasattr(self, "_nav_buttons"):
+            return
+        for name, button in self._nav_buttons.items():
+            selected = name == text
+            button.configure(bg=CARD2 if selected else PANEL, fg=ACCENT if selected else TEXT)
 
     def clear(self) -> None:
         for widget in self.content.winfo_children():
@@ -1383,6 +1397,7 @@ class TraceOSApp:
         ).pack(fill="x", padx=16, pady=(0, 14))
 
     def tools_home(self) -> None:
+        self.activate_nav("Tools")
         self.heading(
             "TOOLS",
             "Security and forensic tools",
@@ -1408,6 +1423,7 @@ class TraceOSApp:
             self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command)
 
     def dashboard(self) -> None:
+        self.activate_nav("Overview")
         top = self.heading(
             "OVERVIEW",
             "TraceOS Control Centre",
@@ -1458,8 +1474,8 @@ class TraceOSApp:
             ("◎", "Investigation", "OSINT and analysis tools.", self.osint, "#2fce6a"),
             ("⌁", "Network", "Network and recon tools.", self.network, "#7a5cff"),
             ("⌘", "Tools", "Security and forensic tools.", self.tools_home, "#3d8bfd"),
-            ("★", "AI Assistant", "Local AI. No external model service.", lambda: self.open_terminal([TRACE, "ai"], "Trace AI"), "#b06bff"),
-            ("⚙", "Settings", "System doctor and runtime checks.", self.doctor_page, "#f0a04b"),
+            ("★", "AI Assistant", "Local command only. No external model is bundled.", self.ai_page, "#b06bff"),
+            ("⚙", "Settings", "Appearance, privacy, network and system checks.", self.settings_page, "#f0a04b"),
         )
         for index, (glyph, title, blurb, command, accent) in enumerate(overview):
             self._launch_card(grid, index // 3, index % 3, glyph, title, blurb, command, accent)
@@ -1823,7 +1839,168 @@ class TraceOSApp:
         self.action_button(bar, "RUN AGAIN", lambda: self.run_job(args, title), primary=True).pack(side="right")
         self.run_job(args, title)
 
+    def cases_page(self) -> None:
+        self.activate_nav("Cases")
+        self.heading(
+            "CASES",
+            "Investigation cases",
+            "Workspaces already stored on this machine. Search only filters this list.",
+        )
+        try:
+            entries = CASE_STORE.list_cases()
+            case_error = None
+        except CaseError as exc:
+            entries = []
+            case_error = str(exc)
+
+        toolbar = tk.Frame(self.content, bg=BG)
+        toolbar.pack(fill="x", padx=28, pady=(0, 8))
+        search_var = tk.StringVar()
+        search = tk.Entry(
+            toolbar, textvariable=search_var, bg=CARD, fg=TEXT, insertbackground=ACCENT,
+            relief="flat", font=("Sans", 10), highlightthickness=1, highlightbackground=BORDER,
+        )
+        search.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 8))
+        self.action_button(toolbar, "NEW CASE", self.new_case, primary=True).pack(side="left")
+        self.action_button(toolbar, "SELECT CASE", self.select_case).pack(side="left", padx=7)
+        self.action_button(toolbar, "EVIDENCE VAULT", self.evidence).pack(side="left")
+
+        if case_error:
+            tk.Label(self.content, text=case_error, bg=BG, fg=DANGER, font=("Sans", 9)).pack(anchor="w", padx=30)
+
+        rows = []
+        for entry in entries:
+            record = entry.record
+            title = record.title if record else entry.path.name
+            identifier = record.case_id if record and record.case_id else "LEGACY" if record else ""
+            created = record.created_utc if record and record.created_utc else ""
+            rows.append((title, entry.status, identifier, created or str(entry.path)))
+
+        box = self.card(self.content, padx=28, pady=5, expand=True)
+        columns = ("title", "status", "case_id", "created")
+        tree = ttk.Treeview(box, columns=columns, show="headings", style="Trace.Treeview")
+        for name, label, width in (
+            ("title", "CASE", 280),
+            ("status", "STATUS", 110),
+            ("case_id", "CASE ID", 220),
+            ("created", "CREATED UTC", 260),
+        ):
+            tree.heading(name, text=label)
+            tree.column(name, width=width, anchor="w")
+        tree.pack(fill="both", expand=True, padx=14, pady=14)
+
+        def refill(*_args) -> None:
+            query = search_var.get().strip().lower()
+            children = tree.get_children()
+            if children:
+                tree.delete(*children)
+            shown = 0
+            for row in rows:
+                if query and query not in " ".join(row).lower():
+                    continue
+                tree.insert("", "end", values=row)
+                shown += 1
+            if shown == 0:
+                tree.insert("", "end", values=("No matching cases", "", "", "Create one with New Case."))
+
+        search_var.trace_add("write", refill)
+        refill()
+        tk.Label(
+            self.content,
+            text="Selecting a case still uses the existing case store. The vault is a separate view of the active case.",
+            bg=BG, fg=MUTED, font=("Sans", 8),
+        ).pack(anchor="w", padx=30, pady=(0, 12))
+
+    def ai_page(self) -> None:
+        self.activate_nav("AI Assistant")
+        self.heading(
+            "AI ASSISTANT",
+            "Local assistant",
+            "TraceOS does not contact an external model service.",
+        )
+        available = shutil.which("ari") is not None
+        status = self.card(self.content, padx=28, pady=8)
+        tk.Label(
+            status,
+            text="LOCAL COMMAND AVAILABLE" if available else "NO LOCAL MODEL INSTALLED",
+            bg=CARD, fg=GOOD if available else WARN, font=("Sans", 10, "bold"),
+        ).pack(anchor="w", padx=16, pady=(14, 4))
+        tk.Label(
+            status,
+            text=(
+                "The installed local assistant is the ari command. Its own window keeps the conversation."
+                if available else
+                "Nothing in this image can answer questions. Opening the assistant only prints that status."
+            ),
+            bg=CARD, fg=TEXT, font=("Sans", 10), wraplength=760, justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+        privacy = self.card(self.content, padx=28, pady=8)
+        tk.Label(
+            privacy, text="PRIVACY", bg=CARD, fg=ACCENT, font=("Sans", 8, "bold"),
+        ).pack(anchor="w", padx=16, pady=(14, 4))
+        tk.Label(
+            privacy,
+            text="Control Centre does not store a chat history and does not send case files to a model service.",
+            bg=CARD, fg=MUTED, font=("Sans", 10), wraplength=760, justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(4, 14))
+        if available:
+            self.action_button(
+                bar, "OPEN LOCAL ASSISTANT",
+                lambda: self.open_terminal(["ari"], "Trace AI"), primary=True,
+            ).pack(side="left")
+        else:
+            self.action_button(
+                bar, "SHOW ASSISTANT STATUS",
+                lambda: self.open_terminal([TRACE, "ai"], "Trace AI"), primary=True,
+            ).pack(side="left")
+
+    def settings_page(self) -> None:
+        self.activate_nav("Settings")
+        self.heading(
+            "SETTINGS",
+            "Session and system",
+            "Each control runs an existing program. Nothing here is only a picture.",
+        )
+        groups = (
+            ("APPEARANCE", "XFCE appearance settings for the live session.", "xfce4-appearance-settings", "OPEN APPEARANCE"),
+            ("WALLPAPER", "The desktop wallpaper chooser. The packaged default stays in place until you change it.", "xfdesktop-settings", "OPEN WALLPAPER"),
+            ("NETWORK", f"Connection state: {network_state()}", "nm-connection-editor", "OPEN NETWORK SETTINGS"),
+        )
+        for title, detail, command, label in groups:
+            box = self.card(self.content, padx=28, pady=6)
+            tk.Label(box, text=title, bg=CARD, fg=ACCENT, font=("Sans", 8, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+            tk.Label(box, text=detail, bg=CARD, fg=TEXT, font=("Sans", 10), wraplength=760, justify="left").pack(anchor="w", padx=16)
+            present = shutil.which(command) is not None
+
+            def launch(command: str = command, title: str = label) -> None:
+                try:
+                    subprocess.Popen([command])
+                except OSError as exc:
+                    messagebox.showerror(title, str(exc), parent=self.root)
+
+            button = self.action_button(box, label if present else f"{label} UNAVAILABLE", launch)
+            button.pack(anchor="w", padx=16, pady=(8, 12))
+            if not present:
+                button.configure(state="disabled")
+        privacy = self.card(self.content, padx=28, pady=6)
+        tk.Label(privacy, text="PRIVACY", bg=CARD, fg=ACCENT, font=("Sans", 8, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+        tk.Label(
+            privacy,
+            text=f"Session: {session_state()}. Amnesic mode does not write a persistence volume.",
+            bg=CARD, fg=TEXT, font=("Sans", 10), wraplength=760, justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 12))
+        system = self.card(self.content, padx=28, pady=6)
+        tk.Label(system, text="SYSTEM", bg=CARD, fg=ACCENT, font=("Sans", 8, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+        tk.Label(
+            system, text="System Doctor checks the TraceOS runtime, bundled tools and branding assets.",
+            bg=CARD, fg=TEXT, font=("Sans", 10),
+        ).pack(anchor="w", padx=16)
+        self.action_button(system, "RUN SYSTEM DOCTOR", self.doctor_page, primary=True).pack(anchor="w", padx=16, pady=(8, 12))
+
     def evidence(self) -> None:
+        self.activate_nav("Cases")
         self.heading(
             "Case tools", "Evidence Vault",
             "Separate copies, SHA-256 integrity records and a readable audit trail."
@@ -1873,6 +2050,7 @@ class TraceOSApp:
         ).pack(anchor="w", padx=30, pady=(0, 12))
 
     def network(self) -> None:
+        self.activate_nav("Network")
         self.heading(
             "Network", "Command Centre",
             "Live local status plus explicit, user-invoked Nmap scans."
@@ -1942,6 +2120,7 @@ class TraceOSApp:
         self.action_button(bar, "RUN NMAP", start_scan, primary=True).pack(side="right")
 
     def image_osint(self) -> None:
+        self.activate_nav("Image OSINT")
         image_attempt = self._trace_attempt
         self.heading(
             "INVESTIGATION / IMAGE", "Image OSINT",
@@ -2106,6 +2285,7 @@ class TraceOSApp:
         source_entry.focus_set()
         self._trace_diag("image-osint-page-rendered", page="image")
     def osint(self) -> None:
+        self.activate_nav("Investigation")
         self.heading(
             "INVESTIGATION", "Investigation Centre",
             "Local-first investigation tools. Nothing runs until you press Start."
@@ -2391,6 +2571,7 @@ class TraceOSApp:
         self.action_button(bar, "START", start_catalogue, primary=True).pack(side="right")
 
     def engagement(self) -> None:
+        self.activate_nav("Engagement")
         from engagement import PLAYBOOKS, build_playbook
 
         self.heading(
@@ -2586,6 +2767,7 @@ class TraceOSApp:
         self.output_queue.put((token, None))
 
     def assessment(self) -> None:
+        self.activate_nav("Assessment")
         self._tool_catalogue_page(
             ASSESSMENT_TOOL_SPECS,
             "AUTHORIZED ASSESSMENT",
@@ -2595,6 +2777,7 @@ class TraceOSApp:
         )
 
     def credentials(self) -> None:
+        self.activate_nav("Credentials")
         self._tool_catalogue_page(
             CREDENTIAL_TOOL_SPECS,
             "CREDENTIALS",
@@ -2604,6 +2787,7 @@ class TraceOSApp:
         )
 
     def defence(self) -> None:
+        self.activate_nav("Defence")
         self._tool_catalogue_page(
             DEFENCE_TOOL_SPECS,
             "DEFENCE",
@@ -2613,6 +2797,7 @@ class TraceOSApp:
         )
 
     def web_testing(self) -> None:
+        self.activate_nav("Web Testing")
         self.heading(
             "AUTHORIZED ASSESSMENT", "Web Testing",
             "Start a scoped network or web check only for a target you own or have permission to test."
@@ -2797,6 +2982,7 @@ class TraceOSApp:
         )
 
     def reports(self) -> None:
+        self.activate_nav("Reports")
         self.heading(
             "Case tools", "Reports",
             "Generated reports stay inside the current case workspace."
@@ -2842,6 +3028,7 @@ class TraceOSApp:
             )
 
     def timeline(self) -> None:
+        self.activate_nav("Timeline")
         self.heading(
             "Case tools", "Timeline",
             "Chronological events recorded by the TraceOS evidence ledger."
@@ -2855,6 +3042,7 @@ class TraceOSApp:
         self.action_button(bar, "REFRESH", self.timeline, primary=True).pack(side="right")
 
     def doctor_page(self) -> None:
+        self.activate_nav("Settings")
         self.heading(
             "System", "System Doctor",
             "Check the TraceOS runtime, bundled tools and branding assets."
