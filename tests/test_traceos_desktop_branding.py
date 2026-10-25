@@ -211,6 +211,14 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn("background=/usr/share/backgrounds/traceos/traceos-wallpaper.png", greeter)
         self.assertIn("autologin-user=traceos", (INCLUDES/"etc/lightdm/lightdm.conf.d/50-traceos.conf").read_text(encoding="utf-8"))
 
+    def test_control_centre_pages_stay_real(self):
+        control=(INCLUDES/"usr/local/bin/traceos-control").read_text(encoding="utf-8")
+        for expected in ("def cases_page", "def ai_page", "def settings_page", "CASE_STORE.list_cases()",
+                         "NO LOCAL MODEL INSTALLED", "does not contact an external model",
+                         "xfce4-appearance-settings", "nm-connection-editor", "RUN SYSTEM DOCTOR"):
+            self.assertIn(expected, control)
+        self.assertNotIn("How can I help with your investigation", control)
+
     def test_desktop_entries_open_real_programs(self):
         expected={
             "traceos-case-manager.desktop":"/usr/local/bin/traceos-control-launch --cases",
