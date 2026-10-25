@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Private Browser
+GenericName=Mullvad Browser
+Comment=Open Mullvad Browser. Firefox ESR private mode is the fallback if Mullvad is not installed.
+Exec=/usr/local/bin/traceos-private-browser
+TryExec=/usr/local/bin/traceos-private-browser
+Icon=firefox-esr
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=true
+X-TraceOS-Managed=true

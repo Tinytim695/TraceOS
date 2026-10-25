@@ -629,6 +629,13 @@ class TraceOSApp:
         self.root.bind_all("<Control-Shift-N>", self._new_case_shortcut)
         self.root.bind_all("<Control-Shift-W>", self._web_testing_shortcut)
         self.root.bind_all("<Control-Shift-I>", self._image_shortcut)
+        self.root.bind_all("<Control-Shift-F1>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-F2>", lambda event: self._open_page_shortcut(event, self.cases_page, "CASES_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-F3>", lambda event: self._open_page_shortcut(event, self.evidence, "EVIDENCE_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-F4>", lambda event: self._open_page_shortcut(event, self.network, "NETWORK_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-F5>", lambda event: self._open_page_shortcut(event, self.tools_home, "TOOLS_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-F6>", lambda event: self._open_page_shortcut(event, self.ai_page, "AI_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-F7>", lambda event: self._open_page_shortcut(event, self.settings_page, "SETTINGS_PAGE_RENDERED"))
 
         self.active_process: subprocess.Popen[str] | None = None
         self.active_job_token: str | None = None
@@ -729,6 +736,12 @@ class TraceOSApp:
             focus_class=focus_class,
         )
         self.new_case()
+        return "break"
+
+    def _open_page_shortcut(self, _event: tk.Event, page, stage: str) -> str:
+        page()
+        self.root.update_idletasks()
+        self._trace_diag(stage)
         return "break"
 
     def _image_shortcut(self, event: tk.Event) -> str:
@@ -908,9 +921,36 @@ class TraceOSApp:
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
         self._nav_buttons = {}
+        nav_canvas = tk.Canvas(self.sidebar, bg=PANEL, highlightthickness=0, bd=0)
+        nav_scroll = tk.Scrollbar(self.sidebar, orient="vertical", command=nav_canvas.yview)
+        self.nav_host = tk.Frame(nav_canvas, bg=PANEL)
+        self.nav_host.bind(
+            "<Configure>",
+            lambda _event: nav_canvas.configure(scrollregion=nav_canvas.bbox("all")),
+        )
+        nav_window = nav_canvas.create_window((0, 0), window=self.nav_host, anchor="nw")
+        nav_canvas.bind(
+            "<Configure>",
+            lambda event: nav_canvas.itemconfigure(nav_window, width=event.width),
+        )
+        nav_canvas.configure(yscrollcommand=nav_scroll.set)
+        nav_canvas.pack(side="left", fill="both", expand=True)
+        nav_scroll.pack(side="right", fill="y")
+
+        def _nav_scroll(event: tk.Event) -> None:
+            widget = self.root.winfo_containing(event.x_root, event.y_root)
+            if widget is None or not str(widget).startswith(str(self.sidebar)):
+                return
+            if getattr(event, "num", None) == 4:
+                nav_canvas.yview_scroll(-3, "units")
+            elif getattr(event, "num", None) == 5:
+                nav_canvas.yview_scroll(3, "units")
+
+        self.root.bind_all("<Button-4>", _nav_scroll)
+        self.root.bind_all("<Button-5>", _nav_scroll)
 
         tk.Label(
-            self.sidebar, text="TRACEOS", bg=PANEL, fg=ACCENT,
+            self.nav_host, text="TRACEOS", bg=PANEL, fg=ACCENT,
             font=("Sans", 8, "bold")
         ).pack(anchor="w", padx=18, pady=(20, 7))
 
@@ -926,7 +966,7 @@ class TraceOSApp:
             self.nav_button(label, page)
 
         tk.Label(
-            self.sidebar, text="WORKSPACE", bg=PANEL, fg=MUTED,
+            self.nav_host, text="WORKSPACE", bg=PANEL, fg=MUTED,
             font=("Sans", 8, "bold")
         ).pack(anchor="w", padx=18, pady=(16, 7))
 
@@ -946,7 +986,7 @@ class TraceOSApp:
             self.nav_button(label, page)
 
         tk.Label(
-            self.sidebar,
+            self.nav_host,
             text="TRACEOS 0.1.0\nLocal-first • user-invoked external actions",
             bg=PANEL, fg=MUTED, justify="left", font=("Sans", 8)
         ).pack(anchor="w", padx=18, pady=(25, 10))
@@ -979,7 +1019,7 @@ class TraceOSApp:
 
     def nav_button(self, text: str, command) -> None:
         button = tk.Button(
-            self.sidebar, text=text, command=lambda: self._invoke_nav(text, command),
+            self.nav_host, text=text, command=lambda: self._invoke_nav(text, command),
             anchor="w", bg=PANEL, fg=TEXT, activebackground=CARD2,
             activeforeground=ACCENT, relief="flat", bd=0,
             font=("Sans", 10), padx=18, pady=10
@@ -1387,10 +1427,13 @@ class TraceOSApp:
         button = tk.Button(
             tile, text=title, command=command, bg=CARD, fg=TEXT,
             activebackground=CARD2, activeforeground=ACCENT,
-            relief="flat", bd=0, anchor="w", font=("Sans", 13, "bold"),
-            padx=16, pady=2,
+            relief="flat", bd=0, highlightthickness=1, highlightbackground=CARD,
+            highlightcolor=ACCENT, anchor="w", font=("Sans", 13, "bold"),
+            padx=16, pady=2, takefocus=True,
         )
         button.pack(fill="x")
+        button.bind("<FocusIn>", lambda _event, item=button: item.configure(bg=CARD2))
+        button.bind("<FocusOut>", lambda _event, item=button: item.configure(bg=CARD))
         tk.Label(
             tile, text=blurb, bg=CARD, fg=MUTED, justify="left", anchor="w",
             font=("Sans", 9), wraplength=240,
@@ -1470,7 +1513,7 @@ class TraceOSApp:
         for column in range(3):
             grid.grid_columnconfigure(column, weight=1, uniform="traceos-overview")
         overview = (
-            ("▣", "Cases", "Manage investigation cases and the evidence vault.", self.evidence, "#3d8bfd"),
+            ("▣", "Cases", "Manage investigation cases and the evidence vault.", self.cases_page, "#3d8bfd"),
             ("◎", "Investigation", "OSINT and analysis tools.", self.osint, "#2fce6a"),
             ("⌁", "Network", "Network and recon tools.", self.network, "#7a5cff"),
             ("⌘", "Tools", "Security and forensic tools.", self.tools_home, "#3d8bfd"),
@@ -1955,6 +1998,112 @@ class TraceOSApp:
                 bar, "SHOW ASSISTANT STATUS",
                 lambda: self.open_terminal([TRACE, "ai"], "Trace AI"), primary=True,
             ).pack(side="left")
+        self._build_api_assistant()
+
+    def _build_api_assistant(self) -> None:
+        import ai_client
+
+        store = ai_client.SessionStore()
+        box = self.card(self.content, padx=28, pady=8)
+        tk.Label(box, text="OPTIONAL API ASSISTANT", bg=CARD, fg=ACCENT, font=("Sans", 8, "bold")).pack(anchor="w", padx=16, pady=(14, 4))
+        tk.Label(
+            box,
+            text="A remote provider sends only the message you submit. Case files are never attached. Nothing is sent at startup. "
+            + ai_client.secret_service_status(),
+            bg=CARD, fg=MUTED, font=("Sans", 9), wraplength=760, justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 8))
+        provider = ttk.Combobox(box, state="readonly", values=tuple(ai_client.PROVIDERS), style="Trace.TCombobox")
+        provider.current(0)
+        provider.pack(anchor="w", padx=16, pady=4)
+        model = tk.Entry(box, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Sans", 10))
+        model.insert(0, ai_client.PROVIDERS["openai"]["model"])
+        model.pack(fill="x", padx=16, pady=4)
+        endpoint = tk.Entry(box, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Sans", 10))
+        endpoint.pack(fill="x", padx=16, pady=4)
+        key_entry = tk.Entry(box, bg="#0e2a4e", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Sans", 10), show="•")
+        key_entry.pack(fill="x", padx=16, pady=4)
+        status = tk.Label(box, text="No key saved for this session.", bg=CARD, fg=MUTED, font=("Sans", 9), wraplength=760, justify="left")
+        status.pack(anchor="w", padx=16, pady=4)
+        prompt = tk.Text(box, height=4, bg="#07101c", fg=TEXT, insertbackground=ACCENT, relief="flat", font=("Sans", 10))
+        prompt.pack(fill="x", padx=16, pady=4)
+        include_case = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            box, text="Include the active case title in this message. Leave this off unless you mean to.",
+            variable=include_case, bg=CARD, fg=WARN, activebackground=CARD, activeforeground=WARN,
+            selectcolor=BG2, font=("Sans", 9),
+        ).pack(anchor="w", padx=12, pady=4)
+        output = tk.Text(box, height=6, bg="#07101c", fg=TEXT, relief="flat", font=("Sans", 10), state="disabled")
+        output.pack(fill="x", padx=16, pady=(4, 8))
+
+        def selected() -> str:
+            return provider.get() or "openai"
+
+        def remember(where: str) -> None:
+            choice = selected()
+            secret = key_entry.get().strip()
+            try:
+                if where == "session":
+                    store.put(choice, secret)
+                    status.configure(text=f"Session only · {ai_client.PROVIDERS[choice]['label']} · {store.masked(choice)}", fg=GOOD)
+                else:
+                    ai_client.save_to_secret_service(choice, secret)
+                    store.put(choice, secret)
+                    status.configure(text=f"Saved in Secret Service · {store.masked(choice)}", fg=GOOD)
+                key_entry.delete(0, "end")
+            except Exception as exc:
+                status.configure(text=str(exc), fg=DANGER)
+
+        def forget() -> None:
+            choice = selected()
+            store.delete(choice)
+            try:
+                ai_client.delete_from_secret_service(choice)
+            except Exception as exc:
+                status.configure(text=f"Removed from this session. Keyring: {exc}", fg=WARN)
+                return
+            status.configure(text="Key removed from this session and from Secret Service if it was saved there.", fg=MUTED)
+
+        def current_key() -> str:
+            choice = selected()
+            saved = store.get(choice)
+            if saved:
+                return saved
+            try:
+                saved = ai_client.load_from_secret_service(choice)
+            except Exception:
+                saved = ""
+            if saved:
+                store.put(choice, saved)
+            return saved
+
+        def test_or_send(send: bool) -> None:
+            choice = selected()
+            secret = current_key()
+            text = "Reply with the single word pong." if not send else prompt.get("1.0", "end").strip()
+            if send and include_case.get():
+                text = f"Active case title: {case_name(case_path())}\n\n{text}"
+            try:
+                answer = ai_client.complete(choice, model.get(), secret, text, endpoint.get())
+            except Exception as exc:
+                answer = str(exc)
+            output.configure(state="normal")
+            output.delete("1.0", "end")
+            output.insert("1.0", answer)
+            output.configure(state="disabled")
+
+        actions = tk.Frame(box, bg=CARD)
+        actions.pack(fill="x", padx=16, pady=(0, 14))
+        self.action_button(actions, "SAVE FOR SESSION", lambda: remember("session")).pack(side="left")
+        self.action_button(actions, "SAVE TO KEYRING", lambda: remember("keyring")).pack(side="left", padx=6)
+        self.action_button(actions, "REMOVE KEY", forget).pack(side="left", padx=6)
+        self.action_button(actions, "TEST", lambda: test_or_send(False)).pack(side="left", padx=6)
+        self.action_button(actions, "SEND", lambda: test_or_send(True), primary=True).pack(side="right")
+
+        def apply_default(_event: object = None) -> None:
+            model.delete(0, "end")
+            model.insert(0, ai_client.PROVIDERS[selected()]["model"])
+
+        provider.bind("<<ComboboxSelected>>", apply_default)
 
     def settings_page(self) -> None:
         self.activate_nav("Settings")

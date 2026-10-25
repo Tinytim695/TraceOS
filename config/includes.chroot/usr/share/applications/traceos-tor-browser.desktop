@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Tor Browser
+GenericName=Tor Browser
+Comment=Open the Tor Project browser. It uses its own Tor connection and does not route the rest of TraceOS.
+Exec=/usr/local/bin/traceos-tor-browser
+TryExec=/usr/local/bin/traceos-tor-browser
+Icon=firefox-esr
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=true
+X-TraceOS-Managed=true

@@ -701,31 +701,37 @@ capture_workspace_page() {
     local key="$2"
     local marker="$3"
     local label="$4"
+    local allow_same="${5:-no}"
     local ppm="$OUT/traceos-$page.ppm"
     local png="$OUT/traceos-$page.png"
+    local before rendered page_pixel_diff spread attempt
 
+    if [[ -z "${gui_nonce:-}" || -z "${gui_pid:-}" ]]; then
+        echo "[TraceOS] $page capture has no Control Centre nonce or pid." >&2
+        return 1
+    fi
+    before="$(wc -l < "$serial_log" | tr -d ' ')"
     hmp_command "$monitor" "sendkey ctrl-shift-$key" "$STATE/monitor-$page-sendkey.log"
 
-    local rendered="no"
+    rendered="no"
     for _ in $(seq 1 20); do
-        if grep -Fq "stage=$marker" "$serial_log" 2>/dev/null; then
+        if tail -n +"$((before + 1))" "$serial_log" 2>/dev/null \
+            | grep -F "stage=$marker" \
+            | grep -F "nonce=$gui_nonce" \
+            | grep -Fq "pid=$gui_pid"; then
             rendered="yes"
             break
         fi
         sleep 1
     done
     if [[ "$rendered" != "yes" ]]; then
-        echo "[TraceOS] $page page did not report a successful GUI render." >&2
-        tail -n 160 "$serial_log" >&2 || true
+        echo "[TraceOS] $page page did not report a fresh GUI render for nonce=$gui_nonce pid=$gui_pid." >&2
+        tail -n 80 "$serial_log" >&2 || true
         return 1
     fi
 
-    # The page marker is emitted after idle drawing. Give the guest a few
-    # frames to put that page on the framebuffer, then reject a capture that
-    # is still the Dashboard.
-    local page_pixel_diff=""
-    local spread=""
-    local attempt
+    page_pixel_diff=""
+    spread=""
     for attempt in $(seq 1 8); do
         capture_screendump "$monitor" "$ppm" "$STATE/monitor-$page-screendump.log"
         convert "$ppm" -resize 1280x720 -strip "$png"
@@ -733,25 +739,44 @@ capture_workspace_page() {
         test -s "$png"
         page_pixel_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$png" null: 2>&1 || true)"
         spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
+        if [[ "$allow_same" == "yes" ]] && awk "BEGIN { exit !($spread > 0.02) }"; then
+            break
+        fi
         if [[ "$page_pixel_diff" =~ ^[0-9]+$ ]] && (( page_pixel_diff > 5000 )) && awk "BEGIN { exit !($spread > 0.02) }"; then
             break
         fi
         echo "[TraceOS] $page framebuffer not ready (attempt $attempt, changed pixels: ${page_pixel_diff:-unknown})." >&2
         sleep 1
     done
-    if [[ ! "$page_pixel_diff" =~ ^[0-9]+$ ]] || (( page_pixel_diff <= 5000 )); then
+    if [[ "$allow_same" != "yes" ]] && { [[ ! "$page_pixel_diff" =~ ^[0-9]+$ ]] || (( page_pixel_diff <= 5000 )); }; then
         echo "[TraceOS] $page screenshot is indistinguishable from the Dashboard (changed pixels: ${page_pixel_diff:-unknown})." >&2
         return 1
     fi
-    echo "[TraceOS] $page differs from Dashboard across $page_pixel_diff pixels."
     if ! awk "BEGIN { exit !($spread > 0.02) }"; then
         echo "[TraceOS] $page page screenshot is blank or static." >&2
         return 1
     fi
-    printf "%s_UI=PASS\n%s_SHA256=%s\n%s_DASHBOARD_PIXEL_DIFF=%s\n" "$label" "$label" "$(sha256sum "$png" | awk '{print $1}')" "$label" "$page_pixel_diff" >>"$workspace_matrix"
+    echo "[TraceOS] $page differs from Dashboard across ${page_pixel_diff:-same} pixels."
+    printf "%s_UI=PASS\n%s_SHA256=%s\n%s_DASHBOARD_PIXEL_DIFF=%s\n" "$label" "$label" "$(sha256sum "$png" | awk '{print $1}')" "$label" "${page_pixel_diff:-0}" >>"$workspace_matrix"
     echo "[TraceOS] $page workspace rendered and captured."
 }
 
+identity_line="$(grep -F 'stage=CONTROL_CENTRE_SESSION_READY' "$serial_log" | tail -n 1 || true)"
+gui_nonce="$(extract_field "$identity_line" nonce)"
+gui_pid="$(extract_field "$identity_line" pid)"
+if [[ -z "$gui_nonce" || -z "$gui_pid" ]]; then
+    echo "[TraceOS] Control Centre session identity was not on the serial log." >&2
+    exit 1
+fi
+
+capture_workspace_page overview f1 OVERVIEW_PAGE_RENDERED OVERVIEW yes
+capture_workspace_page cases f2 CASES_PAGE_RENDERED CASES
+capture_workspace_page evidence f3 EVIDENCE_PAGE_RENDERED EVIDENCE
+capture_workspace_page investigation o osint-page-rendered INVESTIGATION
+capture_workspace_page network f4 NETWORK_PAGE_RENDERED NETWORK
+capture_workspace_page tools f5 TOOLS_PAGE_RENDERED TOOLS
+capture_workspace_page ai f6 AI_PAGE_RENDERED AI
+capture_workspace_page settings f7 SETTINGS_PAGE_RENDERED SETTINGS
 capture_workspace_page web-testing w WEB_TESTING_PAGE_RENDERED WEB_TESTING
 capture_workspace_page image-osint i image-osint-page-rendered IMAGE_OSINT
 cat "$workspace_matrix"
@@ -976,7 +1001,8 @@ image_marker_line() {
     local stage="$1"
     local attempt="${2:-}"
     local result
-    result="$(grep -F "stage=$stage" "$serial_log" 2>/dev/null \
+    result="$(tail -n +"${image_serial_mark:-1}" "$serial_log" 2>/dev/null \
+        | grep -F "stage=$stage" \
         | grep -F "nonce=$gui_nonce" \
         | grep -F "pid=$gui_pid" \
         | tail -n 1 || true)"
@@ -1000,6 +1026,7 @@ if [[ "$image_ready" == "yes" ]]; then
 fi
 
 if [[ "$image_ready" == "yes" ]]; then
+    image_serial_mark="$(( $(wc -l < "$serial_log" | tr -d ' ') + 1 ))"
     hmp_command "$monitor" "sendkey ctrl-shift-i" "$STATE/monitor-image-page-shortcut.log"
     for _ in $(seq 1 30); do
         if [[ -n "$(image_marker_line "image-osint-page-rendered")" ]]; then
@@ -1013,6 +1040,11 @@ if [[ "$image_ready" == "yes" ]]; then
         capture_screendump "$monitor" "$image_page_ppm" "$STATE/monitor-image-page-screendump.log"
         convert "$image_page_ppm" -resize 1280x720 -strip "$image_page_png"
         identify "$image_page_png"
+        if [[ -s "$new_case_final_png" ]] && cmp -s "$image_page_png" "$new_case_final_png"; then
+            echo "[TraceOS] Image page screenshot is a stale copy of the New Case result." >&2
+            image_page="no"
+            image_failed="yes"
+        fi
 
         send_image_path() {
             local i ch key log

@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+# Mullvad Browser comes from Mullvad's signed Debian repository.
+# Tor Browser is the official linux64 archive, checked against the
+# Tor Project's signed SHA-256 list. Neither one is used as a system proxy.
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends curl ca-certificates gnupg xz-utils
+
+install -d -m 0755 /usr/share/keyrings
+curl -fsSLo /usr/share/keyrings/mullvad-keyring.asc https://repository.mullvad.net/deb/mullvad-keyring.asc
+printf '%s\n' 'deb [signed-by=/usr/share/keyrings/mullvad-keyring.asc arch=amd64] https://repository.mullvad.net/deb/stable stable main' \
+    > /etc/apt/sources.list.d/mullvad.list
+apt-get update
+apt-get install -y mullvad-browser
+test -x /usr/bin/mullvad-browser
+
+TOR_VERSION=15.0.26
+TOR_BASE="https://dist.torproject.org/torbrowser/${TOR_VERSION}"
+WORKDIR=/tmp/traceos-tor-browser
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR"
+cd "$WORKDIR"
+curl -fsSL --retry 5 --retry-delay 2 --max-time 180 "$TOR_BASE/sha256sums-signed-build.txt" -o sha256sums-signed-build.txt
+curl -fsSL --retry 5 --retry-delay 2 --max-time 180 "$TOR_BASE/sha256sums-signed-build.txt.asc" -o sha256sums-signed-build.txt.asc
+GNUPGHOME="$WORKDIR/gnupg"
+export GNUPGHOME
+mkdir -p "$GNUPGHOME"
+chmod 700 "$GNUPGHOME"
+gpg --batch --keyserver keys.openpgp.org --recv-keys EF6E286DDA85EA2A4BA7DE684E2C6E8793298290
+gpg --batch --verify sha256sums-signed-build.txt.asc sha256sums-signed-build.txt
+ARCHIVE="tor-browser-linux-x86_64-${TOR_VERSION}.tar.xz"
+grep -F "$ARCHIVE" sha256sums-signed-build.txt > "$ARCHIVE.sha256"
+curl -fsSL --retry 5 --retry-delay 2 --max-time 900 "$TOR_BASE/$ARCHIVE" -o "$ARCHIVE"
+sha256sum -c "$ARCHIVE.sha256"
+rm -rf /opt/tor-browser
+tar -C /opt -xJf "$ARCHIVE"
+if [ -d /opt/tor-browser_en-US ]; then
+    mv /opt/tor-browser_en-US /opt/tor-browser
+fi
+test -x /opt/tor-browser/Browser/start-tor-browser
+chmod 0755 /usr/local/bin/traceos-private-browser /usr/local/bin/traceos-tor-browser
+mkdir -p /usr/share/doc/traceos
+cat > /usr/share/doc/traceos/browsers.txt <<EOF
+Mullvad Browser: Debian package mullvad-browser from https://repository.mullvad.net/deb/stable
+Tor Browser: ${TOR_VERSION} from ${TOR_BASE}/${ARCHIVE}
+Signature: sha256sums-signed-build.txt verified with Tor Browser Developers key EF6E286DDA85EA2A4BA7DE684E2C6E8793298290
+Firefox ESR remains installed and is the private-window fallback if Mullvad Browser is missing.
+Tor Browser starts its own Tor process. TraceOS does not route the rest of the system through Tor.
+A live Tor circuit is not opened during the image build.
+EOF
+rm -rf "$WORKDIR"
+echo "[TraceOS] Mullvad Browser and Tor Browser ${TOR_VERSION} installed."

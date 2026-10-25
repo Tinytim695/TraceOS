@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+if [ -x /usr/bin/mullvad-browser ]; then
+    exec /usr/bin/mullvad-browser "$@"
+fi
+exec firefox-esr --private-window "$@"

@@ -140,7 +140,15 @@ class TraceOSLauncher:
         self.results.delete(0, "end")
         self._app_matches=[]
         if not query:
+            if self.results.winfo_manager():
+                self.results.pack_forget()
+            if not self.search_hint.winfo_manager():
+                self.search_hint.pack(fill="x")
             return
+        if self.search_hint.winfo_manager():
+            self.search_hint.pack_forget()
+        if not self.results.winfo_manager():
+            self.results.pack(fill="x")
         for name, argv in self.installed_applications():
             if query in name.lower():
                 self._app_matches.append((name, argv))
@@ -306,11 +314,15 @@ class TraceOSLauncher:
                                    insertbackground=ACCENT,relief="flat",font=("DejaVu Sans",11),
                                    highlightthickness=1,highlightbackground=BORDER)
         self.search_entry.pack(side="left", fill="x", expand=True, padx=(10,0), ipady=5)
-        self.results=tk.Listbox(outer,height=3,bg=CARD,fg=TEXT,selectbackground=PANEL,
+        self.search_holder=tk.Frame(outer,bg=BG)
+        self.search_holder.pack(fill="x", pady=(0,8))
+        self.search_hint=tk.Label(self.search_holder,text="Type to search installed applications. The list stays empty until you type.",
+                                  bg=BG,fg=MUTED,anchor="w",font=("DejaVu Sans",9))
+        self.search_hint.pack(fill="x")
+        self.results=tk.Listbox(self.search_holder,height=4,bg=CARD,fg=TEXT,selectbackground=PANEL,
                                 selectforeground=ACCENT,activestyle="none",relief="flat",
                                 font=("DejaVu Sans",10),highlightthickness=1,
                                 highlightbackground=BORDER)
-        self.results.pack(fill="x", pady=(0,8))
         self._app_matches=[]
         self.search_var.trace_add("write", lambda *_names: self.refresh_app_search())
         self.search_entry.bind("<Down>", self.focus_app_results)
