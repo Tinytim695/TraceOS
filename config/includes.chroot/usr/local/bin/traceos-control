@@ -630,11 +630,12 @@ class TraceOSApp:
         self.root.bind_all("<Control-Shift-W>", self._web_testing_shortcut)
         self.root.bind_all("<Control-Shift-I>", self._image_shortcut)
         # Letter chords, not Ctrl+F-keys: XFCE binds Ctrl+F1..F12 to workspace switching
-        # and swallows the event before Tk sees it.
-        self.root.bind_all("<Control-Shift-H>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
+        # and swallows the event before Tk sees it. Ctrl+H is backspace, so the
+        # overview chord is P. Ctrl+M is Return, so Network is B.
+        self.root.bind_all("<Control-Shift-P>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-K>", lambda event: self._open_page_shortcut(event, self.cases_page, "CASES_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-E>", lambda event: self._open_page_shortcut(event, self.evidence, "EVIDENCE_PAGE_RENDERED"))
-        self.root.bind_all("<Control-Shift-M>", lambda event: self._open_page_shortcut(event, self.network, "NETWORK_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-B>", lambda event: self._open_page_shortcut(event, self.network, "NETWORK_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-T>", lambda event: self._open_page_shortcut(event, self.tools_home, "TOOLS_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-Y>", lambda event: self._open_page_shortcut(event, self.ai_page, "AI_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-G>", lambda event: self._open_page_shortcut(event, self.settings_page, "SETTINGS_PAGE_RENDERED"))
