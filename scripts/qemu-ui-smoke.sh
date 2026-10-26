@@ -688,6 +688,8 @@ capture_workspace_page() {
             echo "[TraceOS] The shortcut reached Control Centre, but $page did not finish drawing." >&2
         elif grep -F "stage=CONTROL_CENTRE_POINTER_FOCUS" "$serial_log" 2>/dev/null | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
             echo "[TraceOS] The click focused Control Centre, but the shortcut still did not arrive." >&2
+        elif grep -F "stage=CONTROL_CENTRE_KEY" "$serial_log" 2>/dev/null | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
+            echo "[TraceOS] A key reached Control Centre, but it was not the overview chord." >&2
         elif grep -F "stage=CONTROL_CENTRE_KEYBOARD_GRAB" "$serial_log" 2>/dev/null | grep -F "result=held" | grep -Fq "nonce=$gui_nonce"; then
             echo "[TraceOS] Control Centre held a global keyboard grab, but the shortcut still did not arrive." >&2
         elif grep -F "stage=CONTROL_CENTRE_KEYBOARD_GRAB" "$serial_log" 2>/dev/null | grep -F "result=failed" | grep -Fq "nonce=$gui_nonce"; then
