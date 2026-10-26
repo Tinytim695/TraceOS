@@ -769,14 +769,16 @@ if [[ -z "$gui_nonce" || -z "$gui_pid" ]]; then
     exit 1
 fi
 
-capture_workspace_page overview f1 OVERVIEW_PAGE_RENDERED OVERVIEW yes
-capture_workspace_page cases f2 CASES_PAGE_RENDERED CASES
-capture_workspace_page evidence f3 EVIDENCE_PAGE_RENDERED EVIDENCE
+# Ctrl+F1..F12 switch XFCE workspaces and never reach Control Centre.
+# These chords match the letter bindings in traceos-control.
+capture_workspace_page overview h OVERVIEW_PAGE_RENDERED OVERVIEW yes
+capture_workspace_page cases k CASES_PAGE_RENDERED CASES
+capture_workspace_page evidence e EVIDENCE_PAGE_RENDERED EVIDENCE
 capture_workspace_page investigation o osint-page-rendered INVESTIGATION
-capture_workspace_page network f4 NETWORK_PAGE_RENDERED NETWORK
-capture_workspace_page tools f5 TOOLS_PAGE_RENDERED TOOLS
-capture_workspace_page ai f6 AI_PAGE_RENDERED AI
-capture_workspace_page settings f7 SETTINGS_PAGE_RENDERED SETTINGS
+capture_workspace_page network m NETWORK_PAGE_RENDERED NETWORK
+capture_workspace_page tools t TOOLS_PAGE_RENDERED TOOLS
+capture_workspace_page ai y AI_PAGE_RENDERED AI
+capture_workspace_page settings g SETTINGS_PAGE_RENDERED SETTINGS
 capture_workspace_page web-testing w WEB_TESTING_PAGE_RENDERED WEB_TESTING
 capture_workspace_page image-osint i image-osint-page-rendered IMAGE_OSINT
 cat "$workspace_matrix"

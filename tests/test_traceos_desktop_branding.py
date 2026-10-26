@@ -225,6 +225,9 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn("stale copy of the New Case result", smoke)
         self.assertIn('tail -n +"$((before + 1))"', smoke)
         self.assertIn("CASES_PAGE_RENDERED", smoke)
+        self.assertIn("<Control-Shift-H>", control)
+        self.assertNotIn("<Control-Shift-F1>", control)
+        self.assertIn("capture_workspace_page overview h ", smoke)
 
     def test_desktop_entries_open_real_programs(self):
         expected={
