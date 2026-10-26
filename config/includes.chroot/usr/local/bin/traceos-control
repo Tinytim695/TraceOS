@@ -677,22 +677,15 @@ class TraceOSApp:
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
-        vendor = ""
-        try:
-            vendor = Path("/sys/class/dmi/id/sys_vendor").read_text(encoding="utf-8", errors="replace").strip()
-        except OSError:
-            vendor = ""
-        # The fw_cfg marker is root-only, so the desktop user cannot see it.
-        # DMI is readable. This arms only under QEMU, then releases itself.
-        if "qemu" in vendor.lower():
+        if self._screenshot_guest():
             subprocess.call(["xset", "m", "1/1", "0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self._test_keys = True
             self.root.bind_all("<KeyPress>", self._trace_test_key, add="+")
             try:
                 self.root.grab_set_global()
-                self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="held", vendor=vendor)
+                self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="held")
             except tk.TclError as exc:
-                self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="failed", vendor=vendor, message=str(exc))
+                self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="failed", message=str(exc))
             self.root.after(45000, self._release_test_grab)
         try:
             self.root.lift()
@@ -700,6 +693,20 @@ class TraceOSApp:
         except tk.TclError:
             pass
         self._trace_diag("CONTROL_CENTRE_SESSION_READY")
+
+    def _screenshot_guest(self) -> bool:
+        virt = subprocess.run(["systemd-detect-virt", "--quiet", "--vm"], check=False)
+        if virt.returncode != 0:
+            self._trace_diag("CONTROL_CENTRE_VIRT", result="not-vm")
+            return False
+        stamp = Path("/run/traceos-ui-e2e")
+        for _ in range(20):
+            if stamp.is_file():
+                self._trace_diag("CONTROL_CENTRE_VIRT", result="ci")
+                return True
+            time.sleep(0.5)
+        self._trace_diag("CONTROL_CENTRE_VIRT", result="vm-no-stamp")
+        return False
 
     def _trace_active_window(self) -> str:
         result = capture(["xprop", "-root", "_NET_ACTIVE_WINDOW"], timeout=2)

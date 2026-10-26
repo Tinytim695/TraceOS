@@ -694,6 +694,9 @@ capture_workspace_page() {
             echo "[TraceOS] Control Centre held a global keyboard grab, but the shortcut still did not arrive." >&2
         elif grep -F "stage=CONTROL_CENTRE_KEYBOARD_GRAB" "$serial_log" 2>/dev/null | grep -F "result=failed" | grep -Fq "nonce=$gui_nonce"; then
             echo "[TraceOS] Control Centre could not grab the keyboard." >&2
+        elif grep -F "stage=CONTROL_CENTRE_VIRT" "$serial_log" 2>/dev/null | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
+            echo "[TraceOS] Control Centre decided this was not the screenshot guest." >&2
+            grep -F "stage=CONTROL_CENTRE_VIRT" "$serial_log" | tail -n 3 >&2 || true
         else
             echo "[TraceOS] The shortcut never reached Control Centre, and the click did not focus it." >&2
         fi
