@@ -681,6 +681,14 @@ class TraceOSApp:
             # The screenshot test sends relative mouse moves. Guest acceleration
             # would land those clicks off this window.
             subprocess.call(["xset", "m", "1/1", "0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # The launcher still owns the X focus after it starts this window.
+            # A global grab delivers the QEMU page chords here anyway. The first
+            # chord releases it so the later Applications-menu click still works.
+            try:
+                self.root.grab_set_global()
+                self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="held")
+            except tk.TclError as exc:
+                self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="failed", message=str(exc))
         try:
             self.root.lift()
             self.root.focus_force()
@@ -764,6 +772,10 @@ class TraceOSApp:
         self._trace_diag("CONTROL_CENTRE_POINTER_FOCUS")
 
     def _open_page_shortcut(self, event: tk.Event, page, stage: str) -> str:
+        try:
+            self.root.grab_release()
+        except tk.TclError:
+            pass
         self._trace_diag(
             "PAGE_SHORTCUT_RECEIVED",
             keysym=getattr(event, "keysym", "unknown"),
