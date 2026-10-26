@@ -671,6 +671,11 @@ class TraceOSApp:
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
+        try:
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            pass
         self._trace_diag("CONTROL_CENTRE_SESSION_READY")
 
     def _trace_active_window(self) -> str:
@@ -740,8 +745,22 @@ class TraceOSApp:
         self.new_case()
         return "break"
 
-    def _open_page_shortcut(self, _event: tk.Event, page, stage: str) -> str:
-        page()
+    def _open_page_shortcut(self, event: tk.Event, page, stage: str) -> str:
+        self._trace_diag(
+            "PAGE_SHORTCUT_RECEIVED",
+            keysym=getattr(event, "keysym", "unknown"),
+            requested=stage,
+        )
+        try:
+            page()
+        except Exception as exc:
+            self._trace_diag(
+                "PAGE_SHORTCUT_FAILED",
+                requested=stage,
+                exc_type=type(exc).__name__,
+                message=str(exc),
+            )
+            raise
         self.root.update_idletasks()
         self._trace_diag(stage)
         return "break"
