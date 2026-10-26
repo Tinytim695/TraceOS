@@ -218,6 +218,16 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          "xfce4-appearance-settings", "nm-connection-editor", "RUN SYSTEM DOCTOR"):
             self.assertIn(expected, control)
         self.assertNotIn("How can I help with your investigation", control)
+        self.assertIn('self.cases_page, "#3d8bfd"', control)
+        self.assertIn("nav_canvas", control)
+        self.assertIn("highlightcolor=ACCENT", control)
+        smoke=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("stale copy of the New Case result", smoke)
+        self.assertIn('tail -n +"$((before + 1))"', smoke)
+        self.assertIn("CASES_PAGE_RENDERED", smoke)
+        self.assertIn("<Control-Shift-H>", control)
+        self.assertNotIn("<Control-Shift-F1>", control)
+        self.assertIn("capture_workspace_page overview h ", smoke)
 
     def test_desktop_entries_open_real_programs(self):
         expected={

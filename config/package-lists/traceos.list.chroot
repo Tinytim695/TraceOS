@@ -87,6 +87,8 @@ firmware-linux
 
 # GUI
 python3-tk
+python3-secretstorage
+gnome-keyring
 pipx
 
 # Blue Team / network monitoring and DFIR

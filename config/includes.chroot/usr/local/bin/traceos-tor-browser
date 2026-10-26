@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+if [ -x /opt/tor-browser/Browser/start-tor-browser ]; then
+    exec /opt/tor-browser/Browser/start-tor-browser "$@"
+fi
+echo "Tor Browser is not installed in this image." >&2
+exit 1
