@@ -1,0 +1,19 @@
+#!/bin/sh
+# Tor is installed but must not start, and must not redirect traffic, until
+# the live user explicitly turns it on.
+set -eu
+if [ -L /etc/systemd/system/multi-user.target.wants/tor.service ]; then
+    rm -f /etc/systemd/system/multi-user.target.wants/tor.service
+fi
+chmod 0440 /etc/sudoers.d/traceos-tor
+chmod 0755 /usr/local/sbin/traceos-tor-apply /usr/local/bin/traceos-net-bubble
+mkdir -p /etc/systemd/system/timers.target.wants
+ln -sfn /etc/systemd/system/traceos-tor-refresh.timer /etc/systemd/system/timers.target.wants/traceos-tor-refresh.timer
+mkdir -p /var/log/tor
+if id debian-tor >/dev/null 2>&1; then
+    chown debian-tor:debian-tor /var/log/tor
+fi
+if [ -f /etc/tor/torrc ] && ! grep -q '/etc/tor/torrc.d/traceos.conf' /etc/tor/torrc; then
+    printf '%s\n' '%include /etc/tor/torrc.d/traceos.conf' >> /etc/tor/torrc
+fi
+visudo -cf /etc/sudoers.d/traceos-tor

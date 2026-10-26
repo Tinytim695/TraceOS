@@ -970,9 +970,18 @@ def main(a):
     if c=="demo":return demo()
     if c=="doctor":return doctor()
     if c=="ai":return ai()
+    if c=="tor":
+        if rest not in (["status"], ["on"], ["off"]):
+            print("Usage: traceos tor {status|on|off}", file=sys.stderr)
+            return 2
+        helper = "/usr/local/sbin/traceos-tor-apply"
+        if not Path(helper).exists():
+            print("Tor helper is not installed.", file=sys.stderr)
+            return 1
+        return subprocess.call(["sudo", "-n", helper, rest[0]])
     if c=="update":return update(rest)
     if c=="about":
         print(f"TraceOS {VERSION}\nDigital Investigation Workstation\n\nLocal-first case management, evidence hashing, local analysis,\npeople OSINT, authorized web testing, local image analysis, reports,\ntimeline and Trace AI.\nNo built-in telemetry. External actions are user-invoked.")
         return 0
-    print("Usage: traceos {status|welcome|session|case|evidence|analyse|image|tools|network|osint|report|timeline|demo|doctor|ai|update|about}");return 2
+    print("Usage: traceos {status|welcome|session|case|evidence|analyse|image|tools|network|osint|report|timeline|demo|doctor|ai|tor|update|about}");return 2
 if __name__=="__main__":raise SystemExit(main(sys.argv[1:]))

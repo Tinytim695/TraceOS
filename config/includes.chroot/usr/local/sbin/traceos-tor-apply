@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Apply or remove the TraceOS Tor policy. This never runs from a unit test."""
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+LIB = "/usr/local/lib/traceos"
+if not os.path.isdir(LIB):
+    LIB = str(Path(__file__).resolve().parent.parent / "lib" / "traceos")
+if LIB not in sys.path:
+    sys.path.insert(0, LIB)
+import tor_mode
+
+MARKER = Path(os.environ.get("TRACEOS_TOR_MARKER", "/etc/traceos/tor-apply-enabled"))
+MODE_PATH = Path("/run/traceos/tor-mode")
+STATUS_PATH = Path("/run/traceos/tor-status.json")
+NOTICE = Path("/var/log/tor/traceos-notice.log")
+RULES = Path("/run/traceos/tor-rules.nft")
+
+
+def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, text=True, capture_output=True, check=False)
+
+
+def _enabled() -> bool:
+    return MARKER.is_file() and os.geteuid() == 0
+
+
+def _refuse(message: str) -> int:
+    print(message, file=sys.stderr)
+    return 2
+
+
+def _requested() -> str:
+    try:
+        value = MODE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "off"
+    return value if value in {"on", "off"} else "off"
+
+
+def _bootstrap() -> int | None:
+    try:
+        text = NOTICE.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    found = tor_mode.parse_bootstrap(text)
+    if found is not None:
+        return found
+    cookie = Path("/run/tor/control.authcookie")
+    if not cookie.is_file():
+        return None
+    command = "AUTHENTICATE " + cookie.read_bytes().hex() + "\r\nGETINFO status/bootstrap-phase\r\nQUIT\r\n"
+    answered = subprocess.run(
+        ["nc", "-U", "/run/tor/control"],
+        input=command,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return tor_mode.parse_bootstrap(answered.stdout)
+
+
+def observe() -> dict:
+    rules = _run(["nft", "list", "table", "inet", tor_mode.TABLE])
+    text = rules.stdout if rules.returncode == 0 else ""
+    listeners = _run(["ss", "-H", "-ltn"])
+    listening = listeners.stdout
+    route = _run(["ip", "-4", "route", "show", "default"])
+    return {
+        "requested": _requested(),
+        "default_route": bool(route.stdout.strip()),
+        "table_present": rules.returncode == 0,
+        "filter_policy_drop": "output_filter" in text and "policy drop" in text,
+        "redirect_trans": f":{tor_mode.TRANS_PORT}" in text and "redirect" in text,
+        "redirect_dns": f":{tor_mode.DNS_PORT}" in text and "redirect" in text,
+        "trans_listening": f":{tor_mode.TRANS_PORT}" in listening,
+        "dns_listening": f":{tor_mode.DNS_PORT}" in listening,
+        "tor_running": _run(["systemctl", "is-active", "--quiet", "tor"]).returncode == 0,
+        "bootstrap": _bootstrap(),
+    }
+
+
+def _write_status(payload: dict) -> None:
+    MODE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    body = json.dumps({**payload, "checked_at": time.time()})
+    temporary = STATUS_PATH.with_suffix(".json.tmp")
+    temporary.write_text(body + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o644)
+    temporary.replace(STATUS_PATH)
+
+
+def _apply_rules() -> None:
+    RULES.parent.mkdir(parents=True, exist_ok=True)
+    RULES.write_text(tor_mode.render_nft(), encoding="utf-8")
+    os.chmod(RULES, 0o644)
+    result = _run(["nft", "-f", str(RULES)])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "nft refused the Tor policy")
+
+
+def _remove_rules() -> None:
+    _run(["nft", "delete", "table", "inet", tor_mode.TABLE])
+
+
+def _start_tor() -> None:
+    log_dir = NOTICE.parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+    if _run(["id", "debian-tor"]).returncode == 0:
+        _run(["chown", "debian-tor:debian-tor", str(log_dir)])
+    result = _run(["systemctl", "start", "tor.service"])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "tor.service did not start")
+
+
+def refresh() -> dict:
+    obs = observe()
+    action = tor_mode.enforcement_action(str(obs["requested"]), bool(obs["table_present"]), bool(obs["filter_policy_drop"]))
+    if action == "reapply-block":
+        _apply_rules()
+        obs = observe()
+    elif action == "remove-block":
+        _remove_rules()
+        obs = observe()
+    payload = tor_mode.decide_status(obs)
+    _write_status(payload)
+    return payload
+
+
+def turn(mode: str) -> dict:
+    MODE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if mode == "on":
+        _apply_rules()
+        MODE_PATH.write_text("on\n", encoding="utf-8")
+        _start_tor()
+    else:
+        MODE_PATH.write_text("off\n", encoding="utf-8")
+        _run(["systemctl", "stop", "tor.service"])
+        _remove_rules()
+    return refresh()
+
+
+def main(argv: list[str]) -> int:
+    if argv == ["--print-rules"]:
+        sys.stdout.write(tor_mode.render_nft())
+        return 0
+    if argv not in (["on"], ["off"], ["status"]):
+        return _refuse("Usage: traceos-tor-apply {on|off|status|--print-rules}")
+    if not _enabled():
+        return _refuse("Refusing to change this machine. Tor apply is only enabled in the live image as root.")
+    try:
+        payload = refresh() if argv == ["status"] else turn(argv[0])
+    except Exception as exc:
+        print(f"Tor mode failed: {exc}", file=sys.stderr)
+        try:
+            if _requested() == "on":
+                _apply_rules()
+        except Exception:
+            pass
+        return 1
+    print(f"{payload['label']}: {payload['detail']}")
+    if argv == ["on"] and payload["status"] not in {"tor_active", "connecting"}:
+        return 1
+    if argv == ["off"] and payload["status"] not in {"normal", "offline"}:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
