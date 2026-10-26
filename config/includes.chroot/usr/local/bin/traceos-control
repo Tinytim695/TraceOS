@@ -677,6 +677,10 @@ class TraceOSApp:
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
+        if Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ui-image-e2e/raw").exists():
+            # The screenshot test sends relative mouse moves. Guest acceleration
+            # would land those clicks off this window.
+            subprocess.call(["xset", "m", "1/1", "0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             self.root.lift()
             self.root.focus_force()

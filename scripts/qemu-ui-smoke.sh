@@ -734,6 +734,33 @@ if [[ -z "$gui_nonce" || -z "$gui_pid" ]]; then
     exit 1
 fi
 
+# A 500px jump is amplified by pointer acceleration and misses the window.
+# From the top-left, 140,150 is the sidebar (measured on the last dashboard shot).
+focus_control_centre_window() {
+    local tag="$1"
+    hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-$tag-reset.log"
+    hmp_command "$monitor" "mouse_move 140 150" "$STATE/monitor-$tag-target.log"
+    hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-$tag-down.log"
+    sleep 0.2
+    hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-$tag-up.log"
+    sleep 0.6
+}
+focus_control_centre_window "before-pages"
+
+# Ctrl+H is backspace and never reached Tk. Overview is Ctrl+Shift+P.
+# Ctrl+M is Return, so Network is Ctrl+Shift+B.
+capture_workspace_page overview p OVERVIEW_PAGE_RENDERED OVERVIEW yes
+capture_workspace_page cases k CASES_PAGE_RENDERED CASES
+capture_workspace_page evidence e EVIDENCE_PAGE_RENDERED EVIDENCE
+capture_workspace_page investigation o osint-page-rendered INVESTIGATION
+capture_workspace_page network b NETWORK_PAGE_RENDERED NETWORK
+capture_workspace_page tools t TOOLS_PAGE_RENDERED TOOLS
+capture_workspace_page ai y AI_PAGE_RENDERED AI
+capture_workspace_page settings g SETTINGS_PAGE_RENDERED SETTINGS
+capture_workspace_page web-testing w WEB_TESTING_PAGE_RENDERED WEB_TESTING
+capture_workspace_page image-osint i image-osint-page-rendered IMAGE_OSINT
+cat "$workspace_matrix"
+
 # Capture the actual XFCE Applications menu so the branded TraceOS launchers
 # are represented in retained QEMU evidence, not inferred from desktop files.
 # QEMU HMP mouse_move sends relative deltas. A small negative delta does not
@@ -765,37 +792,10 @@ if ! popup_region_diff_passes "$launcher_menu_diff"; then
 fi
 echo "[TraceOS] Applications menu visible in popup region; $launcher_menu_diff pixels changed."
 
-# Close the popup and return keyboard focus to the actual Control Centre window.
-# The last green run used this relative click, then Ctrl+Shift+W arrived.
-# Do not reset the pointer here: it is still on the Applications button.
+# Close the popup. Page screenshots were already taken.
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-launcher-menu-dismiss.log"
 sleep 0.5
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 500 200" "$STATE/monitor-launcher-menu-refocus-move.log"
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-refocus-down.log"
-sleep 0.2
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-launcher-menu-refocus-up.log"
-sleep 0.4
-# Second click: the first can be spent dismissing the menu. The app records
-# CONTROL_CENTRE_POINTER_FOCUS when this click lands in the window.
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-refocus-down-2.log"
-sleep 0.2
-hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-launcher-menu-refocus-up-2.log"
-sleep 1
 rm -f "$launcher_menu_ppm" "$launcher_dashboard_crop" "$launcher_menu_crop"
-
-# Ctrl+H is backspace and never reached Tk. Overview is Ctrl+Shift+P.
-# Ctrl+M is Return, so Network is Ctrl+Shift+B.
-capture_workspace_page overview p OVERVIEW_PAGE_RENDERED OVERVIEW yes
-capture_workspace_page cases k CASES_PAGE_RENDERED CASES
-capture_workspace_page evidence e EVIDENCE_PAGE_RENDERED EVIDENCE
-capture_workspace_page investigation o osint-page-rendered INVESTIGATION
-capture_workspace_page network b NETWORK_PAGE_RENDERED NETWORK
-capture_workspace_page tools t TOOLS_PAGE_RENDERED TOOLS
-capture_workspace_page ai y AI_PAGE_RENDERED AI
-capture_workspace_page settings g SETTINGS_PAGE_RENDERED SETTINGS
-capture_workspace_page web-testing w WEB_TESTING_PAGE_RENDERED WEB_TESTING
-capture_workspace_page image-osint i image-osint-page-rendered IMAGE_OSINT
-cat "$workspace_matrix"
 
 # Diagnostic-only New Case GUI interaction. This uses the normal visible Control Centre
 # shortcut/button path and never calls CaseStore.create() outside the GUI process.
@@ -878,6 +878,7 @@ fi
 printf 'TRACEOS_RUNTIME_BRANDING_RESULT=PASS\nTRACEOS_RUNTIME_WALLPAPER_SHA256=%s\n' "$runtime_wallpaper_sha256" >>"$OUT/traceos-wallpaper-manifest.txt"
 
 hmp_new_case="yes"
+focus_control_centre_window "before-new-case"
 if ! hmp_command "$monitor" "sendkey ctrl-shift-n" "$STATE/monitor-new-case-sendkey.log"; then
     hmp_new_case="no"
 fi
