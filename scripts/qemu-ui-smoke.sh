@@ -698,6 +698,11 @@ capture_workspace_page() {
     done
     if [[ "$rendered" != "yes" ]]; then
         echo "[TraceOS] $page page did not report a fresh GUI render for nonce=$gui_nonce pid=$gui_pid." >&2
+        if tail -n +"$((before + 1))" "$serial_log" 2>/dev/null | grep -F "stage=PAGE_SHORTCUT_RECEIVED" | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
+            echo "[TraceOS] The shortcut reached Control Centre, but $page did not finish drawing." >&2
+        else
+            echo "[TraceOS] The shortcut never reached Control Centre." >&2
+        fi
         tail -n 80 "$serial_log" >&2 || true
         return 1
     fi
@@ -740,6 +745,10 @@ if [[ -z "$gui_nonce" || -z "$gui_pid" ]]; then
     echo "[TraceOS] Control Centre session identity was not on the serial log." >&2
     exit 1
 fi
+
+# The launcher keeps the keyboard after it opens Control Centre. Click the
+# window before the first shortcut, or Ctrl+Shift+H is delivered nowhere.
+focus_control_centre "before-pages"
 
 # Ctrl+F1..F12 switch XFCE workspaces and never reach Control Centre.
 # These chords match the letter bindings in traceos-control.
