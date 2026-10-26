@@ -1,0 +1,3 @@
+traceos ALL=(root) NOPASSWD: /usr/local/sbin/traceos-tor-apply on
+traceos ALL=(root) NOPASSWD: /usr/local/sbin/traceos-tor-apply off
+traceos ALL=(root) NOPASSWD: /usr/local/sbin/traceos-tor-apply status

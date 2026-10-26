@@ -1,0 +1,6 @@
+[Unit]
+Description=Re-check TraceOS Tor enforcement without changing the selected mode
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/traceos-tor-apply status

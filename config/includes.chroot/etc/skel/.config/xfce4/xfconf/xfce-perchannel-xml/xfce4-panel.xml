@@ -15,6 +15,8 @@
         <value type="int" value="1"/>
         <value type="int" value="2"/>
         <value type="int" value="3"/>
+        <value type="int" value="12"/>
+        <value type="int" value="13"/>
       </property>
     </property>
     <property name="panel-2" type="empty">
@@ -48,6 +50,16 @@
     <property name="plugin-3" type="string" value="tasklist">
       <property name="show-labels" type="bool" value="true"/>
       <property name="flat-buttons" type="bool" value="true"/>
+    </property>
+    <property name="plugin-12" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-13" type="string" value="genmon">
+      <property name="command" type="string" value="/usr/local/bin/traceos-net-bubble"/>
+      <property name="update-period" type="int" value="3"/>
+      <property name="enable-markup" type="bool" value="true"/>
+      <property name="enable-single-row" type="bool" value="true"/>
     </property>
     <property name="plugin-5" type="string" value="launcher">
       <property name="items" type="array">

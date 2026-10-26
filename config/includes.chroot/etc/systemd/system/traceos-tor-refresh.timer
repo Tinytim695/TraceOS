@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep the TraceOS network bubble aligned with the firewall
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=10
+AccuracySec=2s
+
+[Install]
+WantedBy=timers.target

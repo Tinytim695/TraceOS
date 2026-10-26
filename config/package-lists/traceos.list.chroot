@@ -6,6 +6,9 @@ lightdm-gtk-greeter
 xfce4-terminal
 thunar
 thunar-archive-plugin
+tor
+nftables
+xfce4-genmon-plugin
 
 # Desktop integration
 network-manager

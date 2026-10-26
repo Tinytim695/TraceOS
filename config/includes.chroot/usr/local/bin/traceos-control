@@ -2200,12 +2200,52 @@ class TraceOSApp:
             bg=BG, fg=MUTED, font=("Sans", 8)
         ).pack(anchor="w", padx=30, pady=(0, 12))
 
+    def _tor_status_text(self) -> str:
+        lib = "/usr/local/lib/traceos"
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import tor_mode
+        status = "unknown"
+        detail = "the status service has not reported yet"
+        try:
+            payload = json.loads(Path("/run/traceos/tor-status.json").read_text(encoding="utf-8"))
+            age = time.time() - float(payload.get("checked_at"))
+            status = tor_mode.fresh_status(str(payload.get("status")), age)
+            detail = str(payload.get("detail") or detail)
+        except (OSError, ValueError, TypeError):
+            pass
+        label = tor_mode.LABELS.get(status, tor_mode.LABELS["unknown"])[0]
+        return f"{label}  •  {detail}"
+
+    def _set_tor(self, mode: str) -> None:
+        result = subprocess.run(
+            ["sudo", "-n", "/usr/local/sbin/traceos-tor-apply", mode],
+            text=True, capture_output=True, check=False,
+        )
+        message = (result.stdout or result.stderr or "No output from the Tor helper.").strip()
+        if result.returncode != 0:
+            messagebox.showerror("Tor mode", message, parent=self.root)
+        self.network()
+
     def network(self) -> None:
         self.activate_nav("Network")
         self.heading(
             "Network", "Command Centre",
             "Live local status plus explicit, user-invoked Nmap scans."
         )
+        tor = self.card(self.content, padx=28, pady=8)
+        tor_label = self._tor_status_text()
+        tk.Label(tor, text=tor_label, bg=CARD, fg=TEXT, font=("Sans", 10, "bold"), wraplength=760, justify="left").pack(anchor="w", padx=16, pady=(12, 4))
+        tk.Label(
+            tor,
+            text="Tor stays off until you turn it on. TCP is then forced through Tor and other internet traffic is blocked. This does not make you anonymous. Your provider can still see connections to Tor relays.",
+            bg=CARD, fg=MUTED, font=("Sans", 9), wraplength=760, justify="left",
+        ).pack(anchor="w", padx=16)
+        tor_actions = tk.Frame(tor, bg=CARD)
+        tor_actions.pack(anchor="w", padx=10, pady=(8, 12))
+        self.action_button(tor_actions, "TOR ON", lambda: self._set_tor("on"), primary=True).pack(side="left", padx=6)
+        self.action_button(tor_actions, "TOR OFF", lambda: self._set_tor("off")).pack(side="left", padx=6)
+
         top = self.card(self.content, padx=28, pady=8)
         tk.Label(top, text=f"NETWORK  {network_state()}", bg=CARD, fg=GOOD, font=("Sans", 10, "bold")).pack(
             side="left", padx=16, pady=14
