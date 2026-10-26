@@ -632,7 +632,12 @@ class TraceOSApp:
         # Letter chords, not Ctrl+F-keys: XFCE binds Ctrl+F1..F12 to workspace switching
         # and swallows the event before Tk sees it. Ctrl+H is backspace, so the
         # overview chord is P. Ctrl+M is Return, so Network is B.
+        # A click on the page background must take the keyboard. The smoke test
+        # clicks empty navy padding; without this the WM focuses the window but
+        # Tk has no focused widget, so the following chord is dropped.
+        self.root.bind_all("<ButtonPress-1>", self._take_keyboard_focus, add="+")
         self.root.bind_all("<Control-Shift-P>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-p>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-K>", lambda event: self._open_page_shortcut(event, self.cases_page, "CASES_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-E>", lambda event: self._open_page_shortcut(event, self.evidence, "EVIDENCE_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-B>", lambda event: self._open_page_shortcut(event, self.network, "NETWORK_PAGE_RENDERED"))
@@ -745,6 +750,14 @@ class TraceOSApp:
         )
         self.new_case()
         return "break"
+
+    def _take_keyboard_focus(self, _event: tk.Event) -> None:
+        try:
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            return
+        self._trace_diag("CONTROL_CENTRE_POINTER_FOCUS")
 
     def _open_page_shortcut(self, event: tk.Event, page, stage: str) -> str:
         self._trace_diag(

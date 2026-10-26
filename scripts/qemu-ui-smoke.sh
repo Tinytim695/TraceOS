@@ -686,8 +686,10 @@ capture_workspace_page() {
         echo "[TraceOS] $page page did not report a fresh GUI render for nonce=$gui_nonce pid=$gui_pid." >&2
         if tail -n +"$((before + 1))" "$serial_log" 2>/dev/null | grep -F "stage=PAGE_SHORTCUT_RECEIVED" | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
             echo "[TraceOS] The shortcut reached Control Centre, but $page did not finish drawing." >&2
+        elif grep -F "stage=CONTROL_CENTRE_POINTER_FOCUS" "$serial_log" 2>/dev/null | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
+            echo "[TraceOS] The click focused Control Centre, but the shortcut still did not arrive." >&2
         else
-            echo "[TraceOS] The shortcut never reached Control Centre." >&2
+            echo "[TraceOS] The shortcut never reached Control Centre, and the click did not focus it." >&2
         fi
         tail -n 80 "$serial_log" >&2 || true
         return 1
@@ -772,7 +774,13 @@ hmp_command "$STATE/monitor-dashboard.sock" "mouse_move 500 200" "$STATE/monitor
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-refocus-down.log"
 sleep 0.2
 hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-launcher-menu-refocus-up.log"
-sleep 0.5
+sleep 0.4
+# Second click: the first can be spent dismissing the menu. The app records
+# CONTROL_CENTRE_POINTER_FOCUS when this click lands in the window.
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 1" "$STATE/monitor-launcher-menu-refocus-down-2.log"
+sleep 0.2
+hmp_command "$STATE/monitor-dashboard.sock" "mouse_button 0" "$STATE/monitor-launcher-menu-refocus-up-2.log"
+sleep 1
 rm -f "$launcher_menu_ppm" "$launcher_dashboard_crop" "$launcher_menu_crop"
 
 # Ctrl+H is backspace and never reached Tk. Overview is Ctrl+Shift+P.
