@@ -14,7 +14,7 @@ Pillow==13.0.0
 propcache==0.5.4
 Pygments==2.21.0
 python-dotenv==1.2.4
-reportlab==5.0.1
+reportlab==5.1.0
 requests==2.34.2
 rich==15.0.0
 urllib3==2.8.0
