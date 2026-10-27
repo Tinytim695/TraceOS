@@ -1294,7 +1294,7 @@ class TraceOSApp:
         self.active_job_label = adapter.display_name
         self.active_job_kind = "action"
         self.active_job_attempt = None
-        self.job_page = self.page_name
+        self.job_page = getattr(self, "page_name", "")
         self.job_output = (
             f"[TraceOS] Action: {adapter.display_name}\n"
             f"Target: {shlex.quote(normalized)}\n"
@@ -1372,7 +1372,7 @@ class TraceOSApp:
         self.active_job_label = label
         self.active_job_kind = kind
         self.active_job_attempt = attempt
-        self.job_page = self.page_name
+        self.job_page = getattr(self, "page_name", "")
         job_token = uuid.uuid4().hex
         self.active_job_token = job_token
         self.job_output = f"[TraceOS] Starting: {label}\n$ {' '.join(shlex.quote(x) for x in args)}\n\n"
