@@ -47,6 +47,11 @@ def main() -> int:
     os.chown(FIXTURE, traceos.pw_uid, traceos.pw_gid)
     os.chmod(FIXTURE, 0o600)
     emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=valid")
+    # The sysfs marker is not readable by the desktop user. Leave a stamp the
+    # Control Centre can see so the screenshot test can grab the keyboard.
+    stamp = Path("/run/traceos-ui-e2e")
+    stamp.write_text("1\n", encoding="utf-8")
+    os.chmod(stamp, 0o644)
     emit("TRACEOS_IMAGE_E2E_FIXTURE_OWNER=traceos MODE=0600")
     emit(
         "TRACEOS_IMAGE_E2E_FIXTURE_READY=1 "

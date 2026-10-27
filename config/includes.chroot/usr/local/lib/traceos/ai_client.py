@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -118,22 +119,58 @@ def complete(provider: str, model: str, key: str, prompt: str, endpoint: str = "
         raise AiError("The provider response did not include a message.") from None
 
 
-def secret_service_status() -> str:
+def _secrets_bus_owns_service() -> bool:
+    """Ask the session bus without starting gnome-keyring. Activation can block the UI."""
+    from jeepney import DBusAddress, new_method_call
+    from jeepney.io.blocking import open_dbus_connection
+
+    conn = open_dbus_connection(bus="SESSION")
+    try:
+        msg = new_method_call(
+            DBusAddress(
+                "/org/freedesktop/DBus",
+                bus_name="org.freedesktop.DBus",
+                interface="org.freedesktop.DBus",
+            ),
+            "NameHasOwner",
+            "s",
+            ("org.freedesktop.secrets",),
+        )
+        reply = conn.send_and_get_reply(msg, timeout=1)
+        return bool(reply.body[0])
+    finally:
+        conn.close()
+
+
+def _secret_service_status_unlocked() -> str:
     try:
         import secretstorage
     except ImportError:
         return "Secret Service library is not installed. Keys can be kept for this session only."
     try:
+        if not _secrets_bus_owns_service():
+            return "Secret Service is not available. Keys can be kept for this session only."
         bus = secretstorage.dbus_init()
         collection = secretstorage.get_default_collection(bus)
-    except Exception:
-        return "Secret Service is not available. Keys can be kept for this session only."
-    try:
         if collection.is_locked():
             return "The keyring is locked. Unlock it in the desktop session before saving a key there."
     except Exception:
         return "Secret Service did not answer. Keys can be kept for this session only."
     return "Secret Service is available."
+
+
+def secret_service_status() -> str:
+    # Opening the AI page must not wait on a missing keyring. DBus activation of
+    # org.freedesktop.secrets can sit for the default 25s timeout.
+    box: dict[str, str] = {}
+
+    def work() -> None:
+        box["text"] = _secret_service_status_unlocked()
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    thread.join(2)
+    return box.get("text", "Secret Service did not answer. Keys can be kept for this session only.")
 
 
 def save_to_secret_service(provider: str, key: str) -> None:

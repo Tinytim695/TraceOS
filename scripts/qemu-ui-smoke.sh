@@ -647,26 +647,12 @@ echo "[TraceOS] Packaged wallpaper mean luminance: $packaged_wallpaper_mean cent
 # diagnostic interaction so the Dashboard remains the baseline gate.
 capture_page dashboard true
 
-# Capture both investigation workspaces through their real Control Centre shortcuts.
-# These page-only interactions do not start tools or external lookups.
-# Do this before the Applications menu. Opening that menu takes keyboard focus,
-# and the following letter shortcuts never reach Control Centre.
+# Page shortcuts run after the Applications menu is closed. The pointer click
+# below is the one that let Ctrl+Shift+W through on the last green run.
 monitor="$STATE/monitor-dashboard.sock"
 serial_log="$STATE/serial-dashboard.log"
 workspace_matrix="$OUT/traceos-workspace-ui-matrix.txt"
 : >"$workspace_matrix"
-
-focus_control_centre() {
-    local tag="$1"
-    # HMP mouse_move is relative. Reset to the top-left, then click inside the
-    # maximised Control Centre, below the panel and clear of the bottom dock.
-    hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-$tag-reset.log"
-    hmp_command "$monitor" "mouse_move 420 280" "$STATE/monitor-$tag-target.log"
-    hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-$tag-down.log"
-    sleep 0.2
-    hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-$tag-up.log"
-    sleep 0.4
-}
 
 capture_workspace_page() {
     local page="$1"
@@ -700,8 +686,19 @@ capture_workspace_page() {
         echo "[TraceOS] $page page did not report a fresh GUI render for nonce=$gui_nonce pid=$gui_pid." >&2
         if tail -n +"$((before + 1))" "$serial_log" 2>/dev/null | grep -F "stage=PAGE_SHORTCUT_RECEIVED" | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
             echo "[TraceOS] The shortcut reached Control Centre, but $page did not finish drawing." >&2
+        elif grep -F "stage=CONTROL_CENTRE_POINTER_FOCUS" "$serial_log" 2>/dev/null | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
+            echo "[TraceOS] The click focused Control Centre, but the shortcut still did not arrive." >&2
+        elif grep -F "stage=CONTROL_CENTRE_KEY" "$serial_log" 2>/dev/null | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
+            echo "[TraceOS] A key reached Control Centre, but it was not the overview chord." >&2
+        elif grep -F "stage=CONTROL_CENTRE_KEYBOARD_GRAB" "$serial_log" 2>/dev/null | grep -F "result=held" | grep -Fq "nonce=$gui_nonce"; then
+            echo "[TraceOS] Control Centre held a global keyboard grab, but the shortcut still did not arrive." >&2
+        elif grep -F "stage=CONTROL_CENTRE_KEYBOARD_GRAB" "$serial_log" 2>/dev/null | grep -F "result=failed" | grep -Fq "nonce=$gui_nonce"; then
+            echo "[TraceOS] Control Centre could not grab the keyboard." >&2
+        elif grep -F "stage=CONTROL_CENTRE_VIRT" "$serial_log" 2>/dev/null | grep -F "nonce=$gui_nonce" | grep -Fq "pid=$gui_pid"; then
+            echo "[TraceOS] Control Centre decided this was not the screenshot guest." >&2
+            grep -F "stage=CONTROL_CENTRE_VIRT" "$serial_log" | tail -n 3 >&2 || true
         else
-            echo "[TraceOS] The shortcut never reached Control Centre." >&2
+            echo "[TraceOS] The shortcut never reached Control Centre, and the click did not focus it." >&2
         fi
         tail -n 80 "$serial_log" >&2 || true
         return 1
@@ -746,24 +743,32 @@ if [[ -z "$gui_nonce" || -z "$gui_pid" ]]; then
     exit 1
 fi
 
-# The launcher keeps the keyboard after it opens Control Centre. Click the
-# window before the first shortcut, or Ctrl+Shift+H is delivered nowhere.
-focus_control_centre "before-pages"
+# A 500px jump is amplified by pointer acceleration and misses the window.
+# From the top-left, 140,150 is the sidebar (measured on the last dashboard shot).
+focus_control_centre_window() {
+    local tag="$1"
+    hmp_command "$monitor" "mouse_move -2048 -1536" "$STATE/monitor-$tag-reset.log"
+    hmp_command "$monitor" "mouse_move 140 150" "$STATE/monitor-$tag-target.log"
+    hmp_command "$monitor" "mouse_button 1" "$STATE/monitor-$tag-down.log"
+    sleep 0.2
+    hmp_command "$monitor" "mouse_button 0" "$STATE/monitor-$tag-up.log"
+    sleep 0.6
+}
+focus_control_centre_window "before-pages"
 
-# Ctrl+F1..F12 switch XFCE workspaces and never reach Control Centre.
-# These chords match the letter bindings in traceos-control.
-capture_workspace_page overview h OVERVIEW_PAGE_RENDERED OVERVIEW yes
+# Ctrl+H is backspace and never reached Tk. Overview is Ctrl+Shift+P.
+# Ctrl+M is Return, so Network is Ctrl+Shift+B.
+capture_workspace_page overview p OVERVIEW_PAGE_RENDERED OVERVIEW yes
 capture_workspace_page cases k CASES_PAGE_RENDERED CASES
 capture_workspace_page evidence e EVIDENCE_PAGE_RENDERED EVIDENCE
 capture_workspace_page investigation o osint-page-rendered INVESTIGATION
-capture_workspace_page network m NETWORK_PAGE_RENDERED NETWORK
+capture_workspace_page network b NETWORK_PAGE_RENDERED NETWORK
 capture_workspace_page tools t TOOLS_PAGE_RENDERED TOOLS
 capture_workspace_page ai y AI_PAGE_RENDERED AI
 capture_workspace_page settings g SETTINGS_PAGE_RENDERED SETTINGS
 capture_workspace_page web-testing w WEB_TESTING_PAGE_RENDERED WEB_TESTING
 capture_workspace_page image-osint i image-osint-page-rendered IMAGE_OSINT
 cat "$workspace_matrix"
-
 
 # Capture the actual XFCE Applications menu so the branded TraceOS launchers
 # are represented in retained QEMU evidence, not inferred from desktop files.
@@ -796,11 +801,9 @@ if ! popup_region_diff_passes "$launcher_menu_diff"; then
 fi
 echo "[TraceOS] Applications menu visible in popup region; $launcher_menu_diff pixels changed."
 
-# Close the popup and return keyboard focus to the actual Control Centre window.
-# Without this, the following Tk shortcut can be consumed by the XFCE panel.
+# Close the popup. Page screenshots were already taken.
 hmp_command "$STATE/monitor-dashboard.sock" "sendkey esc" "$STATE/monitor-launcher-menu-dismiss.log"
 sleep 0.5
-focus_control_centre "menu-dismiss"
 rm -f "$launcher_menu_ppm" "$launcher_dashboard_crop" "$launcher_menu_crop"
 
 # Diagnostic-only New Case GUI interaction. This uses the normal visible Control Centre
@@ -884,7 +887,7 @@ fi
 printf 'TRACEOS_RUNTIME_BRANDING_RESULT=PASS\nTRACEOS_RUNTIME_WALLPAPER_SHA256=%s\n' "$runtime_wallpaper_sha256" >>"$OUT/traceos-wallpaper-manifest.txt"
 
 hmp_new_case="yes"
-focus_control_centre "before-new-case"
+focus_control_centre_window "before-new-case"
 if ! hmp_command "$monitor" "sendkey ctrl-shift-n" "$STATE/monitor-new-case-sendkey.log"; then
     hmp_new_case="no"
 fi

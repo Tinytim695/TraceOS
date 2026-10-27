@@ -630,11 +630,17 @@ class TraceOSApp:
         self.root.bind_all("<Control-Shift-W>", self._web_testing_shortcut)
         self.root.bind_all("<Control-Shift-I>", self._image_shortcut)
         # Letter chords, not Ctrl+F-keys: XFCE binds Ctrl+F1..F12 to workspace switching
-        # and swallows the event before Tk sees it.
-        self.root.bind_all("<Control-Shift-H>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
+        # and swallows the event before Tk sees it. Ctrl+H is backspace, so the
+        # overview chord is P. Ctrl+M is Return, so Network is B.
+        # A click on the page background must take the keyboard. The smoke test
+        # clicks empty navy padding; without this the WM focuses the window but
+        # Tk has no focused widget, so the following chord is dropped.
+        self.root.bind_all("<ButtonPress-1>", self._take_keyboard_focus, add="+")
+        self.root.bind_all("<Control-Shift-P>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-p>", lambda event: self._open_page_shortcut(event, self.dashboard, "OVERVIEW_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-K>", lambda event: self._open_page_shortcut(event, self.cases_page, "CASES_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-E>", lambda event: self._open_page_shortcut(event, self.evidence, "EVIDENCE_PAGE_RENDERED"))
-        self.root.bind_all("<Control-Shift-M>", lambda event: self._open_page_shortcut(event, self.network, "NETWORK_PAGE_RENDERED"))
+        self.root.bind_all("<Control-Shift-B>", lambda event: self._open_page_shortcut(event, self.network, "NETWORK_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-T>", lambda event: self._open_page_shortcut(event, self.tools_home, "TOOLS_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-Y>", lambda event: self._open_page_shortcut(event, self.ai_page, "AI_PAGE_RENDERED"))
         self.root.bind_all("<Control-Shift-G>", lambda event: self._open_page_shortcut(event, self.settings_page, "SETTINGS_PAGE_RENDERED"))
@@ -671,12 +677,35 @@ class TraceOSApp:
             "doctor": self.doctor_page,
         }
         pages.get(start_page, self.dashboard)()
-        try:
-            self.root.lift()
-            self.root.focus_force()
-        except tk.TclError:
-            pass
-        self._trace_diag("CONTROL_CENTRE_SESSION_READY")
+        if self._screenshot_guest():
+            subprocess.call(["xset", "m", "1/1", "0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._test_keys = True
+            self.root.bind_all("<KeyPress>", self._trace_test_key, add="+")
+            # grab_set_global fails with "window not viewable" before mainloop
+            # maps the window. The smoke test waits for SESSION_READY, so that
+            # marker is emitted only after the grab is held.
+            self.root.after(0, self._arm_screenshot_grab)
+        else:
+            try:
+                self.root.lift()
+                self.root.focus_force()
+            except tk.TclError:
+                pass
+            self._trace_diag("CONTROL_CENTRE_SESSION_READY")
+
+    def _screenshot_guest(self) -> bool:
+        virt = subprocess.run(["systemd-detect-virt", "--quiet", "--vm"], check=False)
+        if virt.returncode != 0:
+            self._trace_diag("CONTROL_CENTRE_VIRT", result="not-vm")
+            return False
+        stamp = Path("/run/traceos-ui-e2e")
+        for _ in range(20):
+            if stamp.is_file():
+                self._trace_diag("CONTROL_CENTRE_VIRT", result="ci")
+                return True
+            time.sleep(0.5)
+        self._trace_diag("CONTROL_CENTRE_VIRT", result="vm-no-stamp")
+        return False
 
     def _trace_active_window(self) -> str:
         result = capture(["xprop", "-root", "_NET_ACTIVE_WINDOW"], timeout=2)
@@ -745,7 +774,55 @@ class TraceOSApp:
         self.new_case()
         return "break"
 
+    def _arm_screenshot_grab(self, tries: int = 0) -> None:
+        try:
+            self.root.update_idletasks()
+            if not self.root.winfo_viewable():
+                raise tk.TclError("window not viewable")
+            self.root.lift()
+            self.root.focus_force()
+            self.root.grab_set_global()
+        except tk.TclError as exc:
+            if tries < 25:
+                self.root.after(200, lambda: self._arm_screenshot_grab(tries + 1))
+                return
+            self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="failed", message=str(exc))
+            self._trace_diag("CONTROL_CENTRE_SESSION_READY")
+            return
+        self._trace_diag("CONTROL_CENTRE_KEYBOARD_GRAB", result="held")
+        self._trace_diag("CONTROL_CENTRE_SESSION_READY")
+        self.root.after(45000, self._release_test_grab)
+
+    def _release_test_grab(self) -> None:
+        self._test_keys = False
+        try:
+            self.root.grab_release()
+        except tk.TclError:
+            pass
+
+    def _trace_test_key(self, event: tk.Event) -> None:
+        if not getattr(self, "_test_keys", False):
+            return
+        self._trace_diag(
+            "CONTROL_CENTRE_KEY",
+            keysym=getattr(event, "keysym", "unknown"),
+            state=getattr(event, "state", "unknown"),
+        )
+
+    def _take_keyboard_focus(self, _event: tk.Event) -> None:
+        try:
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            return
+        self._trace_diag("CONTROL_CENTRE_POINTER_FOCUS")
+
     def _open_page_shortcut(self, event: tk.Event, page, stage: str) -> str:
+        self._release_test_grab()
+        try:
+            self.root.focus_force()
+        except tk.TclError:
+            pass
         self._trace_diag(
             "PAGE_SHORTCUT_RECEIVED",
             keysym=getattr(event, "keysym", "unknown"),
