@@ -8,5 +8,5 @@ TryExec=/usr/local/bin/traceos-tor-browser
 Icon=firefox-esr
 Terminal=false
 Categories=Network;WebBrowser;
-StartupNotify=true
+StartupNotify=false
 X-TraceOS-Managed=true

@@ -108,9 +108,9 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_branding_setup_has_traceos_panel_and_desktop_shortcuts(self):
         setup=(INCLUDES/"usr/local/bin/traceos-desktop-setup").read_text(encoding="utf-8")
         for expected in ("desktop_wallpaper.py","WARNING: wallpaper branding is incomplete","button-title",
-                         "TraceOS","show-home","show-filesystem","Case Manager.desktop",
+                         "TraceOS","show-home","show-filesystem","Case-Manager.desktop",
                          "Investigation.desktop","Tools.desktop","Network.desktop",
-                         "AI Assistant.desktop","show-trash bool true"):
+                         "AI-Assistant.desktop","xfce-exe-checksum","show-trash bool true"):
             self.assertIn(expected,setup)
         entry=INCLUDES/"etc/xdg/autostart/traceos-desktop-setup.desktop"
         self.assertEqual(value(entry,"Exec"),"/usr/local/bin/traceos-desktop-setup")

@@ -14,6 +14,14 @@
         "Value": "file:///usr/share/traceos/browser-home.html",
         "Status": "default"
       },
+      "browser.aboutwelcome.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "startup.homepage_welcome_url": {
+        "Value": "",
+        "Status": "locked"
+      },
       "ui.systemUsesDarkTheme": {
         "Value": 1,
         "Status": "default"

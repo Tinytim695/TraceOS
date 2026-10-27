@@ -8,5 +8,5 @@ TryExec=/usr/local/bin/traceos-control-launch
 Icon=traceos-tools
 Terminal=false
 Categories=TraceOS;Forensics;
-StartupNotify=true
+StartupNotify=false
 X-TraceOS-Managed=true

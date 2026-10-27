@@ -30,6 +30,7 @@ from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
 
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
+os.environ["PATH"] = "/usr/local/sbin:/usr/sbin:/sbin:" + os.environ.get("PATH", "")
 
 BG = "#07111c"
 BG2 = "#0c1828"
@@ -655,6 +656,8 @@ class TraceOSApp:
         self.action_queue: queue.Queue[ActionResult] = queue.Queue()
         self.output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
         self.job_output = ""
+        self.job_page = ""
+        self.page_name = ""
         self.output_widget: tk.Text | None = None
         self.welcome = welcome
 
@@ -945,7 +948,21 @@ class TraceOSApp:
             "Trace.TCombobox",
             fieldbackground=[("readonly", "#0e2a4e")],
             foreground=[("readonly", TEXT)],
+            selectbackground=[("readonly", ACCENT)],
+            selectforeground=[("readonly", "#041016")],
         )
+        for pattern in (
+            "*TCombobox*Listbox",
+            "*ComboboxPopdown*Listbox",
+            "*Listbox",
+        ):
+            self.root.option_add(f"{pattern}.background", "#0e2a4e")
+            self.root.option_add(f"{pattern}.foreground", TEXT)
+            self.root.option_add(f"{pattern}.selectBackground", ACCENT)
+            self.root.option_add(f"{pattern}.selectForeground", "#041016")
+            self.root.option_add(f"{pattern}.font", "{DejaVu Sans} 10")
+            self.root.option_add(f"{pattern}.relief", "flat")
+            self.root.option_add(f"{pattern}.borderWidth", "0")
         style.configure(
             "Trace.Treeview",
             background="#0e2a4e",
@@ -1146,8 +1163,9 @@ class TraceOSApp:
         top = tk.Frame(self.content, bg=BG)
         top.pack(fill="x", padx=28, pady=(24, 8))
         tk.Label(top, text=kicker.upper(), bg=BG, fg=ACCENT, font=("Sans", 8, "bold")).pack(anchor="w")
-        tk.Label(top, text=title, bg=BG, fg=TEXT, font=("Sans", 24, "bold")).pack(anchor="w", pady=(1, 0))
-        tk.Label(top, text=subtitle, bg=BG, fg=MUTED, font=("Sans", 10)).pack(anchor="w", pady=(2, 0))
+        tk.Label(top, text=title, bg=BG, fg=TEXT, font=("Sans", 24, "bold"), wraplength=860, justify="left").pack(anchor="w", pady=(1, 0))
+        tk.Label(top, text=subtitle, bg=BG, fg=MUTED, font=("Sans", 10), wraplength=860, justify="left").pack(anchor="w", pady=(2, 0))
+        self.page_name = title
         return top
 
     def card(self, parent: tk.Widget, padx: int = 0, pady: int = 0, expand: bool = False) -> tk.Frame:
@@ -1178,8 +1196,11 @@ class TraceOSApp:
         )
         text.pack(fill="both", expand=True, padx=14, pady=14)
         self.output_widget = text
-        if self.job_output:
+        if self.job_output and self.job_page == self.page_name:
             text.insert("1.0", self.job_output)
+        else:
+            text.insert("1.0", "This page is ready. Results from this page stay here.\n")
+        text.configure(state="disabled")
         return text
 
     def set_text(self, widget: tk.Text, value: str) -> None:
@@ -1273,6 +1294,7 @@ class TraceOSApp:
         self.active_job_label = adapter.display_name
         self.active_job_kind = "action"
         self.active_job_attempt = None
+        self.job_page = self.page_name
         self.job_output = (
             f"[TraceOS] Action: {adapter.display_name}\n"
             f"Target: {shlex.quote(normalized)}\n"
@@ -1316,7 +1338,11 @@ class TraceOSApp:
 
             handled_current = True
             self.job_output = format_basic_lookup_result(result)
-            if self.output_widget and self.output_widget.winfo_exists():
+            if (
+                self.output_widget
+                and self.output_widget.winfo_exists()
+                and self.job_page == self.page_name
+            ):
                 self.set_text(self.output_widget, self.job_output)
             self._trace_diag(
                 "ACTION_RESULT_RENDERED",
@@ -1346,6 +1372,7 @@ class TraceOSApp:
         self.active_job_label = label
         self.active_job_kind = kind
         self.active_job_attempt = attempt
+        self.job_page = self.page_name
         job_token = uuid.uuid4().hex
         self.active_job_token = job_token
         self.job_output = f"[TraceOS] Starting: {label}\n$ {' '.join(shlex.quote(x) for x in args)}\n\n"
@@ -1404,7 +1431,11 @@ class TraceOSApp:
             self.job_output += item
             if len(self.job_output) > 50000:
                 self.job_output = self.job_output[-50000:]
-            if self.output_widget and self.output_widget.winfo_exists():
+            if (
+                self.output_widget
+                and self.output_widget.winfo_exists()
+                and self.job_page == self.page_name
+            ):
                 self.output_widget.configure(state="normal")
                 self.output_widget.delete("1.0", "end")
                 self.output_widget.insert("1.0", self.job_output)
@@ -1420,8 +1451,15 @@ class TraceOSApp:
         if finished:
             code = self.active_process.poll() if self.active_process else 0
             self.job_output += f"\n[TraceOS] Task finished with exit code {code}.\n"
-            if self.output_widget and self.output_widget.winfo_exists():
+            self._record_activity(self.active_job_label or "Task", code)
+            if (
+                self.output_widget
+                and self.output_widget.winfo_exists()
+                and self.job_page == self.page_name
+            ):
+                self.output_widget.configure(state="normal")
                 self.output_widget.insert("end", f"\n[TraceOS] Task finished with exit code {code}.\n")
+                self.output_widget.configure(state="disabled")
             finished_kind = self.active_job_kind
             finished_attempt = self.active_job_attempt
             self._trace_diag("TASK_COMPLETED", task=self.active_job_label or "unknown", exit_code=code, attempt=finished_attempt if finished_attempt is not None else "none")
@@ -2313,14 +2351,47 @@ class TraceOSApp:
         label = tor_mode.LABELS.get(status, tor_mode.LABELS["unknown"])[0]
         return f"{label}  •  {detail}"
 
+    def _open_network_settings(self) -> None:
+        try:
+            subprocess.Popen(["nm-connection-editor"], start_new_session=True)
+        except OSError as exc:
+            messagebox.showerror("Network Settings", str(exc), parent=self.root)
+
+    def _record_activity(self, label: str, code: int) -> None:
+        path = case_path()
+        if not path:
+            return
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        line = f"{stamp}\t{label} finished with exit code {code}\n"
+        try:
+            with (path / "activity.log").open("a", encoding="utf-8") as handle:
+                handle.write(line)
+        except OSError:
+            return
+
     def _set_tor(self, mode: str) -> None:
-        result = subprocess.run(
-            ["sudo", "-n", "/usr/local/sbin/traceos-tor-apply", mode],
-            text=True, capture_output=True, check=False,
-        )
+        self.job_page = "Command Centre"
+        self.job_output = f"[TraceOS] Setting Tor {mode}...\n"
+        if self.output_widget and self.output_widget.winfo_exists():
+            self.set_text(self.output_widget, self.job_output)
+
+        def work() -> None:
+            result = subprocess.run(
+                ["sudo", "-n", "/usr/local/sbin/traceos-tor-apply", mode],
+                text=True, capture_output=True, check=False,
+            )
+            self.root.after(0, lambda: self._tor_finished(mode, result))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _tor_finished(self, mode: str, result: subprocess.CompletedProcess[str]) -> None:
         message = (result.stdout or result.stderr or "No output from the Tor helper.").strip()
+        self.job_page = "Command Centre"
+        self.job_output = f"[TraceOS] Tor {mode}\n{message}\n"
         if result.returncode != 0:
-            messagebox.showerror("Tor mode", message, parent=self.root)
+            self.job_output += (
+                "\nTor did not change. The helper answered, and the message above is the reason.\n"
+            )
         self.network()
 
     def network(self) -> None:
@@ -2347,7 +2418,7 @@ class TraceOSApp:
             side="left", padx=16, pady=14
         )
         self.action_button(top, "REFRESH", self.network).pack(side="right", padx=8, pady=6)
-        self.action_button(top, "NETWORK SETTINGS", lambda: self.open_terminal(["nm-connection-editor"], "Network Settings")).pack(side="right", padx=8, pady=6)
+        self.action_button(top, "NETWORK SETTINGS", self._open_network_settings).pack(side="right", padx=8, pady=6)
 
         controls = self.card(self.content, padx=28, pady=8)
         tk.Label(controls, text="AUTHORIZED TARGET", bg=CARD, fg=MUTED, font=("Sans", 8, "bold")).grid(row=0, column=0, sticky="w", padx=15, pady=(14, 4))
@@ -2375,12 +2446,11 @@ class TraceOSApp:
         )
         consent.grid(row=2, column=0, columnspan=2, sticky="w", padx=14, pady=(0, 10))
 
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 8))
+        self.action_button(bar, "STOP", self.stop_job).pack(side="left")
         output_panel = self.card(self.content, padx=28, pady=8, expand=True)
         self.set_output(output_panel, height=18)
-
-        bar = tk.Frame(self.content, bg=BG)
-        bar.pack(fill="x", padx=28, pady=(0, 14))
-        self.action_button(bar, "STOP", self.stop_job).pack(side="left")
 
         def start_scan() -> None:
             try:
@@ -2624,20 +2694,19 @@ class TraceOSApp:
         hint = tk.Label(
             self.content,
             text="Username: Sherlock/Maigret/Blackbird • Email: Holehe/h8mail/Blackbird • Phone: PhoneInfoga • GHunt needs one local login before an email search • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • Cloud: Cloud Enum takes one company or domain keyword • WHOIS/DNS: domain or IP",
-            bg=BG, fg=MUTED, font=("Sans", 8)
+            bg=BG, fg=MUTED, font=("Sans", 8), wraplength=860, justify="left"
         )
         hint.pack(anchor="w", padx=30, pady=(0, 4))
 
-        output_panel = self.card(self.content, padx=28, pady=7, expand=True)
-        self.set_output(output_panel, height=17)
-
         bar = tk.Frame(self.content, bg=BG)
-        bar.pack(fill="x", padx=28, pady=(0, 14))
+        bar.pack(fill="x", padx=28, pady=(0, 8))
         self.action_button(
             bar, "OPEN CLI WORKBENCH",
             lambda: self.open_terminal([TRACE, "osint"], "TraceOS Investigation Workbench")
         ).pack(side="left")
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
+        output_panel = self.card(self.content, padx=28, pady=7, expand=True)
+        self.set_output(output_panel, height=17)
 
         def start_osint() -> None:
             selected = tool.get()
@@ -2816,11 +2885,11 @@ class TraceOSApp:
             selectcolor=BG2, font=("Sans", 9, "bold"),
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
 
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 8))
+        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
         output_panel = self.card(self.content, padx=22, pady=8, expand=True)
         self.set_output(output_panel, height=16)
-        bar = tk.Frame(self.content, bg=BG)
-        bar.pack(fill="x", padx=28, pady=(0, 14))
-        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
 
         def start_catalogue() -> None:
             name, spec = selected_spec()
@@ -2957,11 +3026,11 @@ class TraceOSApp:
             variable=authorized, bg=CARD, fg=WARN, activebackground=CARD,
             activeforeground=WARN, selectcolor=BG2, font=("Sans", 9, "bold"),
         ).grid(row=6, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 8))
+        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
         output_panel = self.card(self.content, padx=22, pady=8, expand=True)
         self.set_output(output_panel, height=12)
-        bar = tk.Frame(self.content, bg=BG)
-        bar.pack(fill="x", padx=28, pady=(0, 14))
-        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
 
         def start_engagement() -> None:
             playbook_id = selected_id()
@@ -3018,6 +3087,7 @@ class TraceOSApp:
             self.active_job_token = job_token
             self.active_job_label = title
             self.active_job_kind = "engagement"
+            self.job_page = "Engagement"
             self.active_job_attempt = None
             self.job_output = f"[TraceOS] Starting engagement: {title}\n\n"
             if self.output_widget:
@@ -3177,11 +3247,11 @@ class TraceOSApp:
             font=("Sans", 9, "bold"),
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
 
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 8))
+        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
         output_panel = self.card(self.content, padx=22, pady=8, expand=True)
         self.set_output(output_panel, height=19)
-        bar = tk.Frame(self.content, bg=BG)
-        bar.pack(fill="x", padx=28, pady=(0, 14))
-        self.action_button(bar, "STOP TASK", self.stop_job).pack(side="left")
         def start_test() -> None:
             selected = tool.get()
             name = selected.removesuffix(" (not installed)")

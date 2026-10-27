@@ -48,17 +48,27 @@ install_shortcut() {
     if [ ! -e "$target_file" ] || grep -Fq 'X-TraceOS-Managed=true' "$target_file" 2>/dev/null; then
         if ! cmp -s "$source_file" "$target_file"; then cp "$source_file" "$target_file"; fi
         chmod 0755 "$target_file"
-        if command -v gio >/dev/null 2>&1; then gio set "$target_file" metadata::trusted true >/dev/null 2>&1 || true; fi
+        if command -v gio >/dev/null 2>&1; then
+            checksum="$(sha256sum "$target_file" | awk 'NR==1 { print $1 }')"
+            gio set "$target_file" metadata::trusted true >/dev/null 2>&1 || true
+            gio set "$target_file" metadata::xfce-exe-checksum "$checksum" >/dev/null 2>&1 || true
+        fi
         echo "[TraceOS] launcher installed: $target_file"
     else
         echo "[TraceOS] preserving user desktop entry: $target_file"
     fi
 }
-install_shortcut /usr/share/applications/traceos-case-manager.desktop "$desktop_dir/Case Manager.desktop"
+# Older copies used spaces in the filename. XFCE then encoded them as %20 and
+# the launch timed out. Keep the visible names, not the filenames.
+rm -f "$desktop_dir/Case Manager.desktop" "$desktop_dir/AI Assistant.desktop"
+install_shortcut /usr/share/applications/traceos-case-manager.desktop "$desktop_dir/Case-Manager.desktop"
 install_shortcut /usr/share/applications/traceos-investigation.desktop "$desktop_dir/Investigation.desktop"
 install_shortcut /usr/share/applications/traceos-tools.desktop "$desktop_dir/Tools.desktop"
 install_shortcut /usr/share/applications/traceos-network.desktop "$desktop_dir/Network.desktop"
-install_shortcut /usr/share/applications/traceos-ai.desktop "$desktop_dir/AI Assistant.desktop"
+install_shortcut /usr/share/applications/traceos-ai.desktop "$desktop_dir/AI-Assistant.desktop"
+if getent passwd "$(id -un)" | grep -q 'Debian Live user'; then
+    chfn -f TraceOS >/dev/null 2>&1 || true
+fi
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
 xfdesktop --reload >/dev/null 2>&1 || true
