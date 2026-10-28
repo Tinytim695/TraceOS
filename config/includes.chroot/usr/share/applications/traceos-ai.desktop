@@ -8,5 +8,5 @@ TryExec=xfce4-terminal
 Icon=traceos-ai
 Terminal=false
 Categories=TraceOS;Investigation;
-StartupNotify=true
+StartupNotify=false
 X-TraceOS-Managed=true

@@ -50,5 +50,9 @@ Firefox ESR remains installed and is the private-window fallback if Mullvad Brow
 Tor Browser starts its own Tor process. TraceOS does not route the rest of the system through Tor.
 A live Tor circuit is not opened during the image build.
 EOF
+if [ -d /usr/lib/firefox-esr ]; then
+    install -d -m 0755 /usr/lib/firefox-esr/distribution/policies
+    cp /etc/firefox-esr/policies/policies.json /usr/lib/firefox-esr/distribution/policies/policies.json
+fi
 rm -rf "$WORKDIR"
 echo "[TraceOS] Mullvad Browser and Tor Browser ${TOR_VERSION} installed."

@@ -8,5 +8,5 @@ TryExec=/usr/local/bin/traceos-shade
 Icon=traceos-shade
 Terminal=false
 Categories=TraceOS;System;Utility;
-StartupNotify=true
+StartupNotify=false
 X-TraceOS-Managed=true

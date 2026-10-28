@@ -783,6 +783,15 @@ def timeline():
     for row in rows:
         fields = row.split("\t")
         events.append((fields[0], f"Evidence added: {Path(fields[2]).name}"))
+    activity = p / "activity.log"
+    try:
+        activity_lines = activity.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        activity_lines = []
+    for line in activity_lines:
+        parts = line.split("\t", 1)
+        if len(parts) == 2 and parts[0] and parts[1]:
+            events.append((parts[0], parts[1]))
     print(f"\nTRACEOS TIMELINE / {case_name(p)}\n")
     for stamp, title in sorted(events):
         print(f" {stamp}  {title}")
