@@ -169,6 +169,14 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertNotIn("traceos-wallpaper.svg", experience)
         packages=(ROOT/"config/package-lists/traceos.list.chroot").read_text(encoding="utf-8")
         self.assertIn("librsvg2-bin", packages)
+        self.assertIn("shim-signed", packages)
+        self.assertIn("grub-efi-amd64-signed", packages)
+        leave_windows=(INCLUDES/"etc/udev/rules.d/80-traceos-leave-internal-disks.rules").read_text(encoding="utf-8")
+        self.assertIn('ENV{UDISKS_IGNORE}="1"', leave_windows)
+        self.assertIn('ATTR{removable}=="0"', leave_windows)
+        fixture=(INCLUDES/"usr/local/sbin/traceos-qemu-image-e2e-fixture").read_text(encoding="utf-8")
+        self.assertIn('pwd.getpwnam("traceos")', fixture)
+        self.assertIn("for _ in range(60):", fixture)
 
     def test_new_case_button_is_not_clipped_by_the_header(self):
         control=(INCLUDES/"usr/local/bin/traceos-control").read_text(encoding="utf-8")

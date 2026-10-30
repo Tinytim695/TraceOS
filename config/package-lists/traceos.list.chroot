@@ -85,8 +85,13 @@ fonts-dejavu
 librsvg2-bin
 librsvg2-common
 
-# Firmware
+# Firmware and signed UEFI boot
+# shim-signed and the signed GRUB image let the USB boot while Secure Boot
+# stays on. Turning Secure Boot off is what locked the Windows PIN.
 firmware-linux
+shim-signed
+grub-efi-amd64-signed
+grub-efi-amd64-bin
 
 # GUI
 python3-tk
