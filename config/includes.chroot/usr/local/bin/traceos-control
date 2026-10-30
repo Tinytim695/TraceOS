@@ -602,6 +602,46 @@ def format_basic_lookup_result(result: ActionResult) -> str:
     return "\n".join(lines) + "\n"
 
 
+def lookup_note_filename(label: str, stamp: str) -> str:
+    """Build a single safe notes filename for one finished lookup."""
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in label)
+    parts = [part for part in slug.split("-") if part]
+    slug = "-".join(parts)[:40] or "lookup"
+    safe_stamp = "".join(ch for ch in stamp if ch.isalnum())[:24] or "time"
+    return f"lookup-{safe_stamp}-{slug}.txt"
+
+
+def output_text_for_page(page_outputs: dict, page_name: str) -> str:
+    """Return only the text that belongs to this page."""
+    saved = page_outputs.get(page_name)
+    if isinstance(saved, str) and saved:
+        return saved
+    return (
+        "This page is ready.\n"
+        "Results from another page, including an Nmap scan, are not shown here.\n"
+    )
+
+
+def terminal_shell_command(args: list[str], note: str, *, interactive: bool = False) -> list[str]:
+    """Show the typed target, then run that exact command in a terminal."""
+    quoted = " ".join(shlex.quote(part) for part in args)
+    script = (
+        f"printf '%s\\n' {shlex.quote(note)}; "
+        f"printf '%s\\n' {shlex.quote('$ ' + quoted)}; "
+    )
+    if interactive:
+        script += f"exec {quoted}"
+    else:
+        script += (
+            f"{quoted}; "
+            "status=$?; "
+            "printf '\\n[TraceOS] Finished with exit code %s. "
+            "The terminal stays open so you can type another name or address.\\n' \"$status\"; "
+            "exec bash"
+        )
+    return ["bash", "-lc", script]
+
+
 class TraceOSApp:
     def __init__(self, root: tk.Tk, welcome: bool = False, start_page: str = "dashboard") -> None:
         self.root = root
@@ -658,6 +698,7 @@ class TraceOSApp:
         self.job_output = ""
         self.job_page = ""
         self.page_name = ""
+        self.page_outputs: dict[str, str] = {}
         self.output_widget: tk.Text | None = None
         self.welcome = welcome
 
@@ -1196,12 +1237,62 @@ class TraceOSApp:
         )
         text.pack(fill="both", expand=True, padx=14, pady=14)
         self.output_widget = text
-        if self.job_output and self.job_page == self.page_name:
-            text.insert("1.0", self.job_output)
-        else:
-            text.insert("1.0", "This page is ready. Results from this page stay here.\n")
+        text.insert("1.0", output_text_for_page(self.page_outputs, self.page_name))
         text.configure(state="disabled")
         return text
+
+    def _store_job_output(self) -> None:
+        page = getattr(self, "job_page", "") or getattr(self, "page_name", "")
+        outputs = getattr(self, "page_outputs", None)
+        if isinstance(outputs, dict) and page:
+            outputs[page] = self.job_output
+        widget = getattr(self, "output_widget", None)
+        if widget is None or page != getattr(self, "page_name", None):
+            return
+        try:
+            exists = widget.winfo_exists()
+        except Exception:
+            exists = False
+        if exists:
+            self.set_text(widget, self.job_output)
+
+    def _replace_page_output(self, value: str) -> None:
+        page = getattr(self, "page_name", "")
+        outputs = getattr(self, "page_outputs", None)
+        if isinstance(outputs, dict) and page:
+            outputs[page] = value
+        widget = getattr(self, "output_widget", None)
+        if widget is None:
+            return
+        try:
+            exists = widget.winfo_exists()
+        except Exception:
+            exists = False
+        if exists:
+            self.set_text(widget, value)
+
+    def _keep_finished_result(self, label: str) -> None:
+        try:
+            record = CASE_STORE.current()
+        except CaseError:
+            record = None
+        if record is None or record.legacy:
+            self.job_output += (
+                "\n[TraceOS] No current case is open, so this result was not kept. "
+                "Create a case first if you want the name, address and output saved.\n"
+            )
+        else:
+            stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + uuid.uuid4().hex[:6]
+            filename = lookup_note_filename(label, stamp)
+            try:
+                CASE_STORE.write_note(record.path, filename, self.job_output)
+            except (CaseError, OSError, ValueError) as exc:
+                self.job_output += f"\n[TraceOS] Could not save this result into the case: {exc}\n"
+            else:
+                self.job_output += (
+                    f"\n[TraceOS] Saved in the open case: notes/{filename}\n"
+                )
+        self._store_job_output()
 
     def set_text(self, widget: tk.Text, value: str) -> None:
         widget.configure(state="normal")
@@ -1209,9 +1300,19 @@ class TraceOSApp:
         widget.insert("1.0", value)
         widget.configure(state="disabled")
 
-    def open_terminal(self, args: list[str], title: str) -> None:
+    def open_terminal(
+        self,
+        args: list[str],
+        title: str,
+        note: str | None = None,
+        *,
+        interactive: bool = False,
+    ) -> None:
+        command = args
+        if note is not None:
+            command = terminal_shell_command(args, note, interactive=interactive)
         try:
-            subprocess.Popen(["xfce4-terminal", f"--title={title}", "--execute", *args])
+            subprocess.Popen(["xfce4-terminal", f"--title={title}", "--execute", *command])
         except OSError as exc:
             messagebox.showerror(title, str(exc), parent=self.root)
 
@@ -1302,8 +1403,7 @@ class TraceOSApp:
             f"Action ID: {request.action_id}\n\n"
             "[TraceOS] Starting through ActionRunner...\n"
         )
-        if self.output_widget:
-            self.set_text(self.output_widget, self.job_output)
+        self._store_job_output()
         self._trace_diag(
             "ACTION_STARTED",
             action_id=request.action_id,
@@ -1337,13 +1437,9 @@ class TraceOSApp:
                 continue
 
             handled_current = True
+            label = self.active_job_label or result.tool or "Lookup"
             self.job_output = format_basic_lookup_result(result)
-            if (
-                self.output_widget
-                and self.output_widget.winfo_exists()
-                and self.job_page == self.page_name
-            ):
-                self.set_text(self.output_widget, self.job_output)
+            self._keep_finished_result(label)
             self._trace_diag(
                 "ACTION_RESULT_RENDERED",
                 action_id=result.action_id,
@@ -1376,8 +1472,7 @@ class TraceOSApp:
         job_token = uuid.uuid4().hex
         self.active_job_token = job_token
         self.job_output = f"[TraceOS] Starting: {label}\n$ {' '.join(shlex.quote(x) for x in args)}\n\n"
-        if self.output_widget:
-            self.set_text(self.output_widget, self.job_output)
+        self._store_job_output()
         try:
             process = subprocess.Popen(
                 args,
@@ -1401,8 +1496,7 @@ class TraceOSApp:
             self.active_job_token = None
             self.active_process = None
             self.job_output += f"[TraceOS] Unable to start task: {exc}\n"
-            if self.output_widget:
-                self.set_text(self.output_widget, self.job_output)
+            self._store_job_output()
             return
 
         def reader(task_process=process, token=job_token) -> None:
@@ -1431,16 +1525,7 @@ class TraceOSApp:
             self.job_output += item
             if len(self.job_output) > 50000:
                 self.job_output = self.job_output[-50000:]
-            if (
-                self.output_widget
-                and self.output_widget.winfo_exists()
-                and self.job_page == self.page_name
-            ):
-                self.output_widget.configure(state="normal")
-                self.output_widget.delete("1.0", "end")
-                self.output_widget.insert("1.0", self.job_output)
-                self.output_widget.see("end")
-                self.output_widget.configure(state="disabled")
+            self._store_job_output()
         if finished and self.active_process is not None and self.active_process.poll() is None:
             # A child can close stdout before the launcher exits. Keep the
             # sentinel pending until the process is reaped so Stop still owns
@@ -1450,16 +1535,10 @@ class TraceOSApp:
             return
         if finished:
             code = self.active_process.poll() if self.active_process else 0
+            label = self.active_job_label or "Task"
             self.job_output += f"\n[TraceOS] Task finished with exit code {code}.\n"
-            self._record_activity(self.active_job_label or "Task", code)
-            if (
-                self.output_widget
-                and self.output_widget.winfo_exists()
-                and self.job_page == self.page_name
-            ):
-                self.output_widget.configure(state="normal")
-                self.output_widget.insert("end", f"\n[TraceOS] Task finished with exit code {code}.\n")
-                self.output_widget.configure(state="disabled")
+            self._record_activity(label, code)
+            self._keep_finished_result(label)
             finished_kind = self.active_job_kind
             finished_attempt = self.active_job_attempt
             self._trace_diag("TASK_COMPLETED", task=self.active_job_label or "unknown", exit_code=code, attempt=finished_attempt if finished_attempt is not None else "none")
@@ -1537,8 +1616,7 @@ class TraceOSApp:
                 action_id=self.active_action_id,
             )
             self.job_output += "\n[TraceOS] Cancellation requested...\n"
-            if self.output_widget:
-                self.set_text(self.output_widget, self.job_output)
+            self._store_job_output()
             return
         if self.active_process is not None:
             process = self.active_process
@@ -1552,8 +1630,7 @@ class TraceOSApp:
             if self.active_job_kind == "image":
                 self._trace_diag("IMAGE_CLI_STOPPED", attempt=self.active_job_attempt or 0, image_attempt=self.active_job_attempt or 0)
             self.job_output += "\n[TraceOS] Task stopped by user.\n"
-            if self.output_widget:
-                self.set_text(self.output_widget, self.job_output)
+            self._store_job_output()
 
     def _launch_card(self, parent: tk.Widget, row: int, column: int, glyph: str, title: str, blurb: str, command, accent: str = ACCENT) -> None:
         tile = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
@@ -2372,8 +2449,7 @@ class TraceOSApp:
     def _set_tor(self, mode: str) -> None:
         self.job_page = "Command Centre"
         self.job_output = f"[TraceOS] Setting Tor {mode}...\n"
-        if self.output_widget and self.output_widget.winfo_exists():
-            self.set_text(self.output_widget, self.job_output)
+        self._store_job_output()
 
         def work() -> None:
             result = subprocess.run(
@@ -2392,6 +2468,7 @@ class TraceOSApp:
             self.job_output += (
                 "\nTor did not change. The helper answered, and the message above is the reason.\n"
             )
+        self._store_job_output()
         self.network()
 
     def network(self) -> None:
@@ -2693,7 +2770,7 @@ class TraceOSApp:
 
         hint = tk.Label(
             self.content,
-            text="Username: Sherlock/Maigret/Blackbird • Email: Holehe/h8mail/Blackbird • Phone: PhoneInfoga • GHunt needs one local login before an email search • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • Cloud: Cloud Enum takes one company or domain keyword • WHOIS/DNS: domain or IP",
+            text="Username: Sherlock/Maigret/Blackbird • Email: Holehe/h8mail/Blackbird • Phone: PhoneInfoga • GHunt needs one local login before an email search • Domain: theHarvester/Subfinder/dnsrecon/dnstwist • Cloud: Cloud Enum takes one company or domain keyword • WHOIS/DNS: domain or IP. Start keeps the result on this page and in the open case.",
             bg=BG, fg=MUTED, font=("Sans", 8), wraplength=860, justify="left"
         )
         hint.pack(anchor="w", padx=30, pady=(0, 4))
@@ -2707,6 +2784,47 @@ class TraceOSApp:
         self.action_button(bar, "STOP", self.stop_job).pack(side="left", padx=7)
         output_panel = self.card(self.content, padx=28, pady=7, expand=True)
         self.set_output(output_panel, height=17)
+
+        def show_ready(_event=None) -> None:
+            name = tool.get().removesuffix(" (not installed)")
+            self._replace_page_output(
+                f"Ready for {name}.\n"
+                "Type the person's name, email, phone or host in the box, then press Start.\n"
+                "Start writes the result into the open case notes.\n"
+                "An Nmap scan from another page is not left here.\n"
+            )
+
+        tool.bind("<<ComboboxSelected>>", show_ready, add="+")
+
+        def open_workbench() -> None:
+            selected = tool.get().removesuffix(" (not installed)")
+            typed = target.get().strip()
+            if not typed:
+                messagebox.showwarning(
+                    "OSINT",
+                    "Type the person's name, email, phone or host first. The terminal uses that box.",
+                    parent=self.root,
+                )
+                return
+            try:
+                args = build_osint_command(selected, target.get(), extra.get())
+                require_osint_tool(args[0])
+            except ValueError as exc:
+                messagebox.showwarning("OSINT", f"Invalid arguments: {exc}", parent=self.root)
+                return
+            except FileNotFoundError as exc:
+                messagebox.showerror("OSINT", f"Tool unavailable: {exc}", parent=self.root)
+                return
+            self.open_terminal(
+                args,
+                f"TraceOS {selected}",
+                note=f"{selected} will use the target from the box: {typed}",
+            )
+
+        self.action_button(
+            bar, "OPEN THIS TARGET IN A TERMINAL",
+            open_workbench,
+        ).pack(side="left")
 
         def start_osint() -> None:
             selected = tool.get()
@@ -2873,6 +2991,19 @@ class TraceOSApp:
                 browse.configure(state="normal")
             else:
                 browse.configure(state="disabled")
+            if _event is not None:
+                if spec["mode"] == "launch":
+                    ready = (
+                        f"{_name} opens a console. The target box is turned off because "
+                        "this console does not take a name or address.\n"
+                    )
+                else:
+                    ready = (
+                        f"Ready for {_name}.\n"
+                        "Type the address, name or file in the box, then press Start.\n"
+                        "A result from another tool is not left on this page.\n"
+                    )
+                self._replace_page_output(ready)
 
         tool.bind("<<ComboboxSelected>>", refresh_target)
         refresh_target()
@@ -2920,7 +3051,13 @@ class TraceOSApp:
                     messagebox.showerror(title, str(exc), parent=self.root)
                 return
             if spec["ui"] == "terminal":
-                self.open_terminal(args, f"TraceOS {name}")
+                typed = target.get().strip() or "no target"
+                self.open_terminal(
+                    args,
+                    f"TraceOS {name}",
+                    note=f"{name} is using the target from the box: {typed}",
+                    interactive=True,
+                )
                 return
             self.run_job(args, name)
 
@@ -3090,8 +3227,7 @@ class TraceOSApp:
             self.job_page = "Engagement"
             self.active_job_attempt = None
             self.job_output = f"[TraceOS] Starting engagement: {title}\n\n"
-            if self.output_widget:
-                self.set_text(self.output_widget, self.job_output)
+            self._store_job_output()
             try:
                 process = subprocess.Popen(
                     args,
@@ -3200,12 +3336,21 @@ class TraceOSApp:
         def update_authorization_prompt(_event=None) -> None:
             selected_name = tool.get().removesuffix(" (not installed)")
             target.delete(0, "end")
-            if selected_name in {"Metasploit Console", "OWASP ZAP Desktop"}:
+            if selected_name in {"OWASP ZAP Desktop"}:
                 target.configure(state="disabled")
                 target_label.configure(text="TARGET SET IN TOOL")
+            elif selected_name == "Metasploit Console":
+                target.configure(state="normal")
+                target_label.configure(text="OPTIONAL HOST")
             else:
                 target.configure(state="normal")
                 target_label.configure(text="AUTHORIZED TARGET")
+            if _event is not None:
+                self._replace_page_output(
+                    f"Ready for {selected_name}.\n"
+                    "Enter the address in the box, then press Start.\n"
+                    "An earlier Nmap result is not left on this page.\n"
+                )
             if selected_name == "Metasploit Console":
                 authorization_prompt.set(
                     "I will use this console only within an authorized assessment."
@@ -3307,20 +3452,31 @@ class TraceOSApp:
                 )
                 return
             if name == "Metasploit Console":
+                host = target.get().strip()
+                note = (
+                    "No host was entered."
+                    if not host
+                    else f"Host from the box: {host}. Inside the console type: setg RHOSTS {host}"
+                )
                 messagebox.showinfo(
                     "Metasploit Framework",
-                    "The console is opening in a terminal. No module or exploit is selected or run automatically.",
+                    note + "\n\nNo module or exploit is selected or run automatically.",
                     parent=self.root,
                 )
-                self.open_terminal(args, "TraceOS Metasploit Framework")
+                self.open_terminal(["msfconsole"], "TraceOS Metasploit Framework", note=note, interactive=True)
                 return
             if name == "SQLmap Interactive":
                 messagebox.showinfo(
                     "SQLmap",
-                    "SQLmap is opening in an interactive terminal. Review each prompt and stop if the test is outside your authorization.",
+                    f"SQLmap is opening against {normalized_target}. The address from the box is part of the command.",
                     parent=self.root,
                 )
-                self.open_terminal(args, "TraceOS SQLmap")
+                self.open_terminal(
+                    args,
+                    "TraceOS SQLmap",
+                    note=f"SQLmap target from the box: {normalized_target}",
+                    interactive=True,
+                )
                 return
             self.run_job(args, f"{name} • {normalized_target}")
 

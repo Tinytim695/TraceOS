@@ -521,6 +521,56 @@ class CaseStore:
         """Open one required subdirectory with no-follow checks at the write boundary."""
         return self.open_required_dirs(path, (name,))[0]
 
+    def write_note(self, path: Path, filename: str, text: str) -> str:
+        """Create one new regular file in the case notes directory.
+
+        This is not an evidence copy. It uses the same no-follow directory
+        open as the purple ledger and refuses anything that is not a new
+        single-link file inside that directory.
+        """
+        if (
+            not filename
+            or filename in {".", ".."}
+            or len(filename) > 120
+            or "/" in filename
+            or "\\" in filename
+            or "\x00" in filename
+            or not all(ch.isalnum() or ch in "._-" for ch in filename)
+        ):
+            raise ValueError("Note name must be a single file name.")
+        payload = text.encode("utf-8")
+        if len(payload) > 200_000:
+            payload = payload[-200_000:]
+        notes_fd = self.open_required_dir(path, "notes")
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_CLOEXEC
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        fd = None
+        try:
+            fd = os.open(filename, flags, 0o600, dir_fd=notes_fd)
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise OSError("Case note is not a new regular file.")
+            os.fchmod(fd, 0o600)
+            written = 0
+            while written < len(payload):
+                count = os.write(fd, payload[written:])
+                if count <= 0:
+                    raise OSError("Case note write made no progress.")
+                written += count
+            os.fsync(fd)
+        except OSError as exc:
+            raise CaseError(f"Unable to save case note {filename}: {exc}") from exc
+        finally:
+            if fd is not None:
+                os.close(fd)
+            os.close(notes_fd)
+        return filename
+
     @staticmethod
     def _validate_manifest(data: object, case_path: Path) -> CaseRecord:
         if not isinstance(data, dict):

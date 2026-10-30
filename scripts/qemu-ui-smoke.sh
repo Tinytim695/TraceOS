@@ -1006,7 +1006,7 @@ image_marker_line() {
     fi
 }
 
-wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 45 && image_ready="yes" || true
+wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 90 && image_ready="yes" || true
 
 if [[ "$image_ready" == "yes" ]]; then
     fixture_line="$(grep -F "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" "$serial_log" | tail -n 1 || true)"

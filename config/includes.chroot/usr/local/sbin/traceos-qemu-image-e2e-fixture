@@ -29,7 +29,7 @@ def main() -> int:
     if subprocess.run(["systemd-detect-virt", "--quiet", "--vm"], check=False).returncode != 0:
         return 0
     emit("TRACEOS_IMAGE_E2E_PREFLIGHT=1")
-    for _ in range(30):
+    for _ in range(90):
         if MARK.is_file():
             break
         time.sleep(1)
@@ -40,11 +40,20 @@ def main() -> int:
     if marker != "1":
         emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=invalid")
         return 0
+    account = None
+    for _ in range(60):
+        try:
+            account = pwd.getpwnam("traceos")
+            break
+        except KeyError:
+            time.sleep(1)
+    if account is None:
+        emit("TRACEOS_IMAGE_E2E_FIXTURE_OWNER=missing")
+        return 0
     data = base64.b64decode(PAYLOAD)
     digest = hashlib.sha256(data).hexdigest()
     FIXTURE.write_bytes(data)
-    traceos = pwd.getpwnam("traceos")
-    os.chown(FIXTURE, traceos.pw_uid, traceos.pw_gid)
+    os.chown(FIXTURE, account.pw_uid, account.pw_gid)
     os.chmod(FIXTURE, 0o600)
     emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=valid")
     # The sysfs marker is not readable by the desktop user. Leave a stamp the

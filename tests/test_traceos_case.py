@@ -1133,6 +1133,39 @@ class CaseStoreTests(unittest.TestCase):
         self.assertNotEqual(attempted.returncode, 0)
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
 
+    def test_lookup_note_stays_inside_case_notes(self):
+        record = self.store.create("Lookup notes", "synthetic")
+        name = self.store.write_note(
+            record.path,
+            "lookup-test-sherlock.txt",
+            "alice\nfound\n",
+        )
+        note = record.path / "notes" / name
+        self.assertEqual(note.read_text(encoding="utf-8"), "alice\nfound\n")
+        self.assertEqual(note.stat().st_mode & 0o777, 0o600)
+        with self.assertRaises(ValueError):
+            self.store.write_note(record.path, "../outside.txt", "nope")
+        self.assertFalse((self.home / "outside.txt").exists())
+
+    def test_terminal_command_includes_the_typed_target(self):
+        builder, _namespace = self._load_control_helper("terminal_shell_command")
+        command = builder(
+            ["sherlock", "alice"],
+            "Sherlock will use the target from the box: alice",
+        )
+        self.assertEqual(command[:2], ["bash", "-lc"])
+        self.assertIn("sherlock", command[2])
+        self.assertIn("alice", command[2])
+        self.assertNotIn("nmap", command[2])
+
+    def test_page_output_does_not_keep_another_pages_scan(self):
+        picker, _namespace = self._load_control_helper("output_text_for_page")
+        pages = {"Web Testing": "nmap output for example.com\n"}
+        shown = picker(pages, "Investigation Centre")
+        self.assertNotIn("nmap", shown)
+        self.assertIn("not shown here", shown)
+        self.assertIn("nmap", picker(pages, "Web Testing"))
+
     def test_investigation_save_is_disabled_without_filesystem_or_evidence_side_effects(self):
         control = (
             Path(__file__).parent.parent

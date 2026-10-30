@@ -1,0 +1,7 @@
+# TraceOS is a live session. Internal fixed disks are the installed
+# Windows system. Do not automount them, probe them for media, or let the
+# file manager claim them. Removable drives can still be opened on purpose.
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{removable}=="0", ENV{UDISKS_IGNORE}="1"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*p[0-9]*", ENV{UDISKS_IGNORE}="1"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ATTR{removable}=="0", ENV{UDISKS_IGNORE}="1"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]*", ATTRS{removable}=="0", ENV{UDISKS_IGNORE}="1"
