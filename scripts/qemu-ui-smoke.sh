@@ -787,11 +787,17 @@ new_case_final_png="$OUT/traceos-new-case-final.png"
 wait_for_serial() {
     local needle="$1"
     local timeout_seconds="$2"
+    local scope="${3:-recent}"
     local deadline=$((SECONDS + timeout_seconds))
     while (( SECONDS < deadline )); do
-        # Bound each search to the recent serial tail so a noisy boot log
-        # cannot turn a bounded marker wait into an unbounded scan.
-        if tail -n 5000 "$serial_log" 2>/dev/null | grep -Fq -- "$needle"; then
+        # Recent UI markers stay near the end of the log. The image fixture
+        # marker is printed once at boot, so a 5000-line tail drops it after
+        # the screenshot run and the ISO build fails even though it was ready.
+        if [[ "$scope" == "all" ]]; then
+            if grep -Fq -- "$needle" "$serial_log" 2>/dev/null; then
+                return 0
+            fi
+        elif tail -n 5000 "$serial_log" 2>/dev/null | grep -Fq -- "$needle"; then
             return 0
         fi
         sleep 1
@@ -1006,7 +1012,7 @@ image_marker_line() {
     fi
 }
 
-wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 90 && image_ready="yes" || true
+wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 90 all && image_ready="yes" || true
 
 if [[ "$image_ready" == "yes" ]]; then
     fixture_line="$(grep -F "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" "$serial_log" | tail -n 1 || true)"
