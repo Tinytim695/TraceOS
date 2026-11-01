@@ -348,7 +348,8 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
                          '-resize "$desktop_width"x"$desktop_height"!',
                          "traceos-native-gtk-baseline-center.png",
                          "sendkey alt-f2","xfce4-mime-settings","Default Applications dialog",
-                         "native_gtk_diff > 40000","native_gtk_desktop_diff > 40000","popup_region_diff_passes 24991"):
+                         "native_gtk_diff > 40000","native_gtk_desktop_diff > 40000","popup_region_diff_passes 24991",
+                         'wait_for_serial "TRACEOS_IMAGE_E2E_FIXTURE_READY=1" 90 all'):
             self.assertIn(expected,qemu)
 
     def test_wallpaper_mae_uses_normalized_imagemagick_metric(self):
