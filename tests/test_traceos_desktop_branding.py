@@ -178,7 +178,12 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         self.assertIn('pwd.getpwnam("traceos")', fixture)
         self.assertIn("for _ in range(60):", fixture)
 
-    def test_new_case_button_is_not_clipped_by_the_header(self):
+    def test_tor_browser_hook_does_not_stop_on_a_removed_release(self):
+        hook=(ROOT/"config/hooks/live/0365-traceos-browsers.hook.chroot").read_text(encoding="utf-8")
+        self.assertNotIn("TOR_VERSION=15.0.26", hook)
+        self.assertIn("TOR_VERSION=16.0", hook)
+        self.assertIn("displayVersion", hook)
+        self.assertIn("sha256sums-signed-build.txt.asc", hook)
         control=(INCLUDES/"usr/local/bin/traceos-control").read_text(encoding="utf-8")
         self.assertIn('actions.pack(side="right"', control)
         self.assertIn('self.small_button(actions, "NEW CASE"', control)
