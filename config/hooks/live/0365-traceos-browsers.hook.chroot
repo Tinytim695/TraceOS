@@ -16,8 +16,20 @@ apt-get update
 apt-get install -y mullvad-browser
 test -x /usr/bin/mullvad-browser
 
-TOR_VERSION=15.0.26
-TOR_BASE="https://dist.torproject.org/torbrowser/${TOR_VERSION}"
+TOR_VERSION=16.0
+TOR_INDEX="https://dist.torproject.org/torbrowser"
+if ! curl -fsSL --retry 2 --retry-delay 2 --max-time 60 \
+    -o /dev/null "$TOR_INDEX/${TOR_VERSION}/sha256sums-signed-build.txt"; then
+    echo "[TraceOS] Tor Browser ${TOR_VERSION} is no longer published. Using the current signed release." >&2
+    update_xml="$(curl -fsSL --retry 3 --retry-delay 2 --max-time 60 \
+        https://aus1.torproject.org/torbrowser/update_3/release/Linux_x86_64-gcc3/x/ALL)"
+    TOR_VERSION="$(printf '%s\n' "$update_xml" | sed -n 's/.*displayVersion="\([^"]*\)".*/\1/p' | head -n 1)"
+    if [ -z "$TOR_VERSION" ]; then
+        echo "[TraceOS] Could not find a current Tor Browser version." >&2
+        exit 1
+    fi
+fi
+TOR_BASE="${TOR_INDEX}/${TOR_VERSION}"
 WORKDIR=/tmp/traceos-tor-browser
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
