@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Case Files
+GenericName=Case folders
+Comment=Open the evidence, notes and report folders for the current case
+Exec=/usr/local/bin/traceos-open-case-files
+TryExec=/usr/local/bin/traceos-open-case-files
+Icon=traceos-case
+Terminal=false
+Categories=TraceOS;Utility;
+StartupNotify=false
+X-TraceOS-Managed=true

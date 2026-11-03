@@ -66,6 +66,7 @@ install_shortcut /usr/share/applications/traceos-investigation.desktop "$desktop
 install_shortcut /usr/share/applications/traceos-tools.desktop "$desktop_dir/Tools.desktop"
 install_shortcut /usr/share/applications/traceos-network.desktop "$desktop_dir/Network.desktop"
 install_shortcut /usr/share/applications/traceos-ai.desktop "$desktop_dir/AI-Assistant.desktop"
+install_shortcut /usr/share/applications/traceos-case-files.desktop "$desktop_dir/Case-Files.desktop"
 if getent passwd "$(id -un)" | grep -q 'Debian Live user'; then
     chfn -f TraceOS >/dev/null 2>&1 || true
 fi

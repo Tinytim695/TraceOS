@@ -812,6 +812,42 @@ class CaseStore:
                     f"# {title}\n\n"
                     "This is a human-readable case note.\n\n"
                     f"Authoritative metadata: {MANIFEST_NAME}.\n"
+                    "Where to put files: WHERE-FILES-GO.txt.\n"
+                ),
+                0o600,
+            )
+            atomic_write_text(
+                temp_case / "WHERE-FILES-GO.txt",
+                (
+                    "This case has one folder for each kind of file.\n"
+                    "\n"
+                    "evidence/\n"
+                    "  Put the files and folders you want to inspect in here.\n"
+                    "  TruffleHog, Binwalk, Foremost, Steghide, Sleuth Kit,\n"
+                    "  Volatility, capa, Sigma and Chainsaw use this folder.\n"
+                    "  In Control Centre, press Browse and choose the file from here.\n"
+                    "\n"
+                    "working/\n"
+                    "  Scratch space. Use it when you want a copy, not the original.\n"
+                    "\n"
+                    "reports/\n"
+                    "  Save reports here.\n"
+                    "\n"
+                    "notes/\n"
+                    "  TraceOS writes tool results here. You do not type this path.\n"
+                    "\n"
+                    "exports/\n"
+                    "  Files you want to copy off this machine.\n"
+                    "\n"
+                    "hashes/\n"
+                    "  The evidence ledger. Leave this folder alone.\n"
+                    "\n"
+                    "YARA\n"
+                    "  The starter rule is /usr/share/traceos/rules/starter.yar.\n"
+                    "  Browse to that rule, then browse to this file or a file in evidence/.\n"
+                    "  This note contains the words TRACEOS CASE FILE so the starter rule can find it.\n"
+                    "\n"
+                    "The desktop icon Case Files opens this folder.\n"
                 ),
                 0o600,
             )

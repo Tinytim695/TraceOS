@@ -110,7 +110,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         for expected in ("desktop_wallpaper.py","WARNING: wallpaper branding is incomplete","button-title",
                          "TraceOS","show-home","show-filesystem","Case-Manager.desktop",
                          "Investigation.desktop","Tools.desktop","Network.desktop",
-                         "AI-Assistant.desktop","xfce-exe-checksum","show-trash bool true"):
+                         "AI-Assistant.desktop","Case-Files.desktop","xfce-exe-checksum","show-trash bool true"):
             self.assertIn(expected,setup)
         entry=INCLUDES/"etc/xdg/autostart/traceos-desktop-setup.desktop"
         self.assertEqual(value(entry,"Exec"),"/usr/local/bin/traceos-desktop-setup")
@@ -249,6 +249,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
             "traceos-investigation.desktop":"/usr/local/bin/traceos-control-launch --osint",
             "traceos-tools.desktop":"/usr/local/bin/traceos-control-launch --tools",
             "traceos-network.desktop":"/usr/local/bin/traceos-control-launch --network",
+            "traceos-case-files.desktop":"/usr/local/bin/traceos-open-case-files",
             "traceos-ai.desktop":"xfce4-terminal --title=Trace AI --execute /usr/local/bin/traceos ai",
         }
         control=(INCLUDES/"usr/local/bin/traceos-control").read_text(encoding="utf-8")

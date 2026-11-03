@@ -58,6 +58,32 @@ def capture(args: list[str], timeout: int = 8) -> subprocess.CompletedProcess[st
 
 CASE_STORE = CaseStore()
 
+
+def case_root_folder() -> Path | None:
+    try:
+        folder = CASE_STORE.current().path
+    except CaseError:
+        return None
+    return folder if folder.is_dir() else None
+
+
+def case_evidence_folder() -> Path:
+    root = case_root_folder()
+    if root is not None and (root / "evidence").is_dir():
+        return root / "evidence"
+    return Path.home() / "Cases"
+
+
+def open_case_folder() -> None:
+    folder = case_root_folder() or (Path.home() / "Cases")
+    folder.mkdir(mode=0o700, exist_ok=True)
+    subprocess.Popen(
+        ["thunar", str(folder)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
 def terminate_process_group(
     process: subprocess.Popen,
     term_timeout: float = 0.75,
@@ -2068,7 +2094,11 @@ class TraceOSApp:
             tree.focus("0")
 
     def add_evidence(self) -> None:
-        value = filedialog.askopenfilename(parent=self.root, title="Select evidence file")
+        value = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select evidence file",
+            initialdir=str(case_evidence_folder()),
+        )
         if not value:
             return
         result = capture([TRACE, "evidence", "add", value], timeout=90)
@@ -2081,7 +2111,11 @@ class TraceOSApp:
             )
 
     def analyse_evidence(self) -> None:
-        value = filedialog.askopenfilename(parent=self.root, title="Select file for local analysis")
+        value = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select file for local analysis",
+            initialdir=str(case_evidence_folder()),
+        )
         if value:
             self.network_or_output_page("Local Analysis", "Forensic output stays on this machine.", [TRACE, "analyse", value])
 
@@ -2612,6 +2646,7 @@ class TraceOSApp:
             selected = filedialog.askopenfilename(
                 parent=self.root,
                 title="Select an image for local analysis",
+                initialdir=str(case_evidence_folder()),
                 filetypes=[
                     ("Image files", "*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tif *.tiff"),
                     ("All files", "*.*"),
@@ -2926,28 +2961,39 @@ class TraceOSApp:
         def browse_target() -> None:
             _name, spec = selected_spec()
             mode = spec["mode"]
+            start = str(case_evidence_folder())
             if mode == "directory":
                 selected = filedialog.askdirectory(
-                    parent=self.root, title="Select local folder", mustexist=True
+                    parent=self.root,
+                    title="Select a folder in the open case",
+                    initialdir=start,
+                    mustexist=True,
                 )
                 if not selected:
                     return
                 chosen = selected
             elif mode == "file":
                 selected = filedialog.askopenfilename(
-                    parent=self.root, title="Select local file"
+                    parent=self.root,
+                    title="Select a file in the open case",
+                    initialdir=start,
                 )
                 if not selected:
                     return
                 chosen = selected
             elif mode == "two-files":
+                rules_dir = Path("/usr/share/traceos/rules")
                 rules = filedialog.askopenfilename(
-                    parent=self.root, title="Select rules file"
+                    parent=self.root,
+                    title="Select rules file",
+                    initialdir=str(rules_dir if rules_dir.is_dir() else case_evidence_folder()),
                 )
                 if not rules:
                     return
                 subject = filedialog.askopenfilename(
-                    parent=self.root, title="Select target file"
+                    parent=self.root,
+                    title="Select target file",
+                    initialdir=start,
                 )
                 if not subject:
                     return
@@ -2960,6 +3006,15 @@ class TraceOSApp:
 
         browse = self.action_button(controls, "BROWSE", browse_target)
         browse.grid(row=1, column=2, sticky="e", padx=(0, 12), pady=(0, 10))
+        folder_line = tk.Label(
+            controls,
+            text="Put files in the open case, then press Browse. Case Files on the desktop opens that folder.",
+            bg=CARD, fg=MUTED, wraplength=820, justify="left", font=("Sans", 9),
+        )
+        folder_line.grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+        self.action_button(controls, "OPEN FOLDER", open_case_folder).grid(
+            row=2, column=2, sticky="e", padx=(0, 12), pady=(0, 8)
+        )
 
         def selected_spec():
             name = tool.get().removesuffix(" (not installed)")
@@ -3014,7 +3069,7 @@ class TraceOSApp:
             variable=authorized,
             bg=CARD, fg=WARN, activebackground=CARD, activeforeground=WARN,
             selectcolor=BG2, font=("Sans", 9, "bold"),
-        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 10))
 
         bar = tk.Frame(self.content, bg=BG)
         bar.pack(fill="x", padx=28, pady=(0, 8))
