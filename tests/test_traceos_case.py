@@ -1089,6 +1089,7 @@ class CaseStoreTests(unittest.TestCase):
         private_files = (
             record.path / "case.json",
             record.path / "CASE.md",
+            record.path / "WHERE-FILES-GO.txt",
             record.path / "hashes" / "evidence.tsv",
             self.store.state_path,
         )
