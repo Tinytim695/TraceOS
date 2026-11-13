@@ -42,11 +42,11 @@ jobs:
 
       - name: Python compile check
         run: |
-          python3 -m py_compile config/includes.chroot/usr/local/bin/traceos config/includes.chroot/usr/local/bin/traceos_case.py config/includes.chroot/usr/local/bin/traceos-control config/includes.chroot/usr/local/bin/traceos-shade
+          python3 -m py_compile config/includes.chroot/usr/local/bin/traceos config/includes.chroot/usr/local/bin/traceos_case.py config/includes.chroot/usr/local/bin/traceos-control config/includes.chroot/usr/local/bin/traceos-shade config/includes.chroot/usr/local/lib/traceos/cyberlab.py
 
       - name: Bandit
         run: |
-          bandit -q -lll -iii config/includes.chroot/usr/local/bin/traceos config/includes.chroot/usr/local/bin/traceos_case.py config/includes.chroot/usr/local/bin/traceos-control config/includes.chroot/usr/local/bin/traceos-shade
+          bandit -q -lll -iii config/includes.chroot/usr/local/bin/traceos config/includes.chroot/usr/local/bin/traceos_case.py config/includes.chroot/usr/local/bin/traceos-control config/includes.chroot/usr/local/bin/traceos-shade config/includes.chroot/usr/local/lib/traceos/cyberlab.py
 
       - name: Secret pattern scan
         shell: bash
