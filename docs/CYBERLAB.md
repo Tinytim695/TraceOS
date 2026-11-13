@@ -1,6 +1,6 @@
 # TraceOS CyberLab
 
-Status: **foundation implementation in progress**  
+Status: **foundation implementation in progress**
 Scope: dual-mode laboratory for TraceOS Live USB and installed deployments.
 
 ## Goals
