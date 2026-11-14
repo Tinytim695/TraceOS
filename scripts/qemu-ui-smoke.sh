@@ -462,7 +462,7 @@ pixel_diff_count() {
     local metric="$1"
     metric="${metric%% *}"
     [[ "$metric" =~ ^[0-9]+$ ]] || return 1
-    printf '%s\\n' "$metric"
+    printf '%s\n' "$metric"
 }
 
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
