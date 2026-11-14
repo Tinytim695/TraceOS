@@ -456,6 +456,15 @@ popup_region_diff_passes() {
     [[ "$changed_pixels" =~ ^[0-9]+$ ]] && (( changed_pixels > 20000 ))
 }
 
+# ImageMagick compare -metric AE may emit a count followed by a normalized
+# fraction, e.g. "386324 (0.465765)". Keep only the integer pixel count.
+pixel_diff_count() {
+    local metric="$1"
+    metric="${metric%% *}"
+    [[ "$metric" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\\n' "$metric"
+}
+
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
     matching="case_id=${test_case_id} id_prefix=01234567"
@@ -500,6 +509,12 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     # Regression guard: a visible popup at 24,991 changed pixels was rejected
     # by the old 25,000 threshold even though the crop showed the menu.
     popup_region_diff_passes 24991
+    [[ "$(pixel_diff_count '386324 (0.465765)')" == "386324" ]]
+    [[ "$(pixel_diff_count '5123')" == "5123" ]]
+    if pixel_diff_count 'not-a-number' >/dev/null; then
+        echo "[TraceOS] Pixel-diff parser accepted a non-numeric metric." >&2
+        exit 1
+    fi
     if popup_region_diff_passes 20000; then
         echo "[TraceOS] Popup fixture accepted the exact threshold boundary." >&2
         exit 1
@@ -712,6 +727,7 @@ capture_workspace_page() {
         identify "$png"
         test -s "$png"
         page_pixel_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$png" null: 2>&1 || true)"
+        page_pixel_diff="$(pixel_diff_count "$page_pixel_diff" || true)"
         spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
         if [[ "$allow_same" == "yes" ]] && awk "BEGIN { exit !($spread > 0.02) }"; then
             break
