@@ -27,6 +27,7 @@ if TRACEOS_LIB not in sys.path:
 from actions import ActionResult, ActionRunner, CONFIRMED
 from investigation import create_basic_lookup_request, get_adapter
 from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
+from cyberlab import detect_host_capabilities, format_capability_report
 
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
@@ -745,6 +746,7 @@ class TraceOSApp:
             "timeline": self.timeline,
             "tools": self.tools_home,
             "doctor": self.doctor_page,
+            "cyberlab": self.cyberlab_page,
         }
         pages.get(start_page, self.dashboard)()
         if self._screenshot_guest():
@@ -1158,6 +1160,7 @@ class TraceOSApp:
             ("Credentials", self.credentials),
             ("Engagement", self.engagement),
             ("Defence", self.defence),
+            ("CyberLab", self.cyberlab_page),
             ("Image OSINT", self.image_osint),
             ("Reports", self.reports),
             ("Timeline", self.timeline),
@@ -3609,6 +3612,30 @@ class TraceOSApp:
         bar.pack(fill="x", padx=28, pady=(0, 14))
         self.action_button(bar, "REFRESH", self.timeline, primary=True).pack(side="right")
 
+    def cyberlab_page(self) -> None:
+        self.activate_nav("CyberLab")
+        self.heading(
+            "Isolated research", "CyberLab",
+            "Portable and installed laboratory readiness. This first foundation is read-only."
+        )
+        panel = self.card(self.content, padx=28, pady=10, expand=True)
+        output = self.set_output(panel, height=22)
+        try:
+            report = detect_host_capabilities()
+            self.set_text(output, format_capability_report(report))
+        except Exception as exc:
+            self.set_text(
+                output,
+                "CyberLab host assessment failed safely.\n"
+                f"Error: {type(exc).__name__}: {exc}\n\n"
+                "No VM was started and no host networking was changed."
+            )
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 14))
+        self.action_button(
+            bar, "RECHECK HOST", self.cyberlab_page, primary=True
+        ).pack(side="right")
+
     def doctor_page(self) -> None:
         self.activate_nav("Settings")
         self.heading(
@@ -3634,6 +3661,7 @@ if __name__ == "__main__":
         "--defence": "defence",
         "--images": "images",
         "--assessment": "assessment",
+        "--cyberlab": "cyberlab",
     }
     start_page = "dashboard"
     for flag, page in start_flags.items():

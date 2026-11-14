@@ -10,9 +10,12 @@ import time
 from pathlib import Path
 
 SERIAL = "/dev/ttyS0"
+FW_CFG_ROOT = Path("/sys/firmware/qemu_fw_cfg")
+FW_CFG_BY_KEY = FW_CFG_ROOT / "by_key"
 MARK = Path("/sys/firmware/qemu_fw_cfg/by_name/opt/traceos/ui-image-e2e/raw")
 FIXTURE = Path("/home/traceos/traceosimage.png")
 PAYLOAD = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
 
 def emit(value: str) -> None:
     print(value, flush=True)
@@ -25,21 +28,109 @@ def emit(value: str) -> None:
     except OSError:
         pass
 
-def main() -> int:
-    if subprocess.run(["systemd-detect-virt", "--quiet", "--vm"], check=False).returncode != 0:
-        return 0
-    emit("TRACEOS_IMAGE_E2E_PREFLIGHT=1")
-    for _ in range(90):
-        if MARK.is_file():
-            break
-        time.sleep(1)
+
+def fw_cfg_entry_names() -> list[str]:
+    """Return visible fw_cfg names for diagnostics without reading blob data."""
+    names: list[str] = []
+    try:
+        entries = sorted(FW_CFG_BY_KEY.iterdir())
+    except OSError:
+        return names
+    for entry in entries:
+        try:
+            name = (entry / "name").read_text(
+                encoding="utf-8", errors="replace"
+            ).strip()
+        except OSError:
+            continue
+        if name:
+            names.append(name)
+    return names
+
+
+def ensure_fw_cfg_marker() -> bool:
+    """Load the optional fw_cfg sysfs driver, then verify the explicit QEMU marker."""
+    if MARK.exists():
+        return True
+
+    try:
+        result = subprocess.run(
+            ["modprobe", "qemu_fw_cfg"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+            shell=False,
+        )
+        emit(
+            "TRACEOS_IMAGE_E2E_FW_CFG_MODPROBE="
+            f"exit:{result.returncode}"
+        )
+        if result.stderr.strip():
+            emit(
+                "TRACEOS_IMAGE_E2E_FW_CFG_MODPROBE_STDERR="
+                + result.stderr.strip().replace("\n", " ")[:400]
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        emit(
+            "TRACEOS_IMAGE_E2E_FW_CFG_MODPROBE="
+            f"error:{type(exc).__name__}"
+        )
+
+    # A built-in driver or a successful module load should expose the entry
+    # immediately. Allow a short enumeration window, then report the actual
+    # sysfs state instead of silently waiting 90 seconds.
+    for _ in range(20):
+        if MARK.exists():
+            return True
+        time.sleep(0.5)
+
+    emit(
+        "TRACEOS_IMAGE_E2E_FW_CFG_SYSFS="
+        + ("present" if FW_CFG_ROOT.exists() else "missing")
+    )
+    emit(
+        "TRACEOS_IMAGE_E2E_FW_CFG_MARKER="
+        + ("present" if MARK.exists() else "missing")
+    )
+    names = fw_cfg_entry_names()
+    if names:
+        emit(
+            "TRACEOS_IMAGE_E2E_FW_CFG_ENTRIES="
+            + "|".join(names[:30])
+        )
     else:
-        emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=missing")
+        emit("TRACEOS_IMAGE_E2E_FW_CFG_ENTRIES=none")
+    return MARK.exists()
+
+
+def main() -> int:
+    if subprocess.run(
+        ["systemd-detect-virt", "--quiet", "--vm"],
+        check=False,
+    ).returncode != 0:
         return 0
-    marker = MARK.read_text(encoding="utf-8", errors="replace").strip()
+
+    emit("TRACEOS_IMAGE_E2E_PREFLIGHT=1")
+
+    if not ensure_fw_cfg_marker():
+        emit("TRACEOS_IMAGE_E2E_FIXTURE_READY=0 reason=fw_cfg_marker_missing")
+        return 0
+
+    try:
+        marker = MARK.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError as exc:
+        emit(
+            "TRACEOS_IMAGE_E2E_FW_CFG_MARKER_READ="
+            f"error:{type(exc).__name__}"
+        )
+        return 0
+
     if marker != "1":
         emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=invalid")
         return 0
+
     account = None
     for _ in range(60):
         try:
@@ -50,12 +141,14 @@ def main() -> int:
     if account is None:
         emit("TRACEOS_IMAGE_E2E_FIXTURE_OWNER=missing")
         return 0
+
     data = base64.b64decode(PAYLOAD)
     digest = hashlib.sha256(data).hexdigest()
     FIXTURE.write_bytes(data)
     os.chown(FIXTURE, account.pw_uid, account.pw_gid)
     os.chmod(FIXTURE, 0o600)
     emit("TRACEOS_IMAGE_E2E_FW_CFG_MARKER=valid")
+
     # The sysfs marker is not readable by the desktop user. Leave a stamp the
     # Control Centre can see so the screenshot test can grab the keyboard.
     stamp = Path("/run/traceos-ui-e2e")
@@ -67,6 +160,7 @@ def main() -> int:
         f"sha256={digest} size={len(data)}"
     )
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

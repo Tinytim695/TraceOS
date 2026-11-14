@@ -27,6 +27,8 @@ REQUIRED_FILES=(
     config/includes.chroot/usr/share/traceos/projectdiscovery-tools.txt
     config/includes.chroot/usr/share/traceos/web-assessment-tools.txt
     config/includes.chroot/usr/local/bin/traceos_case.py
+    config/includes.chroot/usr/local/lib/traceos/cyberlab.py
+    tests/test_cyberlab.py
     config/includes.chroot/usr/local/bin/traceos-launcher
     config/includes.chroot/usr/local/bin/traceos-desktop-setup
     config/includes.chroot/usr/share/applications/traceos-launcher.desktop
@@ -97,6 +99,9 @@ bash -n scripts/qemu-ui-smoke.sh
 PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/traceos-pycache" \
     python3 -m py_compile config/includes.chroot/usr/local/bin/traceos
 python3 scripts/test-grub-config-validator.py
+PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/traceos-pycache" \
+    python3 -m py_compile config/includes.chroot/usr/local/lib/traceos/cyberlab.py
+python3 -m unittest discover -s tests -p 'test_cyberlab.py' -v
 
 echo "[TraceOS] Manifest contract checks"
 python3 - <<'PY'
