@@ -177,6 +177,10 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
         fixture=(INCLUDES/"usr/local/sbin/traceos-qemu-image-e2e-fixture").read_text(encoding="utf-8")
         self.assertIn('pwd.getpwnam("traceos")', fixture)
         self.assertIn("for _ in range(60):", fixture)
+        self.assertIn('["modprobe", "qemu_fw_cfg"]', fixture)
+        self.assertIn("FW_CFG_BY_KEY", fixture)
+        self.assertIn("MARK.exists()", fixture)
+        self.assertIn("TRACEOS_IMAGE_E2E_FW_CFG_ENTRIES", fixture)
 
     def test_tor_browser_hook_does_not_stop_on_a_removed_release(self):
         hook=(ROOT/"config/hooks/live/0365-traceos-browsers.hook.chroot").read_text(encoding="utf-8")
