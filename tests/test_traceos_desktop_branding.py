@@ -367,8 +367,9 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
 
     def test_native_gtk_capture_compares_central_window_area_not_menu_disappearance(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
-        self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
-        self.assertIn('compare -metric AE "$native_gtk_desktop_crop" "$native_gtk_candidate_crop"',qemu)
+        self.assertIn('compare_pixel_count "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"',qemu)
+        self.assertIn('compare_pixel_count "$native_gtk_desktop_crop" "$native_gtk_candidate_crop"',qemu)
+        self.assertIn("compare_pixel_count() {",qemu)
         self.assertIn("native_gtk_diff > 40000 && native_gtk_desktop_diff > 40000",qemu)
         self.assertIn("Default Applications dialog",qemu)
         self.assertNotIn("exo-preferred-applications",qemu)
@@ -391,7 +392,7 @@ class TraceOSDesktopBrandingTests(unittest.TestCase):
     def test_native_gtk_final_frame_is_compared_against_the_visible_appfinder(self):
         qemu=(ROOT/"scripts/qemu-ui-smoke.sh").read_text(encoding="utf-8")
         self.assertIn('convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_baseline_crop"', qemu)
-        self.assertIn('compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"', qemu)
+        self.assertIn('compare_pixel_count "$native_gtk_baseline_crop" "$native_gtk_candidate_crop"', qemu)
         self.assertIn("Native GTK replacement probe", qemu)
 
     def test_build_validates_final_squashfs_wallpaper_dimensions_and_hash(self):
