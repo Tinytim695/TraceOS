@@ -75,6 +75,8 @@ class CyberLabIsolationTests(unittest.TestCase):
             "nat_enabled",
             "bridged_network",
             "host_port_forwarding",
+            "host_route",
+            "dns_forwarding",
             "shared_host_paths",
             "clipboard_sharing",
             "usb_passthrough",
@@ -128,6 +130,19 @@ class CyberLabIsolationTests(unittest.TestCase):
         result = cyberlab.evaluate_isolation(policy)
         self.assertFalse(result.allowed)
         self.assertIn("External uplink is prohibited.", result.findings)
+
+    def test_snapshot_requirement_cannot_be_disabled(self):
+        result = cyberlab.evaluate_isolation(
+            cyberlab.LabIsolationPolicy(
+                snapshot_required=False,
+                snapshot_present=True,
+            )
+        )
+        self.assertFalse(result.allowed)
+        self.assertIn(
+            "The clean rollback snapshot requirement cannot be disabled.",
+            result.findings,
+        )
 
     def test_network_free_policy_cannot_reference_a_network(self):
         policy = cyberlab.LabIsolationPolicy(
