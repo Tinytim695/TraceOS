@@ -76,6 +76,8 @@ class LabIsolationPolicy:
     nat_enabled: bool = False
     bridged_network: bool = False
     host_port_forwarding: bool = False
+    host_route: bool = False
+    dns_forwarding: bool = False
     shared_host_paths: bool = False
     clipboard_sharing: bool = False
     usb_passthrough: bool = False
@@ -152,6 +154,10 @@ def evaluate_isolation(policy: LabIsolationPolicy) -> IsolationAssessment:
         findings.append("Bridged networking is prohibited.")
     if policy.host_port_forwarding:
         findings.append("Host port forwarding is prohibited.")
+    if policy.host_route:
+        findings.append("Routes from the lab to the host or host LAN are prohibited.")
+    if policy.dns_forwarding:
+        findings.append("DNS forwarding outside the private lab is prohibited.")
     if policy.shared_host_paths:
         findings.append("Shared host folders are prohibited.")
     if policy.clipboard_sharing:
@@ -160,7 +166,9 @@ def evaluate_isolation(policy: LabIsolationPolicy) -> IsolationAssessment:
         findings.append("USB passthrough is prohibited.")
     if policy.host_device_passthrough:
         findings.append("Host device passthrough is prohibited.")
-    if policy.snapshot_required and not policy.snapshot_present:
+    if not policy.snapshot_required:
+        findings.append("The clean rollback snapshot requirement cannot be disabled.")
+    elif not policy.snapshot_present:
         findings.append("A clean rollback snapshot is required before launch.")
 
     if policy.network_mode == "none":
