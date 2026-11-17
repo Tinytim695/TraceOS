@@ -183,6 +183,146 @@ class CyberLabPresentationTests(unittest.TestCase):
         self.assertIn('("CyberLab", self.cyberlab_page)', source)
         self.assertIn('"cyberlab": self.cyberlab_page', source)
         self.assertIn("def cyberlab_page(self)", source)
+        page = source.split("def cyberlab_page(self)", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("inspect_storage()", page)
+        self.assertNotIn("prepare_storage(", page)
+        self.assertNotIn("import_local_clone(", page)
+        self.assertNotIn("serve_clone_loopback(", page)
+        self.assertIn('"PREPARE STORAGE"', source)
+        self.assertIn('"IMPORT WEBSITE"', source)
+        self.assertIn('"IMPORT APP"', source)
+
+
+class CyberLabOfflineCloneTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = __import__("tempfile").TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.storage = self.root / "lab"
+        self.source = self.root / "site"
+        self.source.mkdir()
+        (self.source / "index.html").write_text("<h1>offline</h1>\n", encoding="utf-8")
+        nested = self.source / "assets"
+        nested.mkdir()
+        (nested / "app.js").write_text("console.log('local');\n", encoding="utf-8")
+
+    def test_storage_inspection_does_not_create_directories(self):
+        status = cyberlab.inspect_storage(self.storage)
+        self.assertFalse(status.prepared)
+        self.assertFalse(self.storage.exists())
+        self.assertIn("has not been prepared", status.findings[0])
+
+    def test_prepare_storage_is_private_and_rejects_system_roots(self):
+        status = cyberlab.prepare_storage(self.storage)
+        self.assertTrue(status.prepared)
+        self.assertEqual(status.sandbox_count, 0)
+        for name in ("golden", "overlays", "evidence", "sandboxes"):
+            child = self.storage / name
+            self.assertTrue(child.is_dir())
+            self.assertEqual(child.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.storage.stat().st_mode & 0o777, 0o700)
+        with self.assertRaises(cyberlab.CyberLabError):
+            cyberlab.prepare_storage(Path("/tmp"))
+
+    def test_local_website_clone_never_needs_a_network(self):
+        cyberlab.prepare_storage(self.storage)
+        manifest = cyberlab.import_local_clone(
+            self.source,
+            kind="website",
+            name="demo-shop",
+            origin_label="https://shop.example/admin",
+            storage_path=self.storage,
+        )
+        self.assertEqual(manifest.kind, "website")
+        self.assertEqual(manifest.name, "demo-shop")
+        self.assertEqual(manifest.file_count, 2)
+        self.assertEqual(manifest.bind_host, "127.0.0.1")
+        self.assertEqual(manifest.execution, "stored_only")
+        copied = Path(manifest.path) / "content" / "index.html"
+        self.assertEqual(copied.read_text(encoding="utf-8"), "<h1>offline</h1>\n")
+        self.assertEqual(copied.stat().st_mode & 0o777, 0o600)
+        inventory = cyberlab.list_sandboxes(self.storage)
+        self.assertEqual(len(inventory.manifests), 1)
+        report = cyberlab.format_sandbox_report(
+            cyberlab.inspect_storage(self.storage), inventory
+        )
+        self.assertIn("URLs are not fetched", report)
+        self.assertIn("served=no", report)
+        self.assertIn(manifest.sandbox_id, report)
+
+    def test_symlink_clone_is_rejected_without_leaving_a_sandbox(self):
+        cyberlab.prepare_storage(self.storage)
+        outside = self.root / "secret.txt"
+        outside.write_text("secret", encoding="utf-8")
+        (self.source / "leak").symlink_to(outside)
+        with self.assertRaises(cyberlab.CyberLabError):
+            cyberlab.import_local_clone(
+                self.source,
+                kind="app",
+                name="app",
+                storage_path=self.storage,
+            )
+        self.assertEqual(list((self.storage / "sandboxes").iterdir()), [])
+
+    def test_origin_and_non_loopback_targets_are_rejected(self):
+        cyberlab.prepare_storage(self.storage)
+        manifest = cyberlab.import_local_clone(
+            self.source,
+            kind="app",
+            name="app",
+            origin_label="https://shop.example/login",
+            storage_path=self.storage,
+        )
+        allowed = cyberlab.evaluate_test_target(manifest, "127.0.0.1")
+        self.assertTrue(allowed.allowed)
+        self.assertTrue(cyberlab.evaluate_test_target(manifest, "localhost").allowed)
+        for host in ("shop.example", "www.shop.example", "8.8.8.8", "0.0.0.0", ""):
+            with self.subTest(host=host):
+                self.assertFalse(cyberlab.evaluate_test_target(manifest, host).allowed)
+        with self.assertRaises(cyberlab.CyberLabError):
+            cyberlab.assert_loopback_bind("0.0.0.0")
+
+    def test_loopback_server_serves_the_clone_only(self):
+        cyberlab.prepare_storage(self.storage)
+        manifest = cyberlab.import_local_clone(
+            self.source,
+            kind="website",
+            name="site",
+            origin_label="https://shop.example",
+            storage_path=self.storage,
+        )
+        server = cyberlab.serve_clone_loopback(manifest)
+        self.addCleanup(server.close)
+        self.assertTrue(server.url.startswith("http://127.0.0.1:"))
+        self.assertEqual(server.httpd.socket.getsockname()[0], "127.0.0.1")
+        import time
+        import urllib.error
+        import urllib.request
+
+        deadline = time.time() + 2
+        body = b""
+        last_error: Exception | None = None
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(server.url + "index.html", timeout=1) as response:
+                    body = response.read()
+                    self.assertEqual(response.headers["X-TraceOS-Sandbox"], manifest.sandbox_id)
+                break
+            except (OSError, urllib.error.URLError) as exc:
+                last_error = exc
+                time.sleep(0.05)
+        else:
+            raise AssertionError(last_error)
+        self.assertEqual(body, b"<h1>offline</h1>\n")
+        import http.client
+
+        port = int(server.httpd.server_address[1])
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+        connection.request("GET", "/../secret")
+        denied = connection.getresponse()
+        denied.read()
+        self.assertEqual(denied.status, 400)
+        connection.close()
 
 
 if __name__ == "__main__":

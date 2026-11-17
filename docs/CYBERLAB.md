@@ -63,21 +63,24 @@ Do not place malware samples or guest-controlled files directly in the host evid
 
 ## Current foundation implementation
 
-The first code slice provides:
+The current code provides:
 
 - Read-only host detection for architecture, CPU count, memory, storage, live/installed mode, QEMU and KVM.
 - Conservative hardware tier estimates.
 - A declarative isolation policy validator.
-- A safe -nic none QEMU argument helper.
-- A Control Centre CyberLab status page.
-- Unit tests for resource parsing, isolation policy and UI registration.
+- A safe `-nic none` QEMU argument helper.
+- Private storage-root preparation (`0700`) with separate golden, overlay, evidence and sandbox directories.
+- Import of a local website or application folder into an offline sandbox.
+- A test-target gate that allows only loopback and rejects the recorded origin.
+- An explicit loopback file server (`127.0.0.1` only) that is not started by the Control Centre page.
+- A Control Centre CyberLab status page. Rendering the page does not prepare storage, import a clone, serve files, or start a VM.
 
-It does **not** create or start VMs, configure virtual networks, install QEMU, run proof-of-concept code, import malware or perform active network operations.
+Clone import copies files the operator already has on disk. It does not crawl, resolve DNS, or fetch a URL. Imported trees are stored and are not executed. A recorded origin label exists only so later tests can be refused if they would contact that host.
 
 ## Delivery sequence
 
 1. Host capability detection and read-only Control Centre page.
-2. Storage-root selection and safe permissions.
+2. Storage-root selection, safe permissions, and offline local clone import.
 3. QEMU backend with no-network single-VM launch.
 4. Disposable overlays, snapshots and rollback.
 5. Private internal-only network backend, with host route/NAT/bridge escape tests.
