@@ -37,14 +37,18 @@ def load_module():
     messagebox_stub.showerror = lambda *args, **kwargs: None
     messagebox_stub.showinfo = lambda *args, **kwargs: None
     messagebox_stub.showwarning = lambda *args, **kwargs: None
+    simpledialog_stub = types.SimpleNamespace()
+    simpledialog_stub.askstring = lambda *args, **kwargs: ""
     ttk_stub = types.SimpleNamespace()
     tk_stub.filedialog = filedialog_stub
     tk_stub.messagebox = messagebox_stub
+    tk_stub.simpledialog = simpledialog_stub
     tk_stub.ttk = ttk_stub
     for name, value in (
         ("tkinter", tk_stub),
         ("tkinter.filedialog", filedialog_stub),
         ("tkinter.messagebox", messagebox_stub),
+        ("tkinter.simpledialog", simpledialog_stub),
         ("tkinter.ttk", ttk_stub),
     ):
         sys.modules[name] = value
