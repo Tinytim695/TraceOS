@@ -456,6 +456,25 @@ popup_region_diff_passes() {
     [[ "$changed_pixels" =~ ^[0-9]+$ ]] && (( changed_pixels > 20000 ))
 }
 
+# ImageMagick compare -metric AE may emit a count followed by a normalized
+# fraction, e.g. "386324 (0.465765)". Keep only the integer pixel count.
+pixel_diff_count() {
+    local metric="$1"
+    metric="${metric%% *}"
+    [[ "$metric" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$metric"
+}
+
+# Keep ImageMagick's stderr metric in one normalized, validated form. compare
+# exits 1 when images differ, so its metric must be captured despite that exit.
+compare_pixel_count() {
+    local left="$1"
+    local right="$2"
+    local metric
+    metric="$(compare -metric AE "$left" "$right" null: 2>&1 || true)"
+    pixel_diff_count "$metric"
+}
+
 if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     test_case_id="01234567-89ab-cdef-0123-456789abcdef"
     matching="case_id=${test_case_id} id_prefix=01234567"
@@ -500,6 +519,13 @@ if [[ "${TRACEOS_QEMU_UI_PARSER_TEST:-0}" == "1" ]]; then
     # Regression guard: a visible popup at 24,991 changed pixels was rejected
     # by the old 25,000 threshold even though the crop showed the menu.
     popup_region_diff_passes 24991
+    [[ "$(pixel_diff_count '386324 (0.465765)')" == "386324" ]]
+    [[ "$(pixel_diff_count '55423 (0.369487)')" == "55423" ]]
+    [[ "$(pixel_diff_count '5123')" == "5123" ]]
+    if pixel_diff_count 'not-a-number' >/dev/null; then
+        echo "[TraceOS] Pixel-diff parser accepted a non-numeric metric." >&2
+        exit 1
+    fi
     if popup_region_diff_passes 20000; then
         echo "[TraceOS] Popup fixture accepted the exact threshold boundary." >&2
         exit 1
@@ -711,7 +737,7 @@ capture_workspace_page() {
         convert "$ppm" -resize 1280x720 -strip "$png"
         identify "$png"
         test -s "$png"
-        page_pixel_diff="$(compare -metric AE "$OUT/traceos-dashboard.png" "$png" null: 2>&1 || true)"
+        page_pixel_diff="$(compare_pixel_count "$OUT/traceos-dashboard.png" "$png" || true)"
         spread="$(convert "$png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
         if [[ "$allow_same" == "yes" ]] && awk "BEGIN { exit !($spread > 0.02) }"; then
             break
@@ -1145,9 +1171,9 @@ dashboard_hash="$(sha256sum "$dashboard_png" | awk '{print $1}')"
 dialog_hash="$(sha256sum "$new_case_dialog_png" 2>/dev/null | awk '{print $1}' || true)"
 filled_hash="$(sha256sum "${OUT}/traceos-new-case-filled.png" 2>/dev/null | awk '{print $1}' || true)"
 final_hash="$(sha256sum "$new_case_final_png" | awk '{print $1}')"
-pixel_diff_dashboard_final="$(compare -metric AE "$dashboard_png" "$new_case_final_png" null: 2>&1 || true)"
-pixel_diff_dialog_filled="$(compare -metric AE "$new_case_dialog_png" "${OUT}/traceos-new-case-filled.png" null: 2>&1 || true)"
-pixel_diff_filled_final="$(compare -metric AE "${OUT}/traceos-new-case-filled.png" "$new_case_final_png" null: 2>&1 || true)"
+pixel_diff_dashboard_final="$(compare_pixel_count "$dashboard_png" "$new_case_final_png" || true)"
+pixel_diff_dialog_filled="$(compare_pixel_count "$new_case_dialog_png" "${OUT}/traceos-new-case-filled.png" || true)"
+pixel_diff_filled_final="$(compare_pixel_count "${OUT}/traceos-new-case-filled.png" "$new_case_final_png" || true)"
 
 if [[ -n "$case_id" ]]; then
     header_marker="$(marker_line "NEW_CASE_HEADER_REFRESHED")"
@@ -1249,7 +1275,7 @@ launcher_dashboard_crop="$OUT/.traceos-dashboard-launcher-region.png"
 launcher_menu_crop="$OUT/.traceos-launcher-menu-region.png"
 convert "$OUT/traceos-dashboard.png" -crop 300x500+0+24 +repage "$launcher_dashboard_crop"
 convert "$launcher_menu_png" -crop 300x500+0+24 +repage "$launcher_menu_crop"
-launcher_menu_diff="$(compare -metric AE "$launcher_dashboard_crop" "$launcher_menu_crop" null: 2>&1 || true)"
+launcher_menu_diff="$(compare_pixel_count "$launcher_dashboard_crop" "$launcher_menu_crop" || true)"
 if ! popup_region_diff_passes "$launcher_menu_diff"; then
     echo "[TraceOS] Applications menu was not visibly open in the expected popup region (changed pixels: ${launcher_menu_diff:-unknown})." >&2
     exit 1
@@ -1279,7 +1305,7 @@ test -s "$desktop_home_png"
 # traceos-dashboard.png is captured immediately after the launcher transition and can
 # still show the desktop while the Control Centre window is behind it, so it is not a
 # trustworthy visible-window baseline for this assertion.
-desktop_home_diff="$(compare -metric AE "$new_case_final_png" "$desktop_home_png" null: 2>&1 || true)"
+desktop_home_diff="$(compare_pixel_count "$new_case_final_png" "$desktop_home_png" || true)"
 desktop_home_spread="$(convert "$desktop_home_png" -resize 160x90 -colorspace Gray -format "%[fx:standard_deviation]" info:)"
 if [[ ! "$desktop_home_diff" =~ ^[0-9]+$ ]] || (( desktop_home_diff <= 100000 )); then
     echo "[TraceOS] Minimizing Control Centre did not reveal a distinct desktop home screen." >&2
@@ -1356,8 +1382,7 @@ for native_gtk_wait in $(seq 1 20); do
     capture_screendump "$STATE/monitor-dashboard.sock" "$native_menu_ppm" "$STATE/monitor-native-gtk-appfinder-wait-$native_gtk_wait.log"
     convert "$native_menu_ppm" -resize "$desktop_width"x"$desktop_height"! -strip "$native_menu_png"
     convert "$native_menu_png" -crop "700x520+226+80" +repage "$native_gtk_candidate_crop"
-    native_gtk_appfinder_metric="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
-    native_gtk_appfinder_diff="${native_gtk_appfinder_metric%% *}"
+    native_gtk_appfinder_diff="$(compare_pixel_count "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" || true)"
     echo "[TraceOS] Application Finder visibility probe attempt=$native_gtk_wait changed_pixels=${native_gtk_appfinder_diff:-unknown}."
     if [[ "$native_gtk_appfinder_diff" =~ ^[0-9]+$ ]] && (( native_gtk_appfinder_diff > 40000 )); then
         native_gtk_appfinder_visible="yes"
@@ -1397,10 +1422,8 @@ for native_gtk_wait in $(seq 1 20); do
     capture_screendump "$STATE/monitor-dashboard.sock" "$native_gtk_ppm" "$STATE/monitor-native-gtk-verify-$native_gtk_wait.log"
     convert "$native_gtk_ppm" -resize "$desktop_width"x"$desktop_height"! -strip "$native_gtk_png"
     convert "$native_gtk_png" -crop "700x520+226+80" +repage "$native_gtk_candidate_crop"
-    native_gtk_metric="$(compare -metric AE "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
-    native_gtk_diff="${native_gtk_metric%% *}"
-    native_gtk_desktop_metric="$(compare -metric AE "$native_gtk_desktop_crop" "$native_gtk_candidate_crop" null: 2>&1 || true)"
-    native_gtk_desktop_diff="${native_gtk_desktop_metric%% *}"
+    native_gtk_diff="$(compare_pixel_count "$native_gtk_baseline_crop" "$native_gtk_candidate_crop" || true)"
+    native_gtk_desktop_diff="$(compare_pixel_count "$native_gtk_desktop_crop" "$native_gtk_candidate_crop" || true)"
     echo "[TraceOS] Native GTK replacement probe attempt=$native_gtk_wait finder_changed=${native_gtk_diff:-unknown} desktop_changed=${native_gtk_desktop_diff:-unknown} (both required >40000)."
     if [[ "$native_gtk_diff" =~ ^[0-9]+$ && "$native_gtk_desktop_diff" =~ ^[0-9]+$ ]] && (( native_gtk_diff > 40000 && native_gtk_desktop_diff > 40000 )); then
         native_gtk_status="yes"

@@ -17,7 +17,7 @@ import webbrowser
 import tkinter as tk
 import uuid
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from urllib.parse import urlsplit
 
 TRACEOS_LIB = "/usr/local/lib/traceos"
@@ -27,10 +27,32 @@ if TRACEOS_LIB not in sys.path:
 from actions import ActionResult, ActionRunner, CONFIRMED
 from investigation import create_basic_lookup_request, get_adapter
 from traceos_case import CaseCreatedButNotSelected, CaseError, CaseStore
+from cyberlab import (
+    CyberLabError,
+    detect_host_capabilities,
+    format_capability_report,
+    format_sandbox_report,
+    import_local_clone,
+    inspect_storage,
+    list_sandboxes,
+    prepare_storage,
+)
 
 TRACE = "/usr/local/bin/traceos"
 SESSION = "/usr/local/bin/traceos-session"
 os.environ["PATH"] = "/usr/local/sbin:/usr/sbin:/sbin:" + os.environ.get("PATH", "")
+
+
+def _cyberlab_clone_name(folder_name: str) -> str:
+    """Make a local folder name safe for a CyberLab sandbox label."""
+    cleaned = []
+    for char in folder_name.lower():
+        cleaned.append(char if char.isalnum() else "-")
+    slug = "".join(cleaned).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug[:40].strip("-")
+    return slug or "clone"
 
 BG = "#07111c"
 BG2 = "#0c1828"
@@ -745,6 +767,7 @@ class TraceOSApp:
             "timeline": self.timeline,
             "tools": self.tools_home,
             "doctor": self.doctor_page,
+            "cyberlab": self.cyberlab_page,
         }
         pages.get(start_page, self.dashboard)()
         if self._screenshot_guest():
@@ -1158,6 +1181,7 @@ class TraceOSApp:
             ("Credentials", self.credentials),
             ("Engagement", self.engagement),
             ("Defence", self.defence),
+            ("CyberLab", self.cyberlab_page),
             ("Image OSINT", self.image_osint),
             ("Reports", self.reports),
             ("Timeline", self.timeline),
@@ -3609,6 +3633,106 @@ class TraceOSApp:
         bar.pack(fill="x", padx=28, pady=(0, 14))
         self.action_button(bar, "REFRESH", self.timeline, primary=True).pack(side="right")
 
+    def cyberlab_page(self) -> None:
+        self.activate_nav("CyberLab")
+        self.heading(
+            "Isolated research", "CyberLab",
+            "Host readiness and offline clones. This page does not fetch, serve or execute anything."
+        )
+        panel = self.card(self.content, padx=28, pady=10, expand=True)
+        output = self.set_output(panel, height=28)
+        try:
+            report = detect_host_capabilities()
+            storage = inspect_storage()
+            inventory = list_sandboxes()
+            self.set_text(
+                output,
+                format_capability_report(report) + "\n\n" + format_sandbox_report(storage, inventory),
+            )
+        except Exception as exc:
+            self.set_text(
+                output,
+                "CyberLab host assessment failed safely.\n"
+                f"Error: {type(exc).__name__}: {exc}\n\n"
+                "No VM was started and no host networking was changed."
+            )
+        bar = tk.Frame(self.content, bg=BG)
+        bar.pack(fill="x", padx=28, pady=(0, 14))
+        self.action_button(
+            bar, "IMPORT APP", lambda: self._import_cyberlab_clone("app")
+        ).pack(side="right", padx=(8, 0))
+        self.action_button(
+            bar, "IMPORT WEBSITE", lambda: self._import_cyberlab_clone("website")
+        ).pack(side="right", padx=(8, 0))
+        self.action_button(
+            bar, "PREPARE STORAGE", self._prepare_cyberlab_storage
+        ).pack(side="right", padx=(8, 0))
+        self.action_button(
+            bar, "RECHECK HOST", self.cyberlab_page, primary=True
+        ).pack(side="right")
+
+    def _prepare_cyberlab_storage(self) -> None:
+        storage = inspect_storage()
+        approved = messagebox.askyesno(
+            "CyberLab",
+            "Create private CyberLab directories under\n"
+            f"{storage.path}\n\n"
+            "This does not start a VM, mount a disk, or contact the network.",
+            parent=self.root,
+        )
+        if not approved:
+            return
+        try:
+            prepare_storage()
+        except CyberLabError as exc:
+            messagebox.showerror("CyberLab", str(exc), parent=self.root)
+            return
+        self.cyberlab_page()
+
+    def _import_cyberlab_clone(self, kind: str) -> None:
+        selected = filedialog.askdirectory(
+            parent=self.root,
+            title="Choose a local website or app folder. Nothing will be downloaded.",
+        )
+        if not selected:
+            return
+        approved = messagebox.askyesno(
+            "CyberLab",
+            "Copy this local folder into an offline sandbox?\n"
+            f"{selected}\n\n"
+            "The original site will not be contacted, and nothing in the folder will be executed.",
+            parent=self.root,
+        )
+        if not approved:
+            return
+        slug = _cyberlab_clone_name(Path(selected).name)
+        origin = simpledialog.askstring(
+            "CyberLab",
+            "Optional origin label, for example https://app.example.\n"
+            "It is stored so later tests can be blocked from contacting it.\n"
+            "Leave this blank if there is no origin to record.",
+            parent=self.root,
+        )
+        if origin is None:
+            return
+        try:
+            manifest = import_local_clone(
+                selected,
+                kind=kind,
+                name=slug,
+                origin_label=origin,
+            )
+        except CyberLabError as exc:
+            messagebox.showerror("CyberLab", str(exc), parent=self.root)
+            return
+        messagebox.showinfo(
+            "CyberLab",
+            "Offline sandbox stored. It is not being served.\n"
+            f"{manifest.sandbox_id}",
+            parent=self.root,
+        )
+        self.cyberlab_page()
+
     def doctor_page(self) -> None:
         self.activate_nav("Settings")
         self.heading(
@@ -3634,6 +3758,7 @@ if __name__ == "__main__":
         "--defence": "defence",
         "--images": "images",
         "--assessment": "assessment",
+        "--cyberlab": "cyberlab",
     }
     start_page = "dashboard"
     for flag, page in start_flags.items():
