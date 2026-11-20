@@ -474,8 +474,10 @@ class ActionRunner:
                 error_class="unavailable",
             )
 
-        assert proc.stdout is not None
-        assert proc.stderr is not None
+        if proc.stdout is None:
+            raise RuntimeError("The action process did not provide a stdout pipe.")
+        if proc.stderr is None:
+            raise RuntimeError("The action process did not provide a stderr pipe.")
         stdout = _StreamCapture(proc.stdout, request.output_limit_bytes)
         stderr = _StreamCapture(proc.stderr, request.output_limit_bytes)
         stdout.start()

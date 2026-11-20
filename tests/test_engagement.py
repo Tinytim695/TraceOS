@@ -6,10 +6,13 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "config/includes.chroot/usr/local/lib/traceos"))
-from engagement import FORBIDDEN_COMMANDS, PLAYBOOKS, build_playbook, list_playbooks
+from engagement import FORBIDDEN_COMMANDS, PLAYBOOKS, assert_no_forbidden_tools, build_playbook, list_playbooks
 
 
 class EngagementPlaybookTests(unittest.TestCase):
+    def test_security_audit_uses_private_temporary_canary_paths(self):
+        assert_no_forbidden_tools()
+
     def test_every_playbook_is_listed_once(self):
         listed = [item["id"] for item in list_playbooks()]
         self.assertEqual(listed, list(PLAYBOOKS))
