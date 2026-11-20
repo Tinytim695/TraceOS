@@ -47,7 +47,7 @@ _FORBIDDEN_STORAGE_ROOTS = frozenset({
     "/lib",
     "/lib64",
     "/var",
-    "/tmp",
+    "/tmp",  # nosec B108: deliberately reject the shared temporary root as a CyberLab storage root.
     "/dev",
     "/proc",
     "/sys",

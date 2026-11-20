@@ -15,12 +15,27 @@ import ai_client
 
 
 class AiClientTests(unittest.TestCase):
-    def test_endpoint_must_be_https_without_credentials(self):
-        with self.assertRaises(ai_client.AiError):
-            ai_client.validate_https_endpoint("http://example.com/v1")
-        with self.assertRaises(ai_client.AiError):
-            ai_client.validate_https_endpoint("https://user:secret@example.com/v1")
-        self.assertEqual(ai_client.validate_https_endpoint("https://example.com/v1/"), "https://example.com/v1")
+    def test_endpoint_allows_only_http_and_https_without_credentials(self):
+        self.assertEqual(
+            ai_client.validate_https_endpoint("https://example.com/v1/"),
+            "https://example.com/v1",
+        )
+        self.assertEqual(
+            ai_client.validate_https_endpoint("http://127.0.0.1:8080/v1/"),
+            "http://127.0.0.1:8080/v1",
+        )
+        for endpoint in (
+            "file:///etc/shadow",
+            "ftp://example.com/v1",
+            "javascript:alert(1)",
+            "https://user:secret@example.com/v1",
+            "https://example.com:99999/v1",
+            "https://exa\\nmple.com/v1",
+            "https://example.com\\@evil.test/v1",
+        ):
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaises(ai_client.AiError):
+                    ai_client.validate_https_endpoint(endpoint)
 
     def test_session_store_masks_and_never_writes_a_file(self):
         store = ai_client.SessionStore()

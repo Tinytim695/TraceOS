@@ -27,18 +27,28 @@ jobs:
           sudo apt-get install -y shellcheck python3-bandit
 
       - name: ShellCheck
+        shell: bash
         run: |
-          shellcheck \
-            build.sh \
-            config/hooks/live/*.hook.chroot \
-            config/includes.chroot/usr/local/bin/traceos-control-launch \
-            config/includes.chroot/usr/local/bin/traceos-osint \
-            config/includes.chroot/usr/local/bin/traceos-session \
-            config/includes.chroot/usr/local/bin/traceos-update \
-            config/includes.chroot/usr/local/bin/traceos-session-hardening \
-            config/includes.chroot/usr/local/bin/traceos-evidence-mount \
-            config/includes.chroot/usr/local/bin/traceos-evidence-umount \
-            config/includes.chroot/usr/local/bin/blackbird
+          mapfile -d '' candidates < <(
+            find build.sh config/hooks/live \
+              config/includes.chroot/usr/local/bin \
+              config/includes.chroot/usr/local/sbin scripts \
+              -type f -print0
+          )
+          shell_files=()
+          for file in "${candidates[@]}"; do
+            IFS= read -r shebang < "$file" || true
+            case "$shebang" in
+              '#!'*bash*|'#!'*'/sh'*|'#!'*' sh'*)
+                shell_files+=("$file")
+                ;;
+            esac
+          done
+          if (("${#shell_files[@]}" == 0)); then
+            echo "No shell scripts found for ShellCheck." >&2
+            exit 1
+          fi
+          shellcheck -S error "${shell_files[@]}"
 
       - name: Python compile check
         run: |

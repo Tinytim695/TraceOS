@@ -14,7 +14,7 @@ PROVIDERS = {
     "openai": {"label": "OpenAI", "model": "gpt-4o-mini"},
     "anthropic": {"label": "Anthropic", "model": "claude-sonnet-4-5"},
     "gemini": {"label": "Google Gemini", "model": "gemini-2.5-flash"},
-    "openai-compatible": {"label": "OpenAI-compatible HTTPS", "model": ""},
+    "openai-compatible": {"label": "OpenAI-compatible HTTP(S)", "model": ""},
 }
 
 
@@ -47,12 +47,28 @@ class SessionStore:
 
 
 def validate_https_endpoint(url: str) -> str:
-    parts = urlsplit(url.strip())
-    if parts.scheme != "https" or not parts.hostname:
-        raise AiError("The endpoint must be an https URL with a hostname.")
+    """Validate a custom API URL without allowing non-network URL handlers."""
+    endpoint = url.strip()
+    if (
+        not endpoint
+        or any(ord(character) < 32 or ord(character) == 127 for character in endpoint)
+        or "\\" in endpoint
+    ):
+        raise AiError("The endpoint URL contains invalid characters.")
+    try:
+        parts = urlsplit(endpoint)
+        hostname = parts.hostname
+        # Accessing .port validates malformed and out-of-range port values.
+        parts.port
+    except ValueError:
+        raise AiError("Enter a valid HTTP or HTTPS endpoint URL.") from None
+    if parts.scheme.lower() not in {"http", "https"} or not hostname:
+        raise AiError("The endpoint must be an http or https URL with a hostname.")
+    if any(character.isspace() for character in hostname):
+        raise AiError("The endpoint hostname is invalid.")
     if parts.username or parts.password:
         raise AiError("The endpoint must not contain a username or password.")
-    return url.strip().rstrip("/")
+    return parts._replace(scheme=parts.scheme.lower(), fragment="").geturl().rstrip("/")
 
 
 def _redact(text: str, key: str) -> str:
