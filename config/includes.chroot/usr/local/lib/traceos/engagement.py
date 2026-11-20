@@ -405,12 +405,31 @@ def assert_no_forbidden_tools() -> None:
         root = Path(directory)
         rule_path = str(root / "purple-canary.yar")
         canary_path = str(root / CANARY_NAME)
-        for playbook_id in PLAYBOOKS:
+        users_path = root / "users.txt"
+        passwords_path = root / "passwords.txt"
+        users_path.write_text("audit-user\n", encoding="utf-8")
+        passwords_path.write_text("synthetic-audit-value\n", encoding="utf-8")
+        targets = {
+            "url": "https://example.test",
+            "domain": "example.test",
+            "host": "127.0.0.1",
+            "email": "audit@example.test",
+            "phone": "+15555550100",
+            "person": "traceos-audit",
+            "local": "",
+            "auth": "127.0.0.1",
+            "crack": "",
+        }
+        for playbook_id, spec in PLAYBOOKS.items():
             if playbook_id == "red-credential-audit":
                 continue
+            mode = spec["mode"]
             steps = build_playbook(
                 playbook_id,
-                "https://example.test" if PLAYBOOKS[playbook_id]["mode"] == "url" else "example.test",
+                targets.get(mode, "example.test"),
+                users_file=str(users_path) if mode in {"auth", "crack"} else "",
+                passwords_file=str(passwords_path) if mode in {"auth", "crack"} else "",
+                service="0" if mode == "crack" else "ssh",
                 rule_path=rule_path,
                 canary_path=canary_path,
             )
