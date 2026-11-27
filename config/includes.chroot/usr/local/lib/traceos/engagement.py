@@ -10,6 +10,7 @@ import ipaddress
 import os
 import shlex
 import stat
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -398,15 +399,40 @@ def build_playbook(
 
 
 def assert_no_forbidden_tools() -> None:
-    for playbook_id in PLAYBOOKS:
-        if playbook_id == "red-credential-audit":
-            continue
-        steps = build_playbook(
-            playbook_id,
-            "https://example.test" if PLAYBOOKS[playbook_id]["mode"] == "url" else "example.test",
-            rule_path="/tmp/purple-canary.yar",
-            canary_path="/tmp/purple-canary.txt",
-        )
-        for step in steps:
-            if Path(step["argv"][0]).name in FORBIDDEN_COMMANDS:
-                raise AssertionError(step["argv"][0])
+    # These are validation-only paths. Keep them inside a private temporary
+    # directory instead of advertising predictable shared /tmp filenames.
+    with tempfile.TemporaryDirectory(prefix="traceos-playbook-audit-") as directory:
+        root = Path(directory)
+        rule_path = str(root / "purple-canary.yar")
+        canary_path = str(root / CANARY_NAME)
+        users_path = root / "users.txt"
+        passwords_path = root / "passwords.txt"
+        users_path.write_text("audit-user\n", encoding="utf-8")
+        passwords_path.write_text("synthetic-audit-value\n", encoding="utf-8")
+        targets = {
+            "url": "https://example.test",
+            "domain": "example.test",
+            "host": "127.0.0.1",
+            "email": "audit@example.test",
+            "phone": "+15555550100",
+            "person": "traceos-audit",
+            "local": "",
+            "auth": "127.0.0.1",
+            "crack": "",
+        }
+        for playbook_id, spec in PLAYBOOKS.items():
+            if playbook_id == "red-credential-audit":
+                continue
+            mode = spec["mode"]
+            steps = build_playbook(
+                playbook_id,
+                targets.get(mode, "example.test"),
+                users_file=str(users_path) if mode in {"auth", "crack"} else "",
+                passwords_file=str(passwords_path) if mode in {"auth", "crack"} else "",
+                service="0" if mode == "crack" else "ssh",
+                rule_path=rule_path,
+                canary_path=canary_path,
+            )
+            for step in steps:
+                if Path(step["argv"][0]).name in FORBIDDEN_COMMANDS:
+                    raise AssertionError(step["argv"][0])

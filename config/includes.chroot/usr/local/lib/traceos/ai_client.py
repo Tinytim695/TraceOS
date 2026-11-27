@@ -1,6 +1,7 @@
 """Optional remote AI providers. Keys stay in memory or Secret Service, never on disk."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import threading
 import urllib.error
@@ -14,7 +15,7 @@ PROVIDERS = {
     "openai": {"label": "OpenAI", "model": "gpt-4o-mini"},
     "anthropic": {"label": "Anthropic", "model": "claude-sonnet-4-5"},
     "gemini": {"label": "Google Gemini", "model": "gemini-2.5-flash"},
-    "openai-compatible": {"label": "OpenAI-compatible HTTPS", "model": ""},
+    "openai-compatible": {"label": "OpenAI-compatible HTTP(S)", "model": ""},
 }
 
 
@@ -47,12 +48,44 @@ class SessionStore:
 
 
 def validate_https_endpoint(url: str) -> str:
-    parts = urlsplit(url.strip())
-    if parts.scheme != "https" or not parts.hostname:
-        raise AiError("The endpoint must be an https URL with a hostname.")
+    """Validate a custom API URL without allowing non-network URL handlers."""
+    endpoint = url.strip()
+    if (
+        not endpoint
+        or any(ord(character) < 32 or ord(character) == 127 for character in endpoint)
+        or "\\" in endpoint
+    ):
+        raise AiError("The endpoint URL contains invalid characters.")
+    try:
+        parts = urlsplit(endpoint)
+        hostname = parts.hostname
+        # Accessing .port validates malformed and out-of-range port values.
+        parts.port
+    except ValueError:
+        raise AiError("Enter a valid HTTP or HTTPS endpoint URL.") from None
+    scheme = parts.scheme.lower()
+    if scheme not in {"http", "https"} or not hostname:
+        raise AiError("The endpoint must be an http or https URL with a hostname.")
+    if any(character.isspace() for character in hostname):
+        raise AiError("The endpoint hostname is invalid.")
     if parts.username or parts.password:
         raise AiError("The endpoint must not contain a username or password.")
-    return url.strip().rstrip("/")
+    if scheme == "http":
+        # Cleartext API keys are acceptable only on the local machine.
+        try:
+            loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            loopback = hostname.lower().rstrip(".") == "localhost" or hostname.lower().endswith(".localhost")
+        if not loopback:
+            raise AiError("HTTP is only allowed for loopback endpoints. Use HTTPS for remote hosts.")
+    return parts._replace(scheme=scheme, fragment="").geturl().rstrip("/")
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Do not let a provider redirect a validated request to file:// or another scheme."""
+
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
 
 
 def _redact(text: str, key: str) -> str:
@@ -65,7 +98,8 @@ def _request(url: str, payload: dict, headers: dict, key: str, timeout: int = 30
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+        with opener.open(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")[:300]

@@ -15,12 +15,46 @@ import ai_client
 
 
 class AiClientTests(unittest.TestCase):
-    def test_endpoint_must_be_https_without_credentials(self):
-        with self.assertRaises(ai_client.AiError):
-            ai_client.validate_https_endpoint("http://example.com/v1")
-        with self.assertRaises(ai_client.AiError):
-            ai_client.validate_https_endpoint("https://user:secret@example.com/v1")
-        self.assertEqual(ai_client.validate_https_endpoint("https://example.com/v1/"), "https://example.com/v1")
+    def test_endpoint_allows_only_http_and_https_without_credentials(self):
+        self.assertEqual(
+            ai_client.validate_https_endpoint("https://example.com/v1/"),
+            "https://example.com/v1",
+        )
+        self.assertEqual(
+            ai_client.validate_https_endpoint("http://127.0.0.1:8080/v1/"),
+            "http://127.0.0.1:8080/v1",
+        )
+        self.assertEqual(
+            ai_client.validate_https_endpoint("http://localhost:8080/v1"),
+            "http://localhost:8080/v1",
+        )
+        for endpoint in (
+            "http://example.com/v1",
+            "file:///etc/shadow",
+            "ftp://example.com/v1",
+            "javascript:alert(1)",
+            "https://user:secret@example.com/v1",
+            "https://example.com:99999/v1",
+            "https://exa\\nmple.com/v1",
+            "https://example.com\\@evil.test/v1",
+        ):
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaises(ai_client.AiError):
+                    ai_client.validate_https_endpoint(endpoint)
+
+    def test_redirect_handler_refuses_provider_redirects(self):
+        handler = ai_client._NoRedirectHandler()
+        request = ai_client.urllib.request.Request("https://provider.example/v1")
+        self.assertIsNone(
+            handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                {},
+                "file:///etc/shadow",
+            )
+        )
 
     def test_session_store_masks_and_never_writes_a_file(self):
         store = ai_client.SessionStore()
@@ -38,7 +72,11 @@ class AiClientTests(unittest.TestCase):
         def fail(*_args, **_kwargs):
             raise ai_client.urllib.error.URLError(secret)
 
-        with mock.patch.object(ai_client.urllib.request, "urlopen", fail):
+        class FailingOpener:
+            def open(self, *_args, **_kwargs):
+                fail()
+
+        with mock.patch.object(ai_client.urllib.request, "build_opener", return_value=FailingOpener()):
             with self.assertRaises(ai_client.AiError) as caught:
                 ai_client.complete("openai", "gpt-4o-mini", secret, "hello")
         self.assertNotIn(secret, str(caught.exception))
@@ -66,7 +104,11 @@ class AiClientTests(unittest.TestCase):
             seen["auth"] = request.get_header("Authorization")
             return Response()
 
-        with mock.patch.object(ai_client.urllib.request, "urlopen", opener):
+        class FakeOpener:
+            def open(self, request, timeout=0):
+                return opener(request, timeout)
+
+        with mock.patch.object(ai_client.urllib.request, "build_opener", return_value=FakeOpener()):
             self.assertEqual(ai_client.complete("openai", "gpt-4o-mini", "sk-test", "ping", timeout=5), "pong")
         self.assertEqual(seen["url"], "https://api.openai.com/v1/chat/completions")
         self.assertEqual(seen["timeout"], 5)
